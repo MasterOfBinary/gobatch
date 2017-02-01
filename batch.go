@@ -17,25 +17,19 @@ type batchImpl struct {
 	readConcurrency uint64
 
 	running        bool
-	doneReaders    bool
-	doneProcessors bool
 
 	src  source.Source
 	proc processor.Processor
 
 	items chan interface{}
 	errs  chan error
-	done  <-chan struct{}
+	done  chan struct{}
 
 	setupOnce sync.Once
 	mu        sync.Mutex
 }
 
 func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Processor) <-chan error {
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-	defer cancel()
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -47,6 +41,7 @@ func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Process
 	b.running = true
 	b.items = make(chan interface{})
 	b.errs = make(chan error)
+	b.done = make(chan struct{})
 	b.src = s
 	b.proc = p
 
@@ -56,32 +51,50 @@ func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Process
 	return b.errs
 }
 
+func (b *batchImpl) Done() <-chan struct{} {
+    b.mu.Lock()
+	defer b.mu.Unlock()
+    return b.done
+}
+
 func (b *batchImpl) doReaders(ctx context.Context) {
-	var wg sync.WaitGroup
-	for i := 0; i < b.readConcurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			read(ctx)
-		}()
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+	defer cancel()
+	
+    if readConcurrency > 0 {
+		var wg sync.WaitGroup
+		for i := 0; i < b.readConcurrency; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				read(ctx)
+			}()
+		}
+		wg.Wait()
+	} else {
+		err := errors.New("Read concurrency is 0")
+		b.errs <- err
 	}
-	wg.Wait()
 
 	b.mu.Lock()
-	b.doneReaders = true
+	close(b.items)
+	close(b.errs)
 	b.mu.Unlock()
-
-	b.complete()
 }
 
 func (b *batchImpl) doProcessors(ctx context.Context) {
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+	defer cancel()
+	
 	// ...
 
+	// Once processors are complete, everything is
 	b.mu.Lock()
-	b.doneProcessors = true
+	b.running = false
+	close(b.done)
 	b.mu.Unlock()
-
-	b.complete()
 }
 
 func (b *batchImpl) read(ctx context.Context) {
@@ -105,7 +118,8 @@ func (b *batchImpl) read(ctx context.Context) {
 			}
 		case err, ok := <-errs:
 			if ok {
-				b.errs <- newSourceError(err)
+			    wrappedErr := newSourceError(err)
+				b.errs <- wrappedErr
 			} else {
 				errsClosed = true
 			}
@@ -114,19 +128,4 @@ func (b *batchImpl) read(ctx context.Context) {
 			break
 		}
 	}
-}
-
-func (b *batchImpl) complete() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if !b.doneReaders || !b.doneProcessors {
-		return
-	}
-
-	close(b.done)
-	close(b.items)
-	close(b.errs)
-
-	b.running = false
 }

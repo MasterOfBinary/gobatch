@@ -2,7 +2,7 @@ package gobatch
 
 import "errors"
 
-var ErrConcurrentGoCalls = errors.New("Concurrent calls to Go are not allowed")
+var ErrConcurrentGoCalls = errors.New("Concurrent calls to Batch.Go are not allowed")
 
 type ProcessorError struct {
 	err error
