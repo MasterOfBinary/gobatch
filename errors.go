@@ -1,5 +1,9 @@
 package gobatch
 
+import "errors"
+
+var ErrConcurrentGoCalls = errors.New("Concurrent calls to Go are not allowed")
+
 type ProcessorError struct {
 	err error
 }
@@ -14,6 +18,12 @@ func (e ProcessorError) Original() error {
 
 type SourceError struct {
 	err error
+}
+
+func newSourceError(err error) {
+	return &SourceError{
+		err: err,
+	}
 }
 
 func (e SourceError) Error() string {

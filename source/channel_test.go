@@ -15,65 +15,38 @@ func TestChannelSource_Read(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	t.Run("read", func(t *testing.T) {
-		var wg sync.WaitGroup
+	var wg sync.WaitGroup
+	defer wg.Wait()
 
-		ch := make(chan interface{}, size)
-		defer close(ch)
+	itemsIn := make(chan interface{}, size)
+	itemsOut := make(chan interface{})
+	errsOut := make(chan error)
 
-		s := Channel(ch)
+	s := Channel(itemsIn)
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			values, err := s.Read(ctx)
-			assert.Nil(t, err)
-			assert.NotEmpty(t, values)
-			assert.EqualValues(t, 1, values[0])
-		}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.Read(ctx, itemsOut, errsOut)
+	}()
 
-		ch <- 1
-		wg.Wait()
-	})
+	itemsIn <- 0
+	itemsIn <- 1
+	itemsIn <- 2
+	close(itemsIn)
 
-	t.Run("context done", func(t *testing.T) {
-		var wg sync.WaitGroup
-
-		ch := make(chan interface{}, size)
-		defer close(ch)
-
-		s := Channel(ch)
-
-		ctx, cancel := context.WithCancel(ctx)
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			values, err := s.Read(ctx)
-			assert.Nil(t, err)
-			assert.Empty(t, values)
-		}()
-
-		cancel()
-		wg.Wait()
-	})
-
-	t.Run("close", func(t *testing.T) {
-		var wg sync.WaitGroup
-
-		ch := make(chan interface{}, size)
-
-		s := Channel(ch)
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			values, err := s.Read(ctx)
-			assert.Nil(t, err)
-			assert.Empty(t, values)
-		}()
-
-		close(ch)
-		wg.Wait()
-	})
+	for i := 0; i < 5; i++ {
+		select {
+		case err, ok := <-errsOut:
+			if ok {
+				t.Error(err)
+			}
+		case item, ok := <-itemsOut:
+			if ok {
+				assert.Equal(t, i, item)
+			} else {
+				assert.FailNow(t, "item channel closed prematurely")
+			}
+		}
+	}
 }

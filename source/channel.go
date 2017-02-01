@@ -3,25 +3,24 @@ package source
 import "context"
 
 type channelSource struct {
-	ch <-chan interface{}
+	items <-chan interface{}
 }
 
-func Channel(ch <-chan interface{}) Source {
+func Channel(items <-chan interface{}) Source {
 	return &channelSource{
-		ch: ch,
+		items: items,
 	}
 }
 
-func (s *channelSource) Read(ctx context.Context) ([]interface{}, error) {
-	select {
-	case item, ok := <-s.ch:
-		if ok {
-			resp := make([]interface{}, 1)
-			resp[0] = item
-			return resp, nil
-		}
-	case <-ctx.Done():
-	}
+func (s *channelSource) Read(ctx context.Context, items chan<- interface{}, errs chan<- error) {
+	defer close(items)
+	defer close(errs)
 
-	return make([]interface{}, 0), nil
+	for {
+		if item, ok := <-s.items; ok {
+			items <- item
+		} else {
+			return
+		}
+	}
 }
