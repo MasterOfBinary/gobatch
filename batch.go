@@ -2,6 +2,7 @@ package gobatch
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -17,9 +18,9 @@ type batchImpl struct {
 	readConcurrency uint64
 
 	// mu protects the following variables
-	mu        sync.Mutex
-	src  source.Source
-	proc processor.Processor
+	mu      sync.Mutex
+	src     source.Source
+	proc    processor.Processor
 	running bool
 	items   chan interface{}
 	errs    chan error
@@ -34,7 +35,7 @@ func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Process
 		b.errs <- ErrConcurrentGoCalls
 		return b.errs
 	}
-	
+
 	b.src = s
 	b.proc = p
 	b.running = true
@@ -49,17 +50,17 @@ func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Process
 }
 
 func (b *batchImpl) Done() <-chan struct{} {
-    b.mu.Lock()
+	b.mu.Lock()
 	defer b.mu.Unlock()
-    return b.done
+	return b.done
 }
 
 func (b *batchImpl) doReaders(ctx context.Context) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
-	
-    if readConcurrency > 0 {
+
+	if readConcurrency > 0 {
 		var wg sync.WaitGroup
 		for i := 0; i < b.readConcurrency; i++ {
 			wg.Add(1)
@@ -84,7 +85,7 @@ func (b *batchImpl) doProcessors(ctx context.Context) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
-	
+
 	// ...
 
 	// Once processors are complete, everything is
@@ -115,7 +116,7 @@ func (b *batchImpl) read(ctx context.Context) {
 			}
 		case err, ok := <-errs:
 			if ok {
-			    wrappedErr := newSourceError(err)
+				wrappedErr := newSourceError(err)
 				b.errs <- wrappedErr
 			} else {
 				errsClosed = true
