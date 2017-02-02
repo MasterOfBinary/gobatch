@@ -16,17 +16,14 @@ type batchImpl struct {
 	maxItems        uint64
 	readConcurrency uint64
 
-	running        bool
-
+	// mu protects the following variables
+	mu        sync.Mutex
 	src  source.Source
 	proc processor.Processor
-
-	items chan interface{}
-	errs  chan error
-	done  chan struct{}
-
-	setupOnce sync.Once
-	mu        sync.Mutex
+	running bool
+	items   chan interface{}
+	errs    chan error
+	done    chan struct{}
 }
 
 func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Processor) <-chan error {
@@ -37,13 +34,13 @@ func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Process
 		b.errs <- ErrConcurrentGoCalls
 		return b.errs
 	}
-
+	
+	b.src = s
+	b.proc = p
 	b.running = true
 	b.items = make(chan interface{})
 	b.errs = make(chan error)
 	b.done = make(chan struct{})
-	b.src = s
-	b.proc = p
 
 	go b.doReaders(ctx)
 	go b.doProcessors(ctx)
