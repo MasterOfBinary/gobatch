@@ -13,6 +13,8 @@ type Batch interface {
 	Go(ctx context.Context, s source.Source, p processor.Processor) <-chan error
 }
 
+// Must returns b if err is nil, or panics otherwise. It is meant to be used
+// with BatchBuilder.Batch to avoid an additional error check.
 func Must(b Batch, err error) Batch {
 	if err != nil {
 		panic(err)

@@ -104,6 +104,15 @@ func (b *BatchBuilder) WithReadConcurrency(concurrency uint64) *BatchBuilder {
 	return &newBuilder
 }
 
+// Batch creates a new Batch implementation, or returns an error if
+//
+//   1. Read concurrency is 0
+//   2. Max time and min time are specified, but max time < min time
+//   3. Max items and min items are specified, but max items < min items
+//
+// These errors can generally be found at compile time, so Must can be
+// used to panic instead of returning an error, removing the need for
+// an error check.
 func (b *BatchBuilder) Batch() (Batch, error) {
 	if b.readConcurrency == 0 {
 		return nil, errors.New("Read concurrency is 0")
