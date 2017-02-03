@@ -37,14 +37,14 @@ func TestChannelSource_Read(t *testing.T) {
 	i := 0
 	for item := range itemsOut {
 		if i > numItems-1 {
-			t.Fatalf("items in itemsIn > %v", i)
+			t.Fatalf("items in itemsOut > %v", i)
 		} else if item != i {
-			t.Errorf("itemsIn <- %v, want %v", item, i)
+			t.Errorf("itemsOut <- %v, want %v", item, i)
 		}
 		i++
 	}
 
 	if i < numItems {
-		t.Errorf("items in itemsIn < %v", i)
+		t.Errorf("items in itemsOut < %v", i)
 	}
 }

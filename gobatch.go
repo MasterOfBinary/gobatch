@@ -19,3 +19,5 @@ func Must(b Batch, err error) Batch {
 	}
 	return b
 }
+
+// go:generate mockery -all -case=underscore
