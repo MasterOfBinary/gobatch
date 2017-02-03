@@ -132,9 +132,19 @@ func (b *batchImpl) read(ctx context.Context) {
 
 func (b *batchImpl) process(ctx context.Context) {
 	var (
-		wg   sync.WaitGroup
-		done bool
+		wg      sync.WaitGroup
+		done    bool
+		bufSize uint64
 	)
+
+	// TODO smarter (perhaps varying) buffer size
+	if b.maxItems > 0 {
+		bufSize = b.maxItems
+	} else if b.minItems > 0 {
+		bufSize = b.minItems * 2
+	} else {
+		bufSize = 1024
+	}
 
 	// Loop, processing one batch each time
 	for {
@@ -146,18 +156,25 @@ func (b *batchImpl) process(ctx context.Context) {
 			reachedMinTime bool
 			itemsRead      uint64
 
-			items = make([]interface{}, 0, b.maxItems)
+			items = make([]interface{}, 0, bufSize)
 
 			minTimer <-chan time.Time
 			maxTimer <-chan time.Time
 		)
 
-		minTimer = time.After(b.minTime)
+		// Be careful not to set timers that end right away. Instead, if a
+		// min or max time is not specified, make a timer channel that's never
+		// written to
+		if b.minTime > 0 {
+			minTimer = time.After(b.minTime)
+		} else {
+			minTimer = make(chan time.Time)
+			reachedMinTime = true
+		}
 
 		if b.maxTime > 0 {
 			maxTimer = time.After(b.maxTime)
 		} else {
-			// Make a channel that's never closed
 			maxTimer = make(chan time.Time)
 		}
 
@@ -170,7 +187,7 @@ func (b *batchImpl) process(ctx context.Context) {
 					itemsRead++
 					if itemsRead >= b.minItems && reachedMinTime {
 						break loop
-					} else if itemsRead >= b.maxItems {
+					} else if b.maxItems > 0 && itemsRead >= b.maxItems {
 						break loop
 					}
 				} else {
@@ -179,11 +196,13 @@ func (b *batchImpl) process(ctx context.Context) {
 					done = true
 					break loop
 				}
+
 			case <-minTimer:
 				reachedMinTime = true
 				if itemsRead >= b.minItems {
 					break loop
 				}
+
 			case <-maxTimer:
 				break loop
 			}
@@ -205,5 +224,6 @@ func (b *batchImpl) process(ctx context.Context) {
 		}()
 	}
 
+	// Wait for all processing to complete
 	wg.Wait()
 }

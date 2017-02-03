@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"time"
+
 	"github.com/MasterOfBinary/gobatch"
 	"github.com/MasterOfBinary/gobatch/source"
 )
@@ -15,12 +17,12 @@ func (p printProcessor) Process(ctx context.Context, items []interface{}, errs c
 	// Process needs to close the error channel after it's done
 	defer close(errs)
 
-	// This processor prints all the items in a line. If items includes 5 it throws
-	// an error for no reason
+	// This processor prints all the items in a line. If items includes 5 it removes
+	// it and throws an error for no reason
 	for i := 0; i < len(items); i++ {
 		if items[i] == 5 {
 			errs <- errors.New("Cannot process 5")
-			return
+			items = append(items[:i], items[i+1:]...)
 		}
 	}
 
@@ -28,20 +30,24 @@ func (p printProcessor) Process(ctx context.Context, items []interface{}, errs c
 }
 
 func Example() {
-	b := gobatch.Must(gobatch.NewBuilder().Batch())
+	b := gobatch.Must(gobatch.NewBuilder().
+		WithMinItems(5).
+		Batch())
 	p := &printProcessor{}
 
 	// source.Channel reads from a channel until it's closed
 	ch := make(chan interface{})
 	s := source.Channel(ch)
 
-	// Go runs in the background
+	// Go runs in the background while the main goroutine processes errors
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errs := b.Go(ctx, s, p)
 
+	// Spawn a goroutine that simulates loading data from somewhere
 	go func() {
-		for i := 0; i < 10; i++ {
+		for i := 0; i < 20; i++ {
+			time.Sleep(time.Millisecond * 10)
 			ch <- i
 		}
 		close(ch)
@@ -60,15 +66,10 @@ func Example() {
 	}
 
 	// Output:
-	// [0]
-	// [1]
-	// [2]
-	// [3]
-	// [4]
-	// [6]
-	// [7]
-	// [8]
-	// [9]
+	// [0 1 2 3 4]
+	// [6 7 8 9]
+	// [10 11 12 13 14]
+	// [15 16 17 18 19]
 	// Finished processing.
 	// Found error: Cannot process 5
 }

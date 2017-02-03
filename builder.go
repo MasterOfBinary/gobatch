@@ -1,13 +1,17 @@
 package gobatch
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // BatchBuilder is a struct that can create a Batch implementation.
 type BatchBuilder struct {
-	minTime         time.Duration
-	minItems        uint64
-	maxTime         time.Duration
-	maxItems        uint64
+	minTime  time.Duration
+	minItems uint64
+	maxTime  time.Duration
+	maxItems uint64
+
 	readConcurrency uint64
 }
 
@@ -102,7 +106,13 @@ func (b *BatchBuilder) WithReadConcurrency(concurrency uint64) *BatchBuilder {
 
 func (b *BatchBuilder) Batch() (Batch, error) {
 	if b.readConcurrency == 0 {
-		return nil, ErrReadConcurrencyZero
+		return nil, errors.New("Read concurrency is 0")
+	}
+	if b.maxTime > 0 && b.minTime > 0 && b.maxTime < b.minTime {
+		return nil, errors.New("Max time less than min time")
+	}
+	if b.maxItems > 0 && b.minItems > 0 && b.maxItems < b.minItems {
+		return nil, errors.New("Max items less than min items")
 	}
 
 	return &batchImpl{
