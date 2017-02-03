@@ -138,4 +138,4 @@ func (b *batchImpl) read(ctx context.Context) {
 	}
 }
 
-//go:generate mockery -name=Batch -inpkg -case=underscore
+//go:generate mockery -name=Batch -case=underscore

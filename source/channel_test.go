@@ -7,8 +7,6 @@ import (
 )
 
 func TestChannelSource_Read(t *testing.T) {
-	t.Parallel()
-
 	size := 10
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

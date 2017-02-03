@@ -12,16 +12,14 @@ func TestMust(t *testing.T) {
 	}
 
 	var panics bool
-	testPanic := func() {
+	func() {
 		defer func() {
 			if p := recover(); p != nil {
 				panics = true
 			}
 		}()
 		_ = Must(&MockBatch{}, errors.New("error"))
-	}
-
-	testPanic()
+	}()
 
 	if !panics {
 		t.Error("Must(batch, err) doesn't panic")
