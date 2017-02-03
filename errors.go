@@ -11,6 +11,12 @@ type ProcessorError struct {
 	err error
 }
 
+func newProcessorError(err error) error {
+	return &ProcessorError{
+		err: err,
+	}
+}
+
 func (e ProcessorError) Error() string {
 	return e.err.Error()
 }

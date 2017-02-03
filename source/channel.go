@@ -13,10 +13,10 @@ func Channel(items <-chan interface{}) Source {
 }
 
 func (s *channelSource) Read(ctx context.Context, items chan<- interface{}, errs chan<- error) {
+	defer close(items)
+	defer close(errs)
+
 	for item := range s.items {
 		items <- item
 	}
-
-	close(items)
-	close(errs)
 }

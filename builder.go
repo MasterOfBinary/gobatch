@@ -18,11 +18,10 @@ type BatchBuilder struct {
 //
 // The default BatchBuilder creates a Batch implementation where items
 // are processed as soon as they are retrieved from the source. Reading
-// is done by a single, looping goroutine, and processing is done in the
-// background using as many goroutines as necessary with no limit.
+// is done by a single goroutine, and processing is done in the background
+// using as many goroutines as necessary with no limit.
 //
-// Essentially, it runs a couple simple loops that look like this (although
-// in reality it's a little more complicated):
+// It looks a little like this (although in reality it's more complicated):
 //
 //    ch := make(chan interface)
 //    go func() {
@@ -50,9 +49,10 @@ func NewBuilder() *BatchBuilder {
 
 // WithMinItems returns a BatchBuilder that creates a Batch implementation
 // with specified minimum number of items. Items will not be processed until
-// the minimum number of items has been read. The only exception is if
+// the minimum number of items has been read. The only exceptions are if
 // a max time has been specified and that time is reached before the minimum
-// number of items has been read.
+// number of items has been read, or all items have been read and the pipeline
+// is draining.
 func (b *BatchBuilder) WithMinItems(minItems uint64) *BatchBuilder {
 	newBuilder := *b
 	newBuilder.minItems = minItems
