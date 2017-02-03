@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"time"
 
 	"github.com/MasterOfBinary/gobatch"
@@ -64,7 +63,6 @@ func Example() {
 	if lastErr != nil {
 		fmt.Println("Found error:", lastErr.Error())
 	}
-
 	// Output:
 	// [0 1 2 3 4]
 	// [6 7 8 9]
