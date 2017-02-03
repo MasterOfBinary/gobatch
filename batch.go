@@ -11,15 +11,35 @@ import (
 
 type Batch interface {
 	Go(ctx context.Context, s source.Source, p processor.Processor) <-chan error
+
+	Done() <-chan struct{}
 }
 
-// Must returns b if err is nil, or panics otherwise. It is meant to be used
-// with BatchBuilder.Batch to avoid an additional error check.
+// Must returns b if err is nil, or panics otherwise. It can be used with
+// BatchBuilder.Batch to avoid an additional error check.
 func Must(b Batch, err error) Batch {
 	if err != nil {
 		panic(err)
 	}
 	return b
+}
+
+// IgnoreErrors starts a goroutine that reads errors from errs but ignores them.
+// It can be used with Batch.Go if errors aren't needed. Since the error channel
+// is non-buffered, one cannot just throw away the error channel like this:
+//    // NOTE: bad - this can cause a deadlock!
+//    _ = batch.Go(ctx, p, s)
+// Instead, IgnoreErrors can be used to safely throw away all errors:
+//    IgnoreErrors(batch.Go(ctx, p, s))
+func IgnoreErrors(errs <-chan error) {
+	// nil channels always block, so check for nil first to avoid a goroutine
+	// leak
+	if errs != nil {
+		go func() {
+			for _ = range errs {
+			}
+		}()
+	}
 }
 
 type batchImpl struct {
@@ -32,6 +52,7 @@ type batchImpl struct {
 	src   source.Source
 	proc  processor.Processor
 	items chan interface{}
+	done  chan struct{}
 
 	// mu protects the following variables. The reason errs is protected is
 	// to avoid sending on a closed channel in the Go method.
@@ -56,6 +77,7 @@ func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Process
 	b.src = s
 	b.proc = p
 	b.items = make(chan interface{})
+	b.done = make(chan struct{})
 
 	go b.doReaders(ctx)
 	go b.doProcessors(ctx)
@@ -64,6 +86,10 @@ func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Process
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.errs
+}
+
+func (b *batchImpl) Done() <-chan struct{} {
+	return b.done
 }
 
 func (b *batchImpl) doReaders(ctx context.Context) {
@@ -101,6 +127,7 @@ func (b *batchImpl) doProcessors(ctx context.Context) {
 	// Once processors are complete, everything is
 	b.mu.Lock()
 	close(b.errs)
+	close(b.done)
 	b.running = false
 	b.mu.Unlock()
 }
@@ -112,7 +139,7 @@ func (b *batchImpl) read(ctx context.Context) {
 	go b.src.Read(ctx, items, errs)
 
 	var itemsClosed, errsClosed bool
-	for {
+	for !itemsClosed || !errsClosed {
 		select {
 		case item, ok := <-items:
 			if ok {
@@ -126,9 +153,6 @@ func (b *batchImpl) read(ctx context.Context) {
 			} else {
 				errsClosed = true
 			}
-		}
-		if itemsClosed && errsClosed {
-			break
 		}
 	}
 }
@@ -150,11 +174,7 @@ func (b *batchImpl) process(ctx context.Context) {
 	}
 
 	// Loop, processing one batch each time
-	for {
-		if done {
-			break
-		}
-
+	for !done {
 		var (
 			reachedMinTime bool
 			itemsRead      uint64
