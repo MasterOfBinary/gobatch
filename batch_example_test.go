@@ -16,6 +16,8 @@ func ExampleMust() {
 	b := gobatch.Must(gobatch.NewBuilder().
 		WithReadConcurrency(0).
 		Batch())
+
+	// Do something with b...
 	_ = b
 	// Output: Panic!
 }

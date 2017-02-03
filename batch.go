@@ -34,7 +34,7 @@ type batchImpl struct {
 	items chan interface{}
 
 	// mu protects the following variables. The reason errs is protected is
-	// to avoid sending on a closed channel in Go.
+	// to avoid sending on a closed channel in the Go method.
 	mu      sync.Mutex
 	running bool
 	errs    chan error
@@ -45,8 +45,8 @@ func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Process
 
 	if b.running {
 		defer b.mu.Unlock()
-		b.errs <- ErrConcurrentGoCalls
-		return b.errs
+		panic("Concurrent calls to Batch.Go are not allowed")
+		return nil
 	}
 
 	b.running = true
@@ -60,6 +60,7 @@ func (b *batchImpl) Go(ctx context.Context, s source.Source, p processor.Process
 	go b.doReaders(ctx)
 	go b.doProcessors(ctx)
 
+	// This lock is probably not necessary...
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.errs
