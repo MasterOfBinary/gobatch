@@ -29,6 +29,7 @@ func (p printProcessor) Process(ctx context.Context, items []interface{}, errs c
 }
 
 func Example() {
+	// Create a Batch implementation that processes items 5 at a time
 	b := gobatch.Must(gobatch.NewBuilder().
 		WithMinItems(5).
 		Batch())
