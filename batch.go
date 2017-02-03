@@ -142,8 +142,24 @@ func (b *batchImpl) process(ctx context.Context) {
 			break
 		}
 
-		itemsRead := uint64(0)
-		items := make([]interface{}, 0, b.maxItems)
+		var (
+			reachedMinTime bool
+			itemsRead      uint64
+
+			items = make([]interface{}, 0, b.maxItems)
+
+			minTimer <-chan time.Time
+			maxTimer <-chan time.Time
+		)
+
+		minTimer = time.After(b.minTime)
+
+		if b.maxTime > 0 {
+			maxTimer = time.After(b.maxTime)
+		} else {
+			// Make a channel that's never closed
+			maxTimer = make(chan time.Time)
+		}
 
 	loop:
 		for {
@@ -152,15 +168,24 @@ func (b *batchImpl) process(ctx context.Context) {
 				if ok {
 					items = append(items, item)
 					itemsRead++
-					if itemsRead >= b.minItems {
+					if itemsRead >= b.minItems && reachedMinTime {
+						break loop
+					} else if itemsRead >= b.maxItems {
 						break loop
 					}
 				} else {
 					// Done, break loop and finish processing the
-					// remaining items
+					// remaining items no matter what
 					done = true
 					break loop
 				}
+			case <-minTimer:
+				reachedMinTime = true
+				if itemsRead >= b.minItems {
+					break loop
+				}
+			case <-maxTimer:
+				break loop
 			}
 		}
 
