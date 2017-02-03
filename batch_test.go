@@ -1,14 +1,12 @@
-package gobatch_test
+package gobatch
 
 import (
 	"errors"
 	"testing"
-
-	"github.com/MasterOfBinary/gobatch/mocks"
 )
 
 func TestMust(t *testing.T) {
-	batch := &mocks.Batch{}
+	batch := &MockBatch{}
 	if Must(batch, nil) != batch {
 		t.Error("Must(batch, nil) != batch")
 	}
@@ -20,7 +18,7 @@ func TestMust(t *testing.T) {
 				panics = true
 			}
 		}()
-		_ = Must(&mocks.Batch{}, errors.New("error"))
+		_ = Must(&MockBatch{}, errors.New("error"))
 	}()
 
 	if !panics {

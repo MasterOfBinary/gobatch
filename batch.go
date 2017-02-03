@@ -112,10 +112,6 @@ func (b *batchImpl) read(ctx context.Context) {
 
 	go b.src.Read(ctx, items, errs)
 
-	// Read should close the channels when the context is done, so we don't check
-	// ctx.Done() here. Otherwise we might return before Read is completely
-	// finished. The way we know we've received everything from Read is
-	// when the channels have been closed.
 	var itemsClosed, errsClosed bool
 	for {
 		select {
