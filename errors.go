@@ -2,7 +2,10 @@ package gobatch
 
 import "errors"
 
-var ErrConcurrentGoCalls = errors.New("Concurrent calls to Batch.Go are not allowed")
+var (
+	ErrConcurrentGoCalls   = errors.New("Concurrent calls to Batch.Go are not allowed")
+	ErrReadConcurrencyZero = errors.New("Read concurrency is 0")
+)
 
 type ProcessorError struct {
 	err error
@@ -20,7 +23,7 @@ type SourceError struct {
 	err error
 }
 
-func newSourceError(err error) {
+func newSourceError(err error) error {
 	return &SourceError{
 		err: err,
 	}

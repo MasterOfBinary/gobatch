@@ -2,7 +2,6 @@ package gobatch
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -60,19 +59,18 @@ func (b *batchImpl) doReaders(ctx context.Context) {
 	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
 
-	if readConcurrency > 0 {
+	if b.readConcurrency > 0 {
 		var wg sync.WaitGroup
-		for i := 0; i < b.readConcurrency; i++ {
+		for i := uint64(0); i < b.readConcurrency; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				read(ctx)
+				b.read(ctx)
 			}()
 		}
 		wg.Wait()
 	} else {
-		err := errors.New("Read concurrency is 0")
-		b.errs <- err
+		b.errs <- ErrReadConcurrencyZero
 	}
 
 	b.mu.Lock()
@@ -116,8 +114,7 @@ func (b *batchImpl) read(ctx context.Context) {
 			}
 		case err, ok := <-errs:
 			if ok {
-				wrappedErr := newSourceError(err)
-				b.errs <- wrappedErr
+				b.errs <- newSourceError(err)
 			} else {
 				errsClosed = true
 			}

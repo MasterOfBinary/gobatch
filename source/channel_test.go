@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestChannelSource_Read(t *testing.T) {
@@ -30,23 +28,23 @@ func TestChannelSource_Read(t *testing.T) {
 		s.Read(ctx, itemsOut, errsOut)
 	}()
 
-	itemsIn <- 0
-	itemsIn <- 1
-	itemsIn <- 2
+	numItems := 10
+	for i := 0; i < numItems; i++ {
+		itemsIn <- i
+	}
 	close(itemsIn)
 
-	for i := 0; i < 5; i++ {
-		select {
-		case err, ok := <-errsOut:
-			if ok {
-				t.Error(err)
-			}
-		case item, ok := <-itemsOut:
-			if ok {
-				assert.Equal(t, i, item)
-			} else {
-				assert.FailNow(t, "item channel closed prematurely")
-			}
+	i := 0
+	for item := range itemsOut {
+		if i > numItems-1 {
+			t.Fatalf("items in itemsIn > %v", i)
+		} else if item != i {
+			t.Errorf("itemsIn <- %v, want %v", item, i)
 		}
+		i++
+	}
+
+	if i < numItems {
+		t.Errorf("items in itemsIn < %v", i)
 	}
 }

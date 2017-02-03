@@ -12,3 +12,10 @@ type Batch interface {
 
 	Done() <-chan struct{}
 }
+
+func Must(b Batch, err error) Batch {
+	if err != nil {
+		panic(err)
+	}
+	return b
+}

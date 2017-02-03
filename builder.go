@@ -100,12 +100,16 @@ func (b *BatchBuilder) WithReadConcurrency(concurrency uint64) *BatchBuilder {
 	return &newBuilder
 }
 
-func (b *BatchBuilder) Batch() Batch {
+func (b *BatchBuilder) Batch() (Batch, error) {
+	if b.readConcurrency == 0 {
+		return nil, ErrReadConcurrencyZero
+	}
+
 	return &batchImpl{
 		minItems:        b.minItems,
 		minTime:         b.minTime,
 		maxItems:        b.maxItems,
 		maxTime:         b.maxTime,
 		readConcurrency: b.readConcurrency,
-	}
+	}, nil
 }
