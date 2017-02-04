@@ -3,6 +3,9 @@ package gobatch
 import (
 	"context"
 	"errors"
+	"math/rand"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +25,32 @@ func (s *sourceFromSlice) Read(ctx context.Context, items chan<- interface{}, er
 	for _, item := range s.slice {
 		time.Sleep(s.duration)
 		items <- item
+	}
+}
+
+type processorCounter struct {
+	mu         sync.Mutex
+	totalCount uint32
+	num        uint32
+}
+
+func (p *processorCounter) Process(ctx context.Context, items []interface{}, errs chan<- error) {
+	atomic.AddUint32(&p.totalCount, uint32(len(items)))
+	atomic.AddUint32(&p.num, 1)
+	close(errs)
+}
+
+func (p *processorCounter) average() int {
+	return int(p.totalCount / p.num)
+}
+
+func assertNoErrors(t *testing.T, errs <-chan error) {
+	if errs != nil {
+		go func() {
+			for err := range errs {
+				t.Errorf("Unexpected error %v returned from batch.Go", err)
+			}
+		}()
 	}
 }
 
@@ -127,6 +156,54 @@ func TestNew(t *testing.T) {
 }
 
 func TestBatch_Go(t *testing.T) {
+	t.Run("basic test", func(t *testing.T) {
+		t.Parallel()
+
+		batch := &Batch{}
+		s := &sourceFromSlice{
+			slice: []interface{}{1, 2, 3, 4, 5},
+		}
+		p := processor.Nil(0)
+
+		errs := batch.Go(context.Background(), s, p)
+
+		select {
+		case err, ok := <-errs:
+			if !ok {
+				break
+			} else {
+				t.Error("Unexpected error %v returned from batch.Go", err.Error())
+			}
+		case <-time.After(time.Second):
+			t.Error("err channel never closed")
+		}
+	})
+
+	t.Run("concurrent test", func(t *testing.T) {
+		t.Parallel()
+
+		batch := Must(New(&BatchConfig{
+			ReadConcurrency: 5,
+		}))
+		s := &sourceFromSlice{
+			slice: []interface{}{1, 2, 3, 4, 5},
+		}
+		p := processor.Nil(0)
+
+		errs := batch.Go(context.Background(), s, p)
+
+		select {
+		case err, ok := <-errs:
+			if !ok {
+				break
+			} else {
+				t.Error("Unexpected error %v returned from batch.Go", err.Error())
+			}
+		case <-time.After(time.Second):
+			t.Error("err channel never closed")
+		}
+	})
+
 	t.Run("concurrent calls", func(t *testing.T) {
 		t.Parallel()
 
@@ -135,7 +212,7 @@ func TestBatch_Go(t *testing.T) {
 		s := source.Nil(time.Second)
 		p := processor.Nil(0)
 
-		IgnoreErrors(batch.Go(context.Background(), s, p))
+		assertNoErrors(t, batch.Go(context.Background(), s, p))
 
 		// Next call should panic
 		var panics bool
@@ -145,7 +222,7 @@ func TestBatch_Go(t *testing.T) {
 					panics = true
 				}
 			}()
-			IgnoreErrors(batch.Go(context.Background(), s, p))
+			assertNoErrors(t, batch.Go(context.Background(), s, p))
 		}()
 
 		if !panics {
@@ -210,6 +287,59 @@ func TestBatch_Go(t *testing.T) {
 			t.Error("Did not find processor error")
 		}
 	})
+
+	t.Run("scenarios", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name               string
+			config             *BatchConfig
+			inputSize          int
+			wantProcessingSize int
+		}{
+			{
+				name:               "default",
+				config:             nil,
+				inputSize:          100,
+				wantProcessingSize: 1,
+			},
+			{
+				name: "multiple read goroutines",
+				config: &BatchConfig{
+					ReadConcurrency: 5,
+				},
+				inputSize:          100,
+				wantProcessingSize: 1,
+			},
+		}
+
+		for _, test := range tests {
+			test := test
+			t.Run(test.name, func(t *testing.T) {
+				t.Parallel()
+
+				inputSlice := make([]interface{}, test.inputSize)
+				for i := 0; i < len(inputSlice); i++ {
+					inputSlice[i] = rand.Int()
+				}
+
+				batch := Must(New(test.config))
+				s := &sourceFromSlice{
+					slice: inputSlice,
+				}
+				p := &processorCounter{}
+
+				assertNoErrors(t, batch.Go(context.Background(), s, p))
+
+				<-batch.Done()
+
+				got := p.average()
+				if got != test.wantProcessingSize {
+					t.Errorf("Average processing size = %v, want %v", got, test.wantProcessingSize)
+				}
+			})
+		}
+	})
 }
 
 func TestBatch_Done(t *testing.T) {
@@ -220,7 +350,7 @@ func TestBatch_Done(t *testing.T) {
 		s := source.Nil(0)
 		p := processor.Nil(0)
 
-		IgnoreErrors(batch.Go(context.Background(), s, p))
+		assertNoErrors(t, batch.Go(context.Background(), s, p))
 
 		select {
 		case <-batch.Done():
@@ -241,7 +371,7 @@ func TestBatch_Done(t *testing.T) {
 		p := processor.Nil(10 * time.Millisecond)
 
 		timer := time.After(100 * time.Millisecond)
-		IgnoreErrors(batch.Go(context.Background(), s, p))
+		assertNoErrors(t, batch.Go(context.Background(), s, p))
 
 		select {
 		case <-batch.Done():
@@ -264,7 +394,7 @@ func TestBatch_Done(t *testing.T) {
 		p := processor.Nil(100 * time.Millisecond)
 
 		timer := time.After(100 * time.Millisecond)
-		IgnoreErrors(batch.Go(context.Background(), s, p))
+		assertNoErrors(t, batch.Go(context.Background(), s, p))
 
 		select {
 		case <-batch.Done():
