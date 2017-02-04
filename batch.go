@@ -57,7 +57,7 @@ type BatchConfig struct {
 //    defaultBatch3 := gobatch.Must(gobatch.New(&gobatch.BatchConfig{}))
 //
 // The defaults (with an empty or nil BatchConfig) provide a usable, but likely
-// suboptimal Batch where items are processed as soon as they are retrieved from
+// suboptimal, Batch where items are processed as soon as they are retrieved from
 // the source. Reading is done by a single goroutine, and processing is done in
 // the background using as many goroutines as necessary with no limit.
 //
@@ -73,10 +73,8 @@ type BatchConfig struct {
 // Batch runs asynchronously until the source closes its channels, signaling that
 // there is nothing else to process. Once that happens, and the pipeline has
 // been drained (all items have been processed), there are two ways for the
-// caller to know:
-//
-//    1. The error channel returned from Go is closed
-//    2. The channel returned from Done is closed
+// caller to know: the error channel returned from Go is closed, or the channel
+// returned from Done is closed.
 //
 // The first way can be used if errors need to be processed. A simple loop
 // could look like this:
