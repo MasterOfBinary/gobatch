@@ -190,7 +190,7 @@ func TestBatch_Go(t *testing.T) {
 
 		tests := []struct {
 			name               string
-			config             *BatchConfigValues
+			config             *ConfigValues
 			inputSize          int
 			inputDuration      time.Duration
 			readConcurrency    uint64
@@ -211,7 +211,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min items",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MinItems: 5,
 				},
 				inputSize:          100,
@@ -219,7 +219,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min time",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MinTime: 250 * time.Millisecond,
 				},
 				inputSize:          6,
@@ -228,7 +228,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "max items",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MaxItems: 5,
 				},
 				inputSize:          100,
@@ -236,7 +236,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "max time",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MaxTime: 200 * time.Millisecond,
 				},
 				inputSize:          3,
@@ -245,7 +245,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min time and min items",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MinTime:  450 * time.Millisecond,
 					MinItems: 2,
 				},
@@ -255,7 +255,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min time and max items",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MinTime:  450 * time.Millisecond,
 					MaxItems: 2,
 				},
@@ -265,7 +265,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min time and max time",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MinTime: 450 * time.Millisecond,
 					MaxTime: 1 * time.Second,
 				},
@@ -275,7 +275,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min items and max time",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MinItems: 10,
 					MaxTime:  200 * time.Millisecond,
 				},
@@ -285,7 +285,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min items and max items",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MinItems: 10,
 					MaxItems: 20,
 				},
@@ -295,7 +295,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min items and eof",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MinItems: 10,
 				},
 				inputSize:          5,
@@ -303,7 +303,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min time and eof",
-				config: &BatchConfigValues{
+				config: &ConfigValues{
 					MinTime: 100 * time.Millisecond,
 				},
 				inputSize:          5,
@@ -321,7 +321,7 @@ func TestBatch_Go(t *testing.T) {
 					inputSlice[i] = rand.Int()
 				}
 
-				batch := New(NewConstantBatchConfig(test.config), test.readConcurrency)
+				batch := New(ConstantConfig(test.config), test.readConcurrency)
 				s := &sourceFromSlice{
 					slice:    inputSlice,
 					duration: test.inputDuration,

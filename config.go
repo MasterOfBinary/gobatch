@@ -2,20 +2,19 @@ package gobatch
 
 import "time"
 
-// BatchConfig retrieves the config values used by Batch. If these values are
-// constant, NewConstantBatchConfig can be used to create an implementation
+// Config retrieves the config values used by Batch. If these values are
+// constant, ConstantConfig can be used to create an implementation
 // of the interface.
-type BatchConfig interface {
+type Config interface {
 	// Get returns the values for configuration.
 	//
 	// If MinItems > MaxItems or MinTime > MaxTime, the min value will be
 	// set to the maximum value.
-	Get() *BatchConfigValues
+	Get() *ConfigValues
 }
 
-// BatchConfigValues is a BatchConfig implementation where the values are all
-// constants.
-type BatchConfigValues struct {
+// ConfigValues is a struct that contains the Batch config values.
+type ConfigValues struct {
 	// MinTime specifies that a minimum amount of time that should pass
 	// before processing items. The exception to this is if a max number
 	// of items was specified and that number is reached before MinTime;
@@ -41,23 +40,23 @@ type BatchConfigValues struct {
 	MaxItems uint64
 }
 
-// NewConstantBatchConfig returns a BatchConfig with constant values. If values
+// ConstantConfig returns a Config with constant values. If values
 // is nil, the default values are used as described in Batch.
-func NewConstantBatchConfig(values *BatchConfigValues) BatchConfig {
+func ConstantConfig(values *ConfigValues) Config {
 	if values == nil {
-		values = &BatchConfigValues{}
+		values = &ConfigValues{}
 	}
 
-	return &constantBatchConfig{
+	return &constantConfig{
 		values: *values,
 	}
 }
 
-type constantBatchConfig struct {
-	values BatchConfigValues
+type constantConfig struct {
+	values ConfigValues
 }
 
-// Get implements the BatchConfig interface.
-func (b *constantBatchConfig) Get() *BatchConfigValues {
+// Get implements the Config interface.
+func (b *constantConfig) Get() *ConfigValues {
 	return &b.values
 }

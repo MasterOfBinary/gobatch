@@ -6,7 +6,7 @@
 // packages, respectively, or you can create your own custom one.
 //
 // Batch uses the MinTime, MinItems, MaxTime, and MaxItems configuration
-// parameters in BatchConfig to determine when and how many items are
+// parameters in Config to determine when and how many items are
 // processed at once.
 //
 // These parameters may conflict, however; for example, during a slow time,
@@ -30,6 +30,6 @@
 //
 // Note that the timers and item counters are relative to the time when the
 // previous batch started processing. Just before the timers and counters are
-// started the config is read from the BatchConfig interface. This is so that
+// started the config is read from the Config interface. This is so that
 // the configuration can be changed at any time during processing.
 package gobatch

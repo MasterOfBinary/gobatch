@@ -20,9 +20,9 @@ import (
 //    // The following are equivalent
 //    defaultBatch1 := &gobatch.Batch{}
 //    defaultBatch2 := gobatch.New(nil)
-//    defaultBatch3 := gobatch.New(NewConstantBatchConfig(&NewConstantBatchConfig()))
+//    defaultBatch3 := gobatch.New(ConstantConfig(&ConstantConfig()))
 //
-// The defaults (with nil BatchConfig) provide a usable, but likely suboptimal, Batch
+// The defaults (with nil Config) provide a usable, but likely suboptimal, Batch
 // where items are processed as soon as they are retrieved from the source. Reading
 // is done by a single goroutine, and processing is done in the background using as
 // many goroutines as necessary with no limit.
@@ -66,7 +66,7 @@ import (
 // and errors from the processor will be of type ProcessorError. Errors from
 // Batch itself will be neither.
 type Batch struct {
-	config          BatchConfig
+	config          Config
 	readConcurrency uint64
 
 	src   source.Source
@@ -83,7 +83,7 @@ type Batch struct {
 
 // New creates a new Batch based on specified config. If config is nil,
 // the default config is used as described in Batch.
-func New(config BatchConfig, readConcurrency uint64) *Batch {
+func New(config Config, readConcurrency uint64) *Batch {
 	return &Batch{
 		config:          config,
 		readConcurrency: readConcurrency,
@@ -128,7 +128,7 @@ func (b *Batch) Go(ctx context.Context, s source.Source, p processor.Processor) 
 	}
 
 	if b.config == nil {
-		b.config = NewConstantBatchConfig(nil)
+		b.config = ConstantConfig(nil)
 	}
 
 	b.running = true
