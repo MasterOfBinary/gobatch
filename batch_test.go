@@ -54,107 +54,6 @@ func assertNoErrors(t *testing.T, errs <-chan error) {
 	}
 }
 
-func TestMust(t *testing.T) {
-	batch, _ := New(nil)
-
-	if Must(batch, nil) != batch {
-		t.Error("Must(batch, nil) != batch")
-	}
-
-	var panics bool
-	func() {
-		defer func() {
-			if p := recover(); p != nil {
-				panics = true
-			}
-		}()
-		_ = Must(batch, errors.New("error"))
-	}()
-
-	if !panics {
-		t.Error("Must(batch, err) doesn't panic")
-	}
-}
-
-func TestNew(t *testing.T) {
-	tests := []struct {
-		name    string
-		config  *BatchConfig
-		wantErr bool
-	}{
-		{
-			name:    "nil config",
-			config:  nil,
-			wantErr: false,
-		},
-		{
-			name:    "empty config",
-			config:  &BatchConfig{},
-			wantErr: false,
-		},
-		{
-			name: "good config",
-			config: &BatchConfig{
-				MinItems:        5,
-				MaxItems:        10,
-				MinTime:         time.Second,
-				MaxTime:         2 * time.Second,
-				ReadConcurrency: 5,
-			},
-			wantErr: false,
-		},
-		{
-			name: "min time only",
-			config: &BatchConfig{
-				MinTime: time.Second,
-			},
-			wantErr: false,
-		},
-		{
-			name: "min items only",
-			config: &BatchConfig{
-				MinItems: 5,
-			},
-			wantErr: false,
-		},
-		{
-			name: "bad items",
-			config: &BatchConfig{
-				MinItems: 10,
-				MaxItems: 5,
-			},
-			wantErr: true,
-		},
-		{
-			name: "bad times",
-			config: &BatchConfig{
-				MinTime: 2 * time.Second,
-				MaxTime: time.Second,
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			batch, err := New(test.config)
-			if test.wantErr && err == nil {
-				t.Error("New(config) returns nil error, want not nil")
-			} else if !test.wantErr {
-				if err != nil {
-					t.Errorf("New(config) returns error %v, want nil", err)
-				}
-				if batch == nil {
-					t.Error("New(config) returns nil batch, want not nil")
-				}
-			}
-		})
-	}
-}
-
 func TestBatch_Go(t *testing.T) {
 	t.Run("basic test", func(t *testing.T) {
 		t.Parallel()
@@ -182,9 +81,7 @@ func TestBatch_Go(t *testing.T) {
 	t.Run("concurrent test", func(t *testing.T) {
 		t.Parallel()
 
-		batch := Must(New(&BatchConfig{
-			ReadConcurrency: 5,
-		}))
+		batch := New(nil, 5)
 		s := &sourceFromSlice{
 			slice: []interface{}{1, 2, 3, 4, 5},
 		}
@@ -293,9 +190,10 @@ func TestBatch_Go(t *testing.T) {
 
 		tests := []struct {
 			name               string
-			config             *BatchConfig
+			config             *BatchConfigValues
 			inputSize          int
 			inputDuration      time.Duration
+			readConcurrency    uint64
 			wantProcessingSize int
 		}{
 			{
@@ -305,16 +203,15 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 1,
 			},
 			{
-				name: "multiple read goroutines",
-				config: &BatchConfig{
-					ReadConcurrency: 5,
-				},
+				name:               "multiple read goroutines",
+				config:             nil,
+				readConcurrency:    5,
 				inputSize:          100,
 				wantProcessingSize: 1,
 			},
 			{
 				name: "min items",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MinItems: 5,
 				},
 				inputSize:          100,
@@ -322,7 +219,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min time",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MinTime: 250 * time.Millisecond,
 				},
 				inputSize:          6,
@@ -331,7 +228,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "max items",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MaxItems: 5,
 				},
 				inputSize:          100,
@@ -339,7 +236,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "max time",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MaxTime: 200 * time.Millisecond,
 				},
 				inputSize:          3,
@@ -348,7 +245,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min time and min items",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MinTime:  450 * time.Millisecond,
 					MinItems: 2,
 				},
@@ -358,7 +255,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min time and max items",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MinTime:  450 * time.Millisecond,
 					MaxItems: 2,
 				},
@@ -368,7 +265,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min time and max time",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MinTime: 450 * time.Millisecond,
 					MaxTime: 1 * time.Second,
 				},
@@ -378,7 +275,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min items and max time",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MinItems: 10,
 					MaxTime:  200 * time.Millisecond,
 				},
@@ -388,7 +285,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min items and max items",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MinItems: 10,
 					MaxItems: 20,
 				},
@@ -398,7 +295,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min items and eof",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MinItems: 10,
 				},
 				inputSize:          5,
@@ -406,7 +303,7 @@ func TestBatch_Go(t *testing.T) {
 			},
 			{
 				name: "min time and eof",
-				config: &BatchConfig{
+				config: &BatchConfigValues{
 					MinTime: 100 * time.Millisecond,
 				},
 				inputSize:          5,
@@ -417,14 +314,14 @@ func TestBatch_Go(t *testing.T) {
 		for _, test := range tests {
 			test := test
 			t.Run(test.name, func(t *testing.T) {
-				//t.Parallel()
+				t.Parallel()
 
 				inputSlice := make([]interface{}, test.inputSize)
 				for i := 0; i < len(inputSlice); i++ {
 					inputSlice[i] = rand.Int()
 				}
 
-				batch := Must(New(test.config))
+				batch := New(NewConstantBatchConfig(test.config), test.readConcurrency)
 				s := &sourceFromSlice{
 					slice:    inputSlice,
 					duration: test.inputDuration,

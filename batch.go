@@ -2,46 +2,12 @@ package gobatch
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
 	"github.com/MasterOfBinary/gobatch/processor"
 	"github.com/MasterOfBinary/gobatch/source"
 )
-
-// BatchConfig contains the config values used by Batch.
-type BatchConfig struct {
-	// MinTime specifies that a minimum amount of time that should pass
-	// before processing items. The exception to this is if a max number
-	// of items was specified and that number is reached before MinTime;
-	// in that case those items will be processed right away.
-	MinTime time.Duration
-
-	// MinItems specifies that a minimum number of items should be
-	// processed at a time. Items will not be processed until MinItems
-	// items are ready for processing. The exceptions to that are if MaxTime
-	// is specified and that time is reached before the minimum number of
-	// items is available, or if all items have been read and are ready
-	// to process.
-	MinItems uint64
-
-	// MaxTime specifies that a maximum amount of time should pass before
-	// processing. Once that time has been reached, items will be processed
-	// whether or not MinItems items are available.
-	MaxTime time.Duration
-
-	// MaxItems specifies that a maximum number of items should be available
-	// before processing. Once that number of items is available, they will
-	// be processed whether or not MinTime has been reached.
-	MaxItems uint64
-
-	// ReadConcurrency specifies the number of goroutines that are spawned
-	// to read from the source.
-	//
-	// If ReadConcurrency is 0, it will default to 1 goroutine.
-	ReadConcurrency uint64
-}
 
 // Batch provides batch processing given an Source and a Processor. Data is
 // read from the Source and processed in batches by the Processor. Any errors
@@ -53,13 +19,13 @@ type BatchConfig struct {
 //
 //    // The following are equivalent
 //    defaultBatch1 := &gobatch.Batch{}
-//    defaultBatch2 := gobatch.Must(gobatch.New(nil))
-//    defaultBatch3 := gobatch.Must(gobatch.New(&gobatch.BatchConfig{}))
+//    defaultBatch2 := gobatch.New(nil)
+//    defaultBatch3 := gobatch.New(NewConstantBatchConfig(&NewConstantBatchConfig()))
 //
-// The defaults (with an empty or nil BatchConfig) provide a usable, but likely
-// suboptimal, Batch where items are processed as soon as they are retrieved from
-// the source. Reading is done by a single goroutine, and processing is done in
-// the background using as many goroutines as necessary with no limit.
+// The defaults (with nil BatchConfig) provide a usable, but likely suboptimal, Batch
+// where items are processed as soon as they are retrieved from the source. Reading
+// is done by a single goroutine, and processing is done in the background using as
+// many goroutines as necessary with no limit.
 //
 // This is a simplified version of how the default Batch works:
 //
@@ -100,10 +66,7 @@ type BatchConfig struct {
 // and errors from the processor will be of type ProcessorError. Errors from
 // Batch itself will be neither.
 type Batch struct {
-	minTime         time.Duration
-	minItems        uint64
-	maxTime         time.Duration
-	maxItems        uint64
+	config          BatchConfig
 	readConcurrency uint64
 
 	src   source.Source
@@ -118,46 +81,13 @@ type Batch struct {
 	errs    chan error
 }
 
-// New creates a new Batch based on specified config, or returns an error if
-//
-//    1. MaxTime and MinTime are specified, but MaxTime < MinTime
-//    2. MaxItems and MinItems are specified, but MaxItems < MinItems
-//
-// These errors can generally be found at compile time, so Must can be used
-// to panic instead of returning an error, removing the need for an error
-// check.
-//
-// If config is nil, the default config is used as described in Batch.
-func New(config *BatchConfig) (*Batch, error) {
-	if config == nil {
-		config = &BatchConfig{}
+// New creates a new Batch based on specified config. If config is nil,
+// the default config is used as described in Batch.
+func New(config BatchConfig, readConcurrency uint64) *Batch {
+	return &Batch{
+		config:          config,
+		readConcurrency: readConcurrency,
 	}
-
-	if config.MaxTime > 0 && config.MinTime > 0 && config.MaxTime < config.MinTime {
-		return nil, errors.New("Max time less than min time")
-	}
-	if config.MaxItems > 0 && config.MinItems > 0 && config.MaxItems < config.MinItems {
-		return nil, errors.New("Max items less than min items")
-	}
-
-	b := &Batch{
-		minItems:        config.MinItems,
-		minTime:         config.MinTime,
-		maxItems:        config.MaxItems,
-		maxTime:         config.MaxTime,
-		readConcurrency: config.ReadConcurrency,
-	}
-
-	return b, nil
-}
-
-// Must returns b if err is nil, or panics otherwise. It can be used with
-// BatchBuilder.Batch to avoid an additional error check.
-func Must(b *Batch, err error) *Batch {
-	if err != nil {
-		panic(err)
-	}
-	return b
 }
 
 // Go starts batch processing asynchronously and returns a channel to
@@ -184,6 +114,9 @@ func Must(b *Batch, err error) *Batch {
 // done, it closes its error channel to signal to the batch processor.
 // Finally, the batch processor signals to its caller that processing is
 // complete and the entire pipeline is drained.
+//
+// Note that the BatchConfig values are read at the beginning of each
+// "iteration", which is after the previous batch starts to process.
 func (b *Batch) Go(ctx context.Context, s source.Source, p processor.Processor) <-chan error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -195,6 +128,10 @@ func (b *Batch) Go(ctx context.Context, s source.Source, p processor.Processor) 
 
 	if b.readConcurrency == 0 {
 		b.readConcurrency = 1
+	}
+
+	if b.config == nil {
+		b.config = NewConstantBatchConfig(nil)
 	}
 
 	b.running = true
@@ -290,17 +227,26 @@ func (b *Batch) process(ctx context.Context) {
 		bufSize uint64
 	)
 
-	// TODO smarter (perhaps varying) buffer size
-	if b.maxItems > 0 {
-		bufSize = b.maxItems
-	} else if b.minItems > 0 {
-		bufSize = b.minItems * 2
-	} else {
-		bufSize = 1024
-	}
-
 	// Loop, processing one batch each time
 	for !done {
+		config := b.config.Get()
+
+		if config.MaxTime > 0 && config.MinTime > 0 && config.MaxTime < config.MinTime {
+			config.MinTime = config.MaxTime
+		}
+		if config.MaxItems > 0 && config.MinItems > 0 && config.MaxItems < config.MinItems {
+			config.MinItems = config.MaxItems
+		}
+
+		// TODO smarter buffer size (perhaps from the config)
+		if config.MaxItems > 0 {
+			bufSize = config.MaxItems
+		} else if config.MinItems > 0 {
+			bufSize = config.MinItems * 2
+		} else {
+			bufSize = 1024
+		}
+
 		var (
 			reachedMinTime bool
 			itemsRead      uint64
@@ -314,15 +260,15 @@ func (b *Batch) process(ctx context.Context) {
 		// Be careful not to set timers that end right away. Instead, if a
 		// min or max time is not specified, make a timer channel that's never
 		// written to
-		if b.minTime > 0 {
-			minTimer = time.After(b.minTime)
+		if config.MinTime > 0 {
+			minTimer = time.After(config.MinTime)
 		} else {
 			minTimer = make(chan time.Time)
 			reachedMinTime = true
 		}
 
-		if b.maxTime > 0 {
-			maxTimer = time.After(b.maxTime)
+		if config.MaxTime > 0 {
+			maxTimer = time.After(config.MaxTime)
 		} else {
 			maxTimer = make(chan time.Time)
 		}
@@ -334,9 +280,9 @@ func (b *Batch) process(ctx context.Context) {
 				if ok {
 					items = append(items, item)
 					itemsRead++
-					if itemsRead >= b.minItems && reachedMinTime {
+					if itemsRead >= config.MinItems && reachedMinTime {
 						break loop
-					} else if b.maxItems > 0 && itemsRead >= b.maxItems {
+					} else if config.MaxItems > 0 && itemsRead >= config.MaxItems {
 						break loop
 					}
 				} else {
@@ -348,7 +294,7 @@ func (b *Batch) process(ctx context.Context) {
 
 			case <-minTimer:
 				reachedMinTime = true
-				if itemsRead >= b.minItems {
+				if itemsRead >= config.MinItems {
 					break loop
 				}
 
