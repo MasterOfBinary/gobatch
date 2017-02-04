@@ -89,7 +89,7 @@ func (p printProcessor) Process(ctx context.Context, items []interface{}, errs c
 }
 
 func main() {
-	// Use default config
+	// Use default config and 1 read goroutine
 	b := gobatch.New(nil, 1)
 	p := &printProcessor{}
 	s := &oneItemSource{}
