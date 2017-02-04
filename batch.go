@@ -75,8 +75,8 @@ type BatchConfig struct {
 // been drained (all items have been processed), there are two ways for the
 // caller to know:
 //
-// 1. The error channel returned from Go is closed
-// 2. The channel returned from Done is closed
+//    1. The error channel returned from Go is closed
+//    2. The channel returned from Done is closed
 //
 // The first way can be used if errors need to be processed. A simple loop
 // could look like this:
@@ -116,8 +116,8 @@ type Batch struct {
 
 // New creates a new Batch based on specified config, or returns an error if
 //
-// 1. MaxTime and MinTime are specified, but MaxTime < MinTime
-// 2. MaxItems and MinItems are specified, but MaxItems < MinItems
+//    1. MaxTime and MinTime are specified, but MaxTime < MinTime
+//    2. MaxItems and MinItems are specified, but MaxItems < MinItems
 //
 // These errors can generally be found at compile time, so Must can be used
 // to panic instead of returning an error, removing the need for an error

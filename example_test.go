@@ -36,7 +36,7 @@ func Example() {
 	b := gobatch.Must(gobatch.New(config))
 	p := &printProcessor{}
 
-	// source.Channel reads from a channel until it's closed
+	// The channel source reads from a channel until it's closed
 	ch := make(chan interface{})
 	s := source.Channel(ch)
 
