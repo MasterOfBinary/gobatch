@@ -1,4 +1,4 @@
-// Package gobatch contains a batch processor. The main class is Batch,
+// Package gobatch is a batch processing library. The main class is Batch,
 // which can be created using New. It reads from an implementation of the
 // source.Source interface, and items are processed in batches by an
 // implementation of the processor.Processor interface. Some Source and

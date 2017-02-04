@@ -10,8 +10,10 @@ import (
 	"github.com/MasterOfBinary/gobatch/source"
 )
 
+// printProcessor implements the processor.Processor interface.
 type printProcessor struct{}
 
+// Process processes items in batches.
 func (p printProcessor) Process(ctx context.Context, items []interface{}, errs chan<- error) {
 	// Process needs to close the error channel after it's done
 	defer close(errs)
