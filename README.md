@@ -63,6 +63,7 @@ import (
 	"github.com/MasterOfBinary/gobatch"
 )
 
+// oneItemSource implements the source.Source interface.
 type oneItemSource struct{}
 
 // Read reads a single item and finishes.
