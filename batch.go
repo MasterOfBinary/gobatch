@@ -11,20 +11,6 @@ import (
 )
 
 // BatchConfig contains the config values used by Batch.
-//
-// The defaults (with an empty BatchConfig) provide a usable, but suboptimal
-// Batch where items are processed as soon as they are retrieved from the
-// source. Reading is done by a single goroutine, and processing is done in
-// the background using as many goroutines as necessary with no limit.
-//
-// This is a simplified version of how the default Batch works:
-//
-//    items := make(chan interface{})
-//    errs := make(chan error)
-//    go source.Read(ctx, items, errs)
-//    for item := range items {
-//      go processor.Process(ctx, []interface{}{item}, errs)
-//    }
 type BatchConfig struct {
 	// MinTime specifies that a minimum amount of time that should pass
 	// before processing items. The exception to this is if a max number
@@ -69,6 +55,20 @@ type BatchConfig struct {
 //    defaultBatch1 := &gobatch.Batch{}
 //    defaultBatch2 := gobatch.Must(gobatch.New(nil))
 //    defaultBatch3 := gobatch.Must(gobatch.New(&gobatch.BatchConfig{}))
+//
+// The defaults (with an empty or nil BatchConfig) provide a usable, but likely
+// suboptimal Batch where items are processed as soon as they are retrieved from
+// the source. Reading is done by a single goroutine, and processing is done in
+// the background using as many goroutines as necessary with no limit.
+//
+// This is a simplified version of how the default Batch works:
+//
+//    items := make(chan interface{})
+//    errs := make(chan error)
+//    go source.Read(ctx, items, errs)
+//    for item := range items {
+//      go processor.Process(ctx, []interface{}{item}, errs)
+//    }
 //
 // Batch runs asynchronously until the source closes its channels, signaling that
 // there is nothing else to process. Once that happens, and the pipeline has
