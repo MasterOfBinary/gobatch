@@ -357,6 +357,9 @@ func (b *Batch) process(ctx context.Context) {
 			}
 		}
 
+		// TODO this resets the time whenever no items are available. The right
+		// way to do it is to have the above loop not break until at least one
+		// item is available
 		if len(items) == 0 {
 			continue
 		}

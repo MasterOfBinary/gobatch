@@ -14,7 +14,7 @@
 // to prioritize the parameters in some way. They are prioritized as follows
 // (with EOF signifying the end of the input data):
 //
-//    MaxTime = MaxItems > EOF > MinItems > MinTime
+//    MaxTime = MaxItems > EOF > MinTime > MinItems
 //
 // A few examples:
 //
@@ -25,8 +25,8 @@
 // not processed until 2s has passed (along with all other items that have
 // been read up to the 2s mark).
 //
-// MaxItems = 10, MinTime = 2s. After 1s, 10 items have been read. They are
-// processed right away.
+// MaxItems = 10, MinTime = 2s. After 1s, 10 items have been read. They aren't
+// processed until 2s has passed.
 //
 // Note that the time and item counters are relative to when the last batch
 // started processing.

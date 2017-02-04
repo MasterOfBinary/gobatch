@@ -41,7 +41,7 @@ func (p *processorCounter) Process(ctx context.Context, items []interface{}, err
 }
 
 func (p *processorCounter) average() int {
-	return int(p.totalCount / p.num)
+	return int(float64(p.totalCount)/float64(p.num) + 0.5)
 }
 
 func assertNoErrors(t *testing.T, errs <-chan error) {
@@ -295,6 +295,7 @@ func TestBatch_Go(t *testing.T) {
 			name               string
 			config             *BatchConfig
 			inputSize          int
+			inputDuration      time.Duration
 			wantProcessingSize int
 		}{
 			{
@@ -311,12 +312,112 @@ func TestBatch_Go(t *testing.T) {
 				inputSize:          100,
 				wantProcessingSize: 1,
 			},
+			{
+				name: "min items",
+				config: &BatchConfig{
+					MinItems: 5,
+				},
+				inputSize:          100,
+				wantProcessingSize: 5,
+			},
+			{
+				name: "min time",
+				config: &BatchConfig{
+					MinTime: 250 * time.Millisecond,
+				},
+				inputSize:          6,
+				inputDuration:      100 * time.Millisecond,
+				wantProcessingSize: 2,
+			},
+			{
+				name: "max items",
+				config: &BatchConfig{
+					MaxItems: 5,
+				},
+				inputSize:          100,
+				wantProcessingSize: 1,
+			},
+			{
+				name: "max time",
+				config: &BatchConfig{
+					MaxTime: 200 * time.Millisecond,
+				},
+				inputSize:          3,
+				inputDuration:      150 * time.Millisecond,
+				wantProcessingSize: 1,
+			},
+			{
+				name: "min time and min items",
+				config: &BatchConfig{
+					MinTime:  450 * time.Millisecond,
+					MinItems: 2,
+				},
+				inputSize:          8,
+				inputDuration:      100 * time.Millisecond,
+				wantProcessingSize: 4, // MinTime > MinItems
+			},
+			{
+				name: "min time and max items",
+				config: &BatchConfig{
+					MinTime:  450 * time.Millisecond,
+					MaxItems: 2,
+				},
+				inputSize:          8,
+				inputDuration:      100 * time.Millisecond,
+				wantProcessingSize: 2, // MaxItems > MinTime
+			},
+			{
+				name: "min time and max time",
+				config: &BatchConfig{
+					MinTime: 450 * time.Millisecond,
+					MaxTime: 1 * time.Second,
+				},
+				inputSize:          8,
+				inputDuration:      100 * time.Millisecond,
+				wantProcessingSize: 4, // MinTime > MaxTime
+			},
+			{
+				name: "min items and max time",
+				config: &BatchConfig{
+					MinItems: 10,
+					MaxTime:  200 * time.Millisecond,
+				},
+				inputSize:          3,
+				inputDuration:      150 * time.Millisecond,
+				wantProcessingSize: 1, // MaxTime > MinItems
+			},
+			{
+				name: "min items and max items",
+				config: &BatchConfig{
+					MinItems: 10,
+					MaxItems: 20,
+				},
+				inputSize:          20,
+				inputDuration:      50 * time.Millisecond,
+				wantProcessingSize: 10, // MaxItems > MinItems
+			},
+			{
+				name: "min items and eof",
+				config: &BatchConfig{
+					MinItems: 10,
+				},
+				inputSize:          5,
+				wantProcessingSize: 5, // EOF > MinItems
+			},
+			{
+				name: "min time and eof",
+				config: &BatchConfig{
+					MinTime: 100 * time.Millisecond,
+				},
+				inputSize:          5,
+				wantProcessingSize: 5, // EOF > MinTime
+			},
 		}
 
 		for _, test := range tests {
 			test := test
 			t.Run(test.name, func(t *testing.T) {
-				t.Parallel()
+				//t.Parallel()
 
 				inputSlice := make([]interface{}, test.inputSize)
 				for i := 0; i < len(inputSlice); i++ {
@@ -325,7 +426,8 @@ func TestBatch_Go(t *testing.T) {
 
 				batch := Must(New(test.config))
 				s := &sourceFromSlice{
-					slice: inputSlice,
+					slice:    inputSlice,
+					duration: test.inputDuration,
 				}
 				p := &processorCounter{}
 
