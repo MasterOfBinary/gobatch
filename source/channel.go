@@ -6,7 +6,7 @@ type channelSource struct {
 	items <-chan interface{}
 }
 
-// Channel creates a Source that reads from items until items is closed.
+// Channel returns a Source that reads from items until items is closed.
 // The items channel can be buffered or unbuffered.
 //
 // Note that it will not return until items is closed, even if ctx is

@@ -1,10 +1,29 @@
 package gobatch
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/MasterOfBinary/gobatch/processor"
+	"github.com/MasterOfBinary/gobatch/source"
 )
+
+type sourceFromSlice struct {
+	slice    []interface{}
+	duration time.Duration
+}
+
+func (s *sourceFromSlice) Read(ctx context.Context, items chan<- interface{}, errs chan<- error) {
+	defer close(items)
+	defer close(errs)
+
+	for _, item := range s.slice {
+		time.Sleep(s.duration)
+		items <- item
+	}
+}
 
 func TestMust(t *testing.T) {
 	batch, _ := New(nil)
@@ -105,4 +124,97 @@ func TestNew(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBatch_Go(t *testing.T) {
+	t.Run("concurrent calls", func(t *testing.T) {
+		t.Parallel()
+
+		// Concurrent calls to Go should panic
+		batch := &Batch{}
+		s := source.Nil(time.Second)
+		p := processor.Nil(0)
+
+		IgnoreErrors(batch.Go(context.Background(), s, p))
+
+		// Next call should panic
+		var panics bool
+		func() {
+			defer func() {
+				if p := recover(); p != nil {
+					panics = true
+				}
+			}()
+			IgnoreErrors(batch.Go(context.Background(), s, p))
+		}()
+
+		if !panics {
+			t.Error("Concurrent calls to batch.Go don't panic")
+		}
+	})
+}
+
+func TestBatch_Done(t *testing.T) {
+	t.Run("basic test", func(t *testing.T) {
+		t.Parallel()
+
+		batch := &Batch{}
+		s := source.Nil(0)
+		p := processor.Nil(0)
+
+		IgnoreErrors(batch.Go(context.Background(), s, p))
+
+		select {
+		case <-batch.Done():
+			break
+		case <-time.After(time.Second):
+			t.Error("Done channel never closed")
+		}
+	})
+
+	t.Run("with source sleep", func(t *testing.T) {
+		t.Parallel()
+
+		batch := &Batch{}
+		s := &sourceFromSlice{
+			slice:    []interface{}{1},
+			duration: 100 * time.Millisecond,
+		}
+		p := processor.Nil(10 * time.Millisecond)
+
+		timer := time.After(100 * time.Millisecond)
+		IgnoreErrors(batch.Go(context.Background(), s, p))
+
+		select {
+		case <-batch.Done():
+			t.Error("Done channel closed before source")
+		case <-timer:
+			break
+		case <-time.After(time.Second):
+			t.Error("Done channel never closed")
+		}
+	})
+
+	t.Run("with processor sleep", func(t *testing.T) {
+		t.Parallel()
+
+		batch := &Batch{}
+		s := &sourceFromSlice{
+			slice:    []interface{}{1},
+			duration: 10 * time.Millisecond,
+		}
+		p := processor.Nil(100 * time.Millisecond)
+
+		timer := time.After(100 * time.Millisecond)
+		IgnoreErrors(batch.Go(context.Background(), s, p))
+
+		select {
+		case <-batch.Done():
+			t.Error("Done channel closed before processor")
+		case <-timer:
+			break
+		case <-time.After(time.Second):
+			t.Error("Done channel never closed")
+		}
+	})
 }
