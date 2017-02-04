@@ -30,9 +30,10 @@ func (p printProcessor) Process(ctx context.Context, items []interface{}, errs c
 
 func Example() {
 	// Create a Batch implementation that processes items 5 at a time
-	b := gobatch.Must(gobatch.NewBuilder().
-		WithMinItems(5).
-		Batch())
+	config := &gobatch.BatchConfig{
+		MinItems: 5,
+	}
+	b := gobatch.Must(gobatch.New(config))
 	p := &printProcessor{}
 
 	// source.Channel reads from a channel until it's closed
@@ -54,7 +55,7 @@ func Example() {
 	}()
 
 	// Wait for errors. When the error channel is closed the pipeline has been
-	// completely drained
+	// completely drained. Alternatively, we could wait for Done.
 	var lastErr error
 	for err := range errs {
 		lastErr = err

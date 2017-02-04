@@ -13,9 +13,11 @@ func ExampleMust() {
 		}
 	}()
 
-	b := gobatch.Must(gobatch.NewBuilder().
-		WithReadConcurrency(0).
-		Batch())
+	badConfig := &gobatch.BatchConfig{
+		MinItems: 5,
+		MaxItems: 1,
+	}
+	b := gobatch.Must(gobatch.New(badConfig))
 
 	// Do something with b...
 	_ = b
