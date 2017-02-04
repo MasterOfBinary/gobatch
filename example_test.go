@@ -31,14 +31,14 @@ func (p printProcessor) Process(ctx context.Context, items []interface{}, errs c
 }
 
 func Example() {
-	// Create a Batch implementation that processes items 5 at a time
+	// Create a batch processor that processes items 5 at a time
 	config := gobatch.NewConstantBatchConfig(&gobatch.BatchConfigValues{
 		MinItems: 5,
 	})
 	b := gobatch.New(config, 1)
 	p := &printProcessor{}
 
-	// The channel source reads from a channel until it's closed
+	// The channel Source reads from a channel until it's closed
 	ch := make(chan interface{})
 	s := source.Channel(ch)
 

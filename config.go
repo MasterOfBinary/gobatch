@@ -42,7 +42,7 @@ type BatchConfigValues struct {
 }
 
 // NewConstantBatchConfig returns a BatchConfig with constant values. If values
-// is nil, the default values are used.
+// is nil, the default values are used as described in Batch.
 func NewConstantBatchConfig(values *BatchConfigValues) BatchConfig {
 	if values == nil {
 		values = &BatchConfigValues{}

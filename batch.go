@@ -114,9 +114,6 @@ func New(config BatchConfig, readConcurrency uint64) *Batch {
 // done, it closes its error channel to signal to the batch processor.
 // Finally, the batch processor signals to its caller that processing is
 // complete and the entire pipeline is drained.
-//
-// Note that the BatchConfig values are read at the beginning of each
-// "iteration", which is after the previous batch starts to process.
 func (b *Batch) Go(ctx context.Context, s source.Source, p processor.Processor) <-chan error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -227,7 +224,7 @@ func (b *Batch) process(ctx context.Context) {
 		bufSize uint64
 	)
 
-	// Loop, processing one batch each time
+	// Process one batch each time
 	for !done {
 		config := b.config.Get()
 

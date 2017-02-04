@@ -28,6 +28,8 @@
 // MaxItems = 10, MinTime = 2s. After 1s, 10 items have been read. They aren't
 // processed until 2s has passed.
 //
-// Note that the time and item counters are relative to when the last batch
-// started processing.
+// Note that the timers and item counters are relative to the time when the
+// previous batch started processing. Just before the timers and counters are
+// started the config is read from the BatchConfig interface. This is so that
+// the configuration can be changed at any time during processing.
 package gobatch
