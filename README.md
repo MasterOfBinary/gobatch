@@ -90,7 +90,7 @@ func (p printProcessor) Process(ctx context.Context, items []interface{}, errs c
 
 func main() {
 	// Use default config
-	b := gobatch.Must(gobatch.New(nil))
+	b := gobatch.New(nil, 1)
 	p := &printProcessor{}
 	s := &oneItemSource{}
 
