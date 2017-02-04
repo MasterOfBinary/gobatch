@@ -1,14 +1,18 @@
 // Package gobatch contains a batch processor. The main class is Batch,
-// which can be created using New.
+// which can be created using New. It reads from an implementation of the
+// source.Source interface, and items are processed in batches by an
+// implementation of the processor.Processor interface. Some Source and
+// Processor implementations are provided in the source and processor
+// packages, respectively, or you can create your own custom one.
 //
-// The MinTime, MinItems, MaxTime, and MaxItems configuration parameters
-// in BatchConfig are used to specify when and how many items are processed
-// at once.
+// Batch uses the MinTime, MinItems, MaxTime, and MaxItems configuration
+// parameters in BatchConfig to determine when and how many items are
+// processed at once.
 //
 // These parameters may conflict, however; for example, during a slow time,
 // MaxTime may be reached before MinItems are read. Thus it is necessary
-// to prioritize the parameters. They are prioritized as follows (with EOF
-// signifying the end of the input data):
+// to prioritize the parameters in some way. They are prioritized as follows
+// (with EOF signifying the end of the input data):
 //
 //    MaxTime = MaxItems > EOF > MinItems > MinTime
 //
@@ -24,6 +28,6 @@
 // MaxItems = 10, MinTime = 2s. After 1s, 10 items have been read. They are
 // processed right away.
 //
-// Note that in all cases, the time and item counter is relative to the last
-// batch.
+// Note that the time and item counters are relative to when the last batch
+// started processing.
 package gobatch
