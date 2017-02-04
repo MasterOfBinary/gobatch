@@ -152,6 +152,64 @@ func TestBatch_Go(t *testing.T) {
 			t.Error("Concurrent calls to batch.Go don't panic")
 		}
 	})
+
+	t.Run("source error", func(t *testing.T) {
+		t.Parallel()
+
+		errSrc := errors.New("source")
+		batch := &Batch{}
+		s := source.Error(errSrc)
+		p := processor.Nil(0)
+
+		errs := batch.Go(context.Background(), s, p)
+
+		var found bool
+		for err := range errs {
+			if src, ok := err.(*SourceError); ok {
+				if src.Original() == errSrc {
+					found = true
+				} else {
+					t.Error("Found source error %v, want %v", src.Original(), errSrc)
+				}
+			} else {
+				t.Error("Found an unexpected error")
+			}
+		}
+
+		if !found {
+			t.Error("Did not find source error")
+		}
+	})
+
+	t.Run("processor error", func(t *testing.T) {
+		t.Parallel()
+
+		errProc := errors.New("processor")
+		batch := &Batch{}
+		s := &sourceFromSlice{
+			slice: []interface{}{1},
+		}
+		p := processor.Error(errProc)
+
+		errs := batch.Go(context.Background(), s, p)
+
+		var found bool
+		for err := range errs {
+			if proc, ok := err.(*ProcessorError); ok {
+				if proc.Original() == errProc {
+					found = true
+				} else {
+					t.Error("Found processor error %v, want %v", proc.Original(), errProc)
+				}
+			} else {
+				t.Error("Found an unexpected error")
+			}
+		}
+
+		if !found {
+			t.Error("Did not find processor error")
+		}
+	})
 }
 
 func TestBatch_Done(t *testing.T) {
