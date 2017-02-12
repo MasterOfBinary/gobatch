@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"math/rand"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/MasterOfBinary/gobatch/item"
 	"github.com/MasterOfBinary/gobatch/processor"
 	"github.com/MasterOfBinary/gobatch/source"
 )
@@ -18,23 +18,24 @@ type sourceFromSlice struct {
 	duration time.Duration
 }
 
-func (s *sourceFromSlice) Read(ctx context.Context, items chan<- interface{}, errs chan<- error) {
+func (s *sourceFromSlice) Read(ctx context.Context, source <-chan item.Item, items chan<- item.Item, errs chan<- error) {
 	defer close(items)
 	defer close(errs)
 
 	for _, item := range s.slice {
 		time.Sleep(s.duration)
-		items <- item
+		sourceItem := <-source
+		sourceItem.Set(item)
+		items <- sourceItem
 	}
 }
 
 type processorCounter struct {
-	mu         sync.Mutex
 	totalCount uint32
 	num        uint32
 }
 
-func (p *processorCounter) Process(ctx context.Context, items []interface{}, errs chan<- error) {
+func (p *processorCounter) Process(ctx context.Context, items []item.Item, errs chan<- error) {
 	atomic.AddUint32(&p.totalCount, uint32(len(items)))
 	atomic.AddUint32(&p.num, 1)
 	close(errs)
@@ -71,7 +72,7 @@ func TestBatch_Go(t *testing.T) {
 			if !ok {
 				break
 			} else {
-				t.Error("Unexpected error %v returned from batch.Go", err.Error())
+				t.Errorf("Unexpected error %v returned from batch.Go", err.Error())
 			}
 		case <-time.After(time.Second):
 			t.Error("err channel never closed")
@@ -94,7 +95,7 @@ func TestBatch_Go(t *testing.T) {
 			if !ok {
 				break
 			} else {
-				t.Error("Unexpected error %v returned from batch.Go", err.Error())
+				t.Errorf("Unexpected error %v returned from batch.Go", err.Error())
 			}
 		case <-time.After(time.Second):
 			t.Error("err channel never closed")
@@ -143,7 +144,7 @@ func TestBatch_Go(t *testing.T) {
 				if src.Original() == errSrc {
 					found = true
 				} else {
-					t.Error("Found source error %v, want %v", src.Original(), errSrc)
+					t.Errorf("Found source error %v, want %v", src.Original(), errSrc)
 				}
 			} else {
 				t.Error("Found an unexpected error")
@@ -173,7 +174,7 @@ func TestBatch_Go(t *testing.T) {
 				if proc.Original() == errProc {
 					found = true
 				} else {
-					t.Error("Found processor error %v, want %v", proc.Original(), errProc)
+					t.Errorf("Found processor error %v, want %v", proc.Original(), errProc)
 				}
 			} else {
 				t.Error("Found an unexpected error")

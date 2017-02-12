@@ -3,6 +3,8 @@ package processor
 import (
 	"context"
 	"time"
+
+	"github.com/MasterOfBinary/gobatch/item"
 )
 
 type nilProcessor struct {
@@ -18,7 +20,7 @@ func Nil(duration time.Duration) Processor {
 }
 
 // Process discards all data sent to it after a certain amount of time.
-func (p *nilProcessor) Process(ctx context.Context, items []interface{}, errs chan<- error) {
+func (p *nilProcessor) Process(ctx context.Context, items []item.Item, errs chan<- error) {
 	time.Sleep(p.duration)
 	close(errs)
 }

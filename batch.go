@@ -2,9 +2,11 @@ package gobatch
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
+	"github.com/MasterOfBinary/gobatch/item"
 	"github.com/MasterOfBinary/gobatch/processor"
 	"github.com/MasterOfBinary/gobatch/source"
 )
@@ -29,11 +31,10 @@ import (
 //
 // This is a simplified version of how the default Batch works:
 //
-//    items := make(chan interface{})
-//    errs := make(chan error)
-//    go source.Read(ctx, items, errs)
-//    for item := range items {
-//      go processor.Process(ctx, []interface{}{item}, errs)
+//    itemsCh := make(chan item.Item)
+//    go source.Read(ctx, srcCh, itemsCh, errsCh)
+//    for item := range itemsCh {
+//      go processor.Process(ctx, []processor.Item{item, errsCh)
 //    }
 //
 // Batch runs asynchronously until the source closes its channels, signaling that
@@ -71,7 +72,8 @@ type Batch struct {
 
 	src   source.Source
 	proc  processor.Processor
-	items chan interface{}
+	items chan *itemImpl
+	ids   chan uint64 // For unique IDs
 	done  chan struct{}
 
 	// mu protects the following variables. The reason errs is protected is
@@ -94,9 +96,9 @@ func New(config Config, readConcurrency uint64) *Batch {
 // which errors are written. When processing is done and the pipeline
 // is drained, the error channel is closed.
 //
-// Even though Go runs concurrently, concurrent calls to Go are not
-// allowed. If Go is called before a previous call completes, the second
-// one will panic.
+// Even though Go has several goroutines running concurrently, concurrent
+// calls to Go are not allowed. If Go is called before a previous call
+// completes, the second one will panic.
 //
 //    // NOTE: bad - this will panic!
 //    errs := batch.Go(ctx, s, p)
@@ -105,7 +107,7 @@ func New(config Config, readConcurrency uint64) *Batch {
 // Note that Go does not stop if ctx is done. Otherwise loss of data
 // could occur. Suppose the source reads item A and then ctx is canceled.
 // If Go were to return right away, item A would not be processed and it
-// would be lost forever.
+// would be lost.
 //
 // To avoid situations like that, a proper way to handle context completion
 // is for the source to check for ctx done and then close its channels. The
@@ -136,9 +138,11 @@ func (b *Batch) Go(ctx context.Context, s source.Source, p processor.Processor) 
 
 	b.src = s
 	b.proc = p
-	b.items = make(chan interface{})
+	b.items = make(chan *itemImpl)
+	b.ids = make(chan uint64)
 	b.done = make(chan struct{})
 
+	go b.doIDGenerator()
 	go b.doReaders(ctx)
 	go b.doProcessors(ctx)
 
@@ -150,6 +154,18 @@ func (b *Batch) Go(ctx context.Context, s source.Source, p processor.Processor) 
 // is done.
 func (b *Batch) Done() <-chan struct{} {
 	return b.done
+}
+
+// doIDGenerator generates unique IDs for the items in the pipeline.
+func (b *Batch) doIDGenerator() {
+	for id := uint64(0); ; id++ {
+		select {
+		case b.ids <- id:
+
+		case <-b.done:
+			return
+		}
+	}
 }
 
 func (b *Batch) doReaders(ctx context.Context) {
@@ -193,17 +209,31 @@ func (b *Batch) doProcessors(ctx context.Context) {
 }
 
 func (b *Batch) read(ctx context.Context) {
-	items := make(chan interface{})
+	itemSource := make(chan item.Item)
+	itemsOut := make(chan item.Item)
 	errs := make(chan error)
 
-	go b.src.Read(ctx, items, errs)
+	go b.src.Read(ctx, itemSource, itemsOut, errs)
+
+	nextItem := &itemImpl{
+		id: <-b.ids,
+	}
 
 	var itemsClosed, errsClosed bool
 	for !itemsClosed || !errsClosed {
 		select {
-		case item, ok := <-items:
+		case itemSource <- nextItem:
+			nextItem = &itemImpl{
+				id: <-b.ids,
+			}
+
+		case item, ok := <-itemsOut:
 			if ok {
-				b.items <- item
+				if impl, ok := item.(*itemImpl); ok {
+					b.items <- impl
+				} else {
+					b.errs <- errors.New("Item in itemsOut not from itemSource")
+				}
 			} else {
 				itemsClosed = true
 			}
@@ -248,7 +278,7 @@ func (b *Batch) process(ctx context.Context) {
 			reachedMinTime bool
 			itemsRead      uint64
 
-			items = make([]interface{}, 0, bufSize)
+			items = make([]item.Item, 0, bufSize)
 
 			minTimer <-chan time.Time
 			maxTimer <-chan time.Time

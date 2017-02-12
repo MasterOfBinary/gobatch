@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/MasterOfBinary/gobatch/item"
 )
 
 func TestChannelSource_Read(t *testing.T) {
@@ -15,15 +17,18 @@ func TestChannelSource_Read(t *testing.T) {
 	defer wg.Wait()
 
 	itemsIn := make(chan interface{}, size)
-	itemsOut := make(chan interface{})
+	itemsOut := make(chan item.Item)
 	errsOut := make(chan error)
+
+	itemGen := item.NewMockGenerator()
+	defer itemGen.Close()
 
 	s := Channel(itemsIn)
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		s.Read(ctx, itemsOut, errsOut)
+		s.Read(ctx, itemGen.GetCh(), itemsOut, errsOut)
 	}()
 
 	numItems := 10
@@ -36,9 +41,12 @@ func TestChannelSource_Read(t *testing.T) {
 	for item := range itemsOut {
 		if i > numItems-1 {
 			t.Fatalf("items in itemsOut > %v", i)
-		} else if item != i {
+		}
+
+		if item.Get() != i {
 			t.Errorf("itemsOut <- %v, want %v", item, i)
 		}
+
 		i++
 	}
 

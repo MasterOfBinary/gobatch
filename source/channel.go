@@ -1,6 +1,10 @@
 package source
 
-import "context"
+import (
+	"context"
+
+	"github.com/MasterOfBinary/gobatch/item"
+)
 
 type channelSource struct {
 	items <-chan interface{}
@@ -18,11 +22,13 @@ func Channel(items <-chan interface{}) Source {
 }
 
 // Read reads from items until the input channel is closed.
-func (s *channelSource) Read(ctx context.Context, items chan<- interface{}, errs chan<- error) {
+func (s *channelSource) Read(ctx context.Context, source <-chan item.Item, items chan<- item.Item, errs chan<- error) {
 	defer close(items)
 	defer close(errs)
 
 	for item := range s.items {
-		items <- item
+		itemSource := <-source
+		itemSource.Set(item)
+		items <- itemSource
 	}
 }

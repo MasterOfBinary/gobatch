@@ -3,6 +3,8 @@ package source
 import (
 	"context"
 	"time"
+
+	"github.com/MasterOfBinary/gobatch/item"
 )
 
 type nilSource struct {
@@ -18,7 +20,7 @@ func Nil(duration time.Duration) Source {
 }
 
 // Read doesn't read anything.
-func (s *nilSource) Read(ctx context.Context, items chan<- interface{}, errs chan<- error) {
+func (s *nilSource) Read(ctx context.Context, source <-chan item.Item, items chan<- item.Item, errs chan<- error) {
 	time.Sleep(s.duration)
 	close(items)
 	close(errs)

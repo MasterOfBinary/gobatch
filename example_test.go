@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/MasterOfBinary/gobatch"
+	"github.com/MasterOfBinary/gobatch/item"
 	"github.com/MasterOfBinary/gobatch/source"
 )
 
@@ -14,20 +15,23 @@ import (
 type printProcessor struct{}
 
 // Process processes items in batches.
-func (p printProcessor) Process(ctx context.Context, items []interface{}, errs chan<- error) {
+func (p printProcessor) Process(ctx context.Context, items []item.Item, errs chan<- error) {
 	// Process needs to close the error channel after it's done
 	defer close(errs)
+
+	toPrint := make([]interface{}, 0, len(items))
 
 	// This processor prints all the items in a line. If items includes 5 it removes
 	// it and throws an error for no reason
 	for i := 0; i < len(items); i++ {
-		if items[i] == 5 {
+		if items[i].Get() == 5 {
 			errs <- errors.New("Cannot process 5")
-			items = append(items[:i], items[i+1:]...)
+		} else {
+			toPrint = append(toPrint, items[i].Get())
 		}
 	}
 
-	fmt.Println(items)
+	fmt.Println(toPrint)
 }
 
 func Example() {

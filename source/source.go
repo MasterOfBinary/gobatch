@@ -1,6 +1,10 @@
 package source
 
-import "context"
+import (
+	"context"
+
+	"github.com/MasterOfBinary/gobatch/item"
+)
 
 // Source reads items that are to be batch processed.
 type Source interface {
@@ -11,10 +15,12 @@ type Source interface {
 	// errs need to be closed. This signals to Batch that it should drain
 	// the pipeline and finish. It is not enough for Read to return.
 	//
-	//    func (s source) Read(ctx context.Context, items chan<- interface{}, errs chan<- error) {
+	//    func (s source) Read(ctx context.Context, items chan<- Item, errs chan<- error) {
 	//      defer close(items)
 	//      defer close(errs)
-	//      // Read items here...
+	//      // Read items until done...
 	//    }
-	Read(ctx context.Context, items chan<- interface{}, errs chan<- error)
+	//
+	// Read should not modify an item after adding it to items.
+	Read(ctx context.Context, source <-chan item.Item, items chan<- item.Item, errs chan<- error)
 }

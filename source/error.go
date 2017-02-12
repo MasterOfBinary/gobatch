@@ -1,6 +1,10 @@
 package source
 
-import "context"
+import (
+	"context"
+
+	"github.com/MasterOfBinary/gobatch/item"
+)
 
 type errorSource struct {
 	err error
@@ -15,7 +19,7 @@ func Error(err error) Source {
 }
 
 // Read returns an error and then closes.
-func (s *errorSource) Read(ctx context.Context, items chan<- interface{}, errs chan<- error) {
+func (s *errorSource) Read(ctx context.Context, source <-chan item.Item, items chan<- item.Item, errs chan<- error) {
 	errs <- s.err
 	close(items)
 	close(errs)

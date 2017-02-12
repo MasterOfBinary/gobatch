@@ -1,6 +1,10 @@
 package processor
 
-import "context"
+import (
+	"context"
+
+	"github.com/MasterOfBinary/gobatch/item"
+)
 
 // Processor processes items in batches.
 type Processor interface {
@@ -24,5 +28,5 @@ type Processor interface {
 	//        fmt.Println(items)
 	//      }()
 	//    }
-	Process(ctx context.Context, items []interface{}, errs chan<- error)
+	Process(ctx context.Context, items []item.Item, errs chan<- error)
 }

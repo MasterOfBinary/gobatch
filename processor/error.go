@@ -1,6 +1,10 @@
 package processor
 
-import "context"
+import (
+	"context"
+
+	"github.com/MasterOfBinary/gobatch/item"
+)
 
 type errorProcessor struct {
 	err error
@@ -14,7 +18,7 @@ func Error(err error) Processor {
 }
 
 // Process discards all data sent to it after a certain amount of time.
-func (p *errorProcessor) Process(ctx context.Context, items []interface{}, errs chan<- error) {
+func (p *errorProcessor) Process(ctx context.Context, items []item.Item, errs chan<- error) {
 	errs <- p.err
 	close(errs)
 }
