@@ -22,6 +22,10 @@ together based on its configuration.
 3. `Batch` sends the items in batches, as an interface slice, to the `Processor`
 which does whatever is necessary with the data.
 
+NOTE: GoBatch is new and currently in an unstable state. Compatibility may be
+broken at any time on the master branch. If you need a stable release, wait for
+version 1.
+
 Features
 --------
 
