@@ -6,9 +6,9 @@ GoBatch
 [![GoDoc](https://godoc.org/github.com/MasterOfBinary/gobatch?status.svg)](https://godoc.org/github.com/MasterOfBinary/gobatch)
 
 GoBatch is a batch processing library for Go. By using interfaces for the
-reader (`source.Source`) and processor (`processor.Processor`), the actual
+reader (`batch.Source`) and processor (`batch.Processor`), the actual
 data input and processing of a batch of items is done by the user, while the
-`Batch` structure provided by the GoBatch library handles the rest of the
+`batch.Batch` structure provided by the GoBatch library handles the rest of the
 pipeline.
 
 The batch pipeline consists of several stages:
@@ -33,7 +33,7 @@ Features
 * Errors are returned over a channel, so that they can be logged or otherwise
 handled.
 * Channels are used throughout the library, not just for errors. Everything is
-(or can be, depending on its config) highly concurrent.
+(or can be) highly concurrent.
 
 Documentation
 -------------
@@ -52,68 +52,7 @@ GoBatch doesn't require any dependencies except Go 1.7 and its standard library.
 Example
 -------
 
-The [GoDocs](https://godoc.org/github.com/MasterOfBinary/gobatch) provide a different
-example that includes error handling and a `Source` provided by GoBatch. This one is
-the bare minimum to get GoBatch to work with a custom `Source` and `Processor`.
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-
-	"github.com/MasterOfBinary/gobatch"
-)
-
-// oneItemSource implements the source.Source interface.
-type oneItemSource struct{}
-
-// Read reads a single item and finishes.
-func (s *oneItemSource) Read(ctx context.Context, items chan<- interface{}, errs chan<- error) {
-	items <- 1
-
-	// Read needs to close the channels after it's done
-	close(items)
-	close(errs)
-}
-
-// printProcessor implements the processor.Processor interface.
-type printProcessor struct{}
-
-// Process processes items in batches (although in this example it's batches
-// of 1 item).
-func (p printProcessor) Process(ctx context.Context, items []interface{}, errs chan<- error) {
-	// This processor prints all the items in a line
-	fmt.Println(items)
-
-	// Process needs to close the error channel after it's done
-	close(errs)
-}
-
-func main() {
-	// Use default config and 1 read goroutine
-	b := gobatch.New(nil, 1)
-	p := &printProcessor{}
-	s := &oneItemSource{}
-
-	// Go runs in the background while the main goroutine processes errors. IgnoreErrors
-	// reads the errors from the error channel and just ignores them.
-	gobatch.IgnoreErrors(b.Go(context.Background(), s, p))
-
-	// Wait for it to finish
-	<-b.Done()
-
-	fmt.Println("Finished processing.")
-}
-```
-
-Output:
-
-```
-[1]
-Finished processing.
-```
+See the [GoDocs](https://godoc.org/github.com/MasterOfBinary/gobatch) for examples.
 
 License
 -------
