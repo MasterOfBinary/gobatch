@@ -16,41 +16,41 @@ func TestChannelSource_Read(t *testing.T) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
-	itemsIn := make(chan interface{}, size)
-	itemsOut := make(chan *batch.Item)
-	errsOut := make(chan error)
+	in := make(chan interface{}, size)
+	items := make(chan *batch.Item)
+	errs := make(chan error)
 
 	itemGen := batch.NewMockItemGenerator()
 	defer itemGen.Close()
 
-	s := Channel(itemsIn)
+	s := Channel(in)
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		s.Read(ctx, itemGen.GetCh(), itemsOut, errsOut)
+		s.Read(ctx, itemGen.GetCh(), items, errs)
 	}()
 
 	numItems := 10
 	for i := 0; i < numItems; i++ {
-		itemsIn <- i
+		in <- i
 	}
-	close(itemsIn)
+	close(in)
 
 	i := 0
-	for item := range itemsOut {
+	for item := range items {
 		if i > numItems-1 {
-			t.Fatalf("items in itemsOut > %v", i)
+			t.Fatalf("items in items > %v", i)
 		}
 
 		if item.Get() != i {
-			t.Errorf("itemsOut <- %v, want %v", item, i)
+			t.Errorf("items <- %v, want %v", item, i)
 		}
 
 		i++
 	}
 
 	if i < numItems {
-		t.Errorf("items in itemsOut < %v", i)
+		t.Errorf("items in items < %v", i)
 	}
 }

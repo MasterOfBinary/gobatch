@@ -32,8 +32,8 @@ import (
 //      go processor.Process(ctx, []processor.Item{item, errsCh)
 //    }
 //
-// Batch runs asynchronously until the source closes its channels, signaling that
-// there is nothing else to process. Once that happens, and the pipeline has
+// Batch runs asynchronously until the source closes its write channels, signaling
+// that there is nothing else to process. Once that happens, and the pipeline has
 // been drained (all items have been processed), there are two ways for the
 // caller to know: the error channel returned from Go is closed, or the channel
 // returned from Done is closed.
@@ -89,21 +89,27 @@ func New(config Config, readConcurrency uint64) *Batch {
 
 // Source reads items that are to be batch processed.
 type Source interface {
-	// Read reads items and writes them to the items channel. Any errors
-	// it encounters while reading are written to the errs channel.
+	// Read reads items from somewhere and writes them to the items
+	// channel. Any errors it encounters while reading are written to the
+	// errs channel. The in channel provides a steady stream of Items that
+	// have pre-set data so the batch processor can identify them. A helper
+	// function, NextItem, is provided to retrieve an item from the channel,
+	// set it, and return it:
+	//
+	//    items <- batch.NextItem(in, myData)
 	//
 	// Once reading is finished (or when the program ends) both items and
 	// errs need to be closed. This signals to Batch that it should drain
 	// the pipeline and finish. It is not enough for Read to return.
 	//
-	//    func (s source) Read(ctx context.Context, items chan<- Item, errs chan<- error) {
+	//    func (s source) Read(ctx context.Context, in <-chan *Item, items chan<- *Item, errs chan<- error) {
 	//      defer close(items)
 	//      defer close(errs)
 	//      // Read items until done...
 	//    }
 	//
 	// Read should not modify an item after adding it to items.
-	Read(ctx context.Context, source <-chan *Item, items chan<- *Item, errs chan<- error)
+	Read(ctx context.Context, in <-chan *Item, items chan<- *Item, errs chan<- error)
 }
 
 // Processor processes items in batches.
@@ -131,7 +137,7 @@ type Processor interface {
 	Process(ctx context.Context, items []*Item, errs chan<- error)
 }
 
-// Go starts batch processing asynchronously and returns a channel to
+// Go starts batch processing asynchronously and returns a channel on
 // which errors are written. When processing is done and the pipeline
 // is drained, the error channel is closed.
 //
@@ -143,10 +149,9 @@ type Processor interface {
 //    errs := batch.Go(ctx, s, p)
 //    errs2 := batch.Go(ctx, s, p) // this call panics
 //
-// Note that Go does not stop if ctx is done. Otherwise loss of data
-// could occur. Suppose the source reads item A and then ctx is canceled.
-// If Go were to return right away, item A would not be processed and it
-// would be lost.
+// Note that Go does not stop if ctx is done. Otherwise loss of data could occur.
+// Suppose the source reads item A and then ctx is canceled. If Go were to return
+// right away, item A would not be processed and it would be lost.
 //
 // To avoid situations like that, a proper way to handle context completion
 // is for the source to check for ctx done and then close its channels. The
@@ -156,6 +161,9 @@ type Processor interface {
 // Finally, the batch processor signals to its caller that processing is
 // complete and the entire pipeline is drained.
 func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -207,11 +215,8 @@ func (b *Batch) doIDGenerator() {
 	}
 }
 
+// doReaders starts the reader goroutines.
 func (b *Batch) doReaders(ctx context.Context) {
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-	defer cancel()
-
 	var wg sync.WaitGroup
 	for i := uint64(0); i < b.readConcurrency; i++ {
 		wg.Add(1)
@@ -225,17 +230,13 @@ func (b *Batch) doReaders(ctx context.Context) {
 	close(b.items)
 }
 
+// doProcessors starts the processor goroutine.
 func (b *Batch) doProcessors(ctx context.Context) {
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-	defer cancel()
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		b.process(ctx)
-
 	}()
 	wg.Wait()
 

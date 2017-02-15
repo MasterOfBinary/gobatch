@@ -22,13 +22,11 @@ func Channel(items <-chan interface{}) batch.Source {
 }
 
 // Read reads from items until the input channel is closed.
-func (s *channelSource) Read(ctx context.Context, source <-chan *batch.Item, items chan<- *batch.Item, errs chan<- error) {
+func (s *channelSource) Read(ctx context.Context, in <-chan *batch.Item, items chan<- *batch.Item, errs chan<- error) {
 	defer close(items)
 	defer close(errs)
 
 	for item := range s.items {
-		itemSource := <-source
-		itemSource.Set(item)
-		items <- itemSource
+		items <- batch.NextItem(in, item)
 	}
 }

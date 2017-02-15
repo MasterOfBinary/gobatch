@@ -18,15 +18,13 @@ type sourceFromSlice struct {
 	duration time.Duration
 }
 
-func (s *sourceFromSlice) Read(ctx context.Context, source <-chan *Item, items chan<- *Item, errs chan<- error) {
+func (s *sourceFromSlice) Read(ctx context.Context, in <-chan *Item, items chan<- *Item, errs chan<- error) {
 	defer close(items)
 	defer close(errs)
 
 	for _, item := range s.slice {
 		time.Sleep(s.duration)
-		sourceItem := <-source
-		sourceItem.Set(item)
-		items <- sourceItem
+		items <- NextItem(in, item)
 	}
 }
 
