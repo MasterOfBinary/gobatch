@@ -9,21 +9,21 @@ type Item struct {
 	item interface{}
 }
 
-// GetID implements the item.Item interface.
+// GetID returns a unique ID of the current item in the pipeline.
 func (i *Item) GetID() uint64 {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 	return i.id
 }
 
-// Get implements the item.Item interface.
+// Get returns the item data.
 func (i *Item) Get() interface{} {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 	return i.item
 }
 
-// Set implements the item.Item interface.
+// Set sets the item data.
 func (i *Item) Set(item interface{}) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
