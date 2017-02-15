@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/MasterOfBinary/gobatch/item"
+	"github.com/MasterOfBinary/gobatch/batch"
 )
 
 type nilProcessor struct {
@@ -13,14 +13,14 @@ type nilProcessor struct {
 
 // Nil returns a Processor that discards all data after a specified duration.
 // It can be used as a mock Processor.
-func Nil(duration time.Duration) Processor {
+func Nil(duration time.Duration) batch.Processor {
 	return &nilProcessor{
 		duration: duration,
 	}
 }
 
 // Process discards all data sent to it after a certain amount of time.
-func (p *nilProcessor) Process(ctx context.Context, items []item.Item, errs chan<- error) {
+func (p *nilProcessor) Process(ctx context.Context, items []*batch.Item, errs chan<- error) {
 	time.Sleep(p.duration)
 	close(errs)
 }

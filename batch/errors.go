@@ -1,4 +1,4 @@
-package gobatch
+package batch
 
 // IgnoreErrors starts a goroutine that reads errors from errs but ignores them.
 // It can be used with Batch.Go if errors aren't needed. Since the error channel

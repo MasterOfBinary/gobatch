@@ -3,7 +3,7 @@ package source
 import (
 	"context"
 
-	"github.com/MasterOfBinary/gobatch/item"
+	"github.com/MasterOfBinary/gobatch/batch"
 )
 
 type errorSource struct {
@@ -12,14 +12,14 @@ type errorSource struct {
 
 // Error returns a Source that returns an error and then closes immediately.
 // It can be used as a mock Source.
-func Error(err error) Source {
+func Error(err error) batch.Source {
 	return &errorSource{
 		err: err,
 	}
 }
 
 // Read returns an error and then closes.
-func (s *errorSource) Read(ctx context.Context, source <-chan item.Item, items chan<- item.Item, errs chan<- error) {
+func (s *errorSource) Read(ctx context.Context, source <-chan *batch.Item, items chan<- *batch.Item, errs chan<- error) {
 	errs <- s.err
 	close(items)
 	close(errs)

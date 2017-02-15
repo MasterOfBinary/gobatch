@@ -1,4 +1,4 @@
-package gobatch
+package batch
 
 import (
 	"errors"

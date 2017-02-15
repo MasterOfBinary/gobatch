@@ -1,14 +1,9 @@
-package gobatch
+package batch
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
-
-	"github.com/MasterOfBinary/gobatch/item"
-	"github.com/MasterOfBinary/gobatch/processor"
-	"github.com/MasterOfBinary/gobatch/source"
 )
 
 // Batch provides batch processing given an Source and a Processor. Data is
@@ -70,9 +65,9 @@ type Batch struct {
 	config          Config
 	readConcurrency uint64
 
-	src   source.Source
-	proc  processor.Processor
-	items chan *itemImpl
+	src   Source
+	proc  Processor
+	items chan *Item
 	ids   chan uint64 // For unique IDs
 	done  chan struct{}
 
@@ -90,6 +85,50 @@ func New(config Config, readConcurrency uint64) *Batch {
 		config:          config,
 		readConcurrency: readConcurrency,
 	}
+}
+
+// Source reads items that are to be batch processed.
+type Source interface {
+	// Read reads items and writes them to the items channel. Any errors
+	// it encounters while reading are written to the errs channel.
+	//
+	// Once reading is finished (or when the program ends) both items and
+	// errs need to be closed. This signals to Batch that it should drain
+	// the pipeline and finish. It is not enough for Read to return.
+	//
+	//    func (s source) Read(ctx context.Context, items chan<- Item, errs chan<- error) {
+	//      defer close(items)
+	//      defer close(errs)
+	//      // Read items until done...
+	//    }
+	//
+	// Read should not modify an item after adding it to items.
+	Read(ctx context.Context, source <-chan *Item, items chan<- *Item, errs chan<- error)
+}
+
+// Processor processes items in batches.
+type Processor interface {
+	// Process processes items and returns any errors on the errs channel.
+	// When it is done, it must close the errs channel to signify that it's
+	// finished processing. Simply returning isn't enough.
+	//
+	//    func (p *processor) Process(ctx context.Context, items []interface{}, errs chan<- error) {
+	//      defer close(errs)
+	//      // Do processing here...
+	//    }
+	//
+	// Batch does not wait for Process to finish, so it can spawn a
+	// goroutine and then return, as long as errs is closed at the end.
+	//
+	//    // This is ok
+	//    func (p *processor) Process(ctx context.Context, items []interface{}, errs chan<- error) {
+	//      go func() {
+	//        defer close(errs)
+	//        time.Sleep(time.Second)
+	//        fmt.Println(items)
+	//      }()
+	//    }
+	Process(ctx context.Context, items []*Item, errs chan<- error)
 }
 
 // Go starts batch processing asynchronously and returns a channel to
@@ -116,7 +155,7 @@ func New(config Config, readConcurrency uint64) *Batch {
 // done, it closes its error channel to signal to the batch processor.
 // Finally, the batch processor signals to its caller that processing is
 // complete and the entire pipeline is drained.
-func (b *Batch) Go(ctx context.Context, s source.Source, p processor.Processor) <-chan error {
+func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -138,7 +177,7 @@ func (b *Batch) Go(ctx context.Context, s source.Source, p processor.Processor) 
 
 	b.src = s
 	b.proc = p
-	b.items = make(chan *itemImpl)
+	b.items = make(chan *Item)
 	b.ids = make(chan uint64)
 	b.done = make(chan struct{})
 
@@ -209,13 +248,13 @@ func (b *Batch) doProcessors(ctx context.Context) {
 }
 
 func (b *Batch) read(ctx context.Context) {
-	itemSource := make(chan item.Item)
-	itemsOut := make(chan item.Item)
+	itemSource := make(chan *Item)
+	itemsOut := make(chan *Item)
 	errs := make(chan error)
 
 	go b.src.Read(ctx, itemSource, itemsOut, errs)
 
-	nextItem := &itemImpl{
+	nextItem := &Item{
 		id: <-b.ids,
 	}
 
@@ -223,20 +262,17 @@ func (b *Batch) read(ctx context.Context) {
 	for !itemsClosed || !errsClosed {
 		select {
 		case itemSource <- nextItem:
-			nextItem = &itemImpl{
+			nextItem = &Item{
 				id: <-b.ids,
 			}
 
 		case item, ok := <-itemsOut:
 			if ok {
-				if impl, ok := item.(*itemImpl); ok {
-					b.items <- impl
-				} else {
-					b.errs <- errors.New("Item in itemsOut not from itemSource")
-				}
+				b.items <- item
 			} else {
 				itemsClosed = true
 			}
+
 		case err, ok := <-errs:
 			if ok {
 				b.errs <- newSourceError(err)
@@ -278,7 +314,7 @@ func (b *Batch) process(ctx context.Context) {
 			reachedMinTime bool
 			itemsRead      uint64
 
-			items = make([]item.Item, 0, bufSize)
+			items = make([]*Item, 0, bufSize)
 
 			minTimer <-chan time.Time
 			maxTimer <-chan time.Time

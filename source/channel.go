@@ -3,7 +3,7 @@ package source
 import (
 	"context"
 
-	"github.com/MasterOfBinary/gobatch/item"
+	"github.com/MasterOfBinary/gobatch/batch"
 )
 
 type channelSource struct {
@@ -15,14 +15,14 @@ type channelSource struct {
 //
 // Note that it will not return until items is closed, even if ctx is
 // canceled. Otherwise data could be lost in the pipeline.
-func Channel(items <-chan interface{}) Source {
+func Channel(items <-chan interface{}) batch.Source {
 	return &channelSource{
 		items: items,
 	}
 }
 
 // Read reads from items until the input channel is closed.
-func (s *channelSource) Read(ctx context.Context, source <-chan item.Item, items chan<- item.Item, errs chan<- error) {
+func (s *channelSource) Read(ctx context.Context, source <-chan *batch.Item, items chan<- *batch.Item, errs chan<- error) {
 	defer close(items)
 	defer close(errs)
 

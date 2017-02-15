@@ -1,4 +1,4 @@
-package gobatch_test
+package batch_test
 
 import (
 	"context"
@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/MasterOfBinary/gobatch"
-	"github.com/MasterOfBinary/gobatch/item"
+	"github.com/MasterOfBinary/gobatch/batch"
 	"github.com/MasterOfBinary/gobatch/source"
 )
 
@@ -15,7 +14,7 @@ import (
 type printProcessor struct{}
 
 // Process processes items in batches.
-func (p printProcessor) Process(ctx context.Context, items []item.Item, errs chan<- error) {
+func (p printProcessor) Process(ctx context.Context, items []*batch.Item, errs chan<- error) {
 	// Process needs to close the error channel after it's done
 	defer close(errs)
 
@@ -36,10 +35,10 @@ func (p printProcessor) Process(ctx context.Context, items []item.Item, errs cha
 
 func Example() {
 	// Create a batch processor that processes items 5 at a time
-	config := gobatch.ConstantConfig(&gobatch.ConfigValues{
+	config := batch.ConstantConfig(&batch.ConfigValues{
 		MinItems: 5,
 	})
-	b := gobatch.New(config, 1)
+	b := batch.New(config, 1)
 	p := &printProcessor{}
 
 	// The channel Source reads from a channel until it's closed

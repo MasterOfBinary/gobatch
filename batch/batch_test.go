@@ -1,4 +1,4 @@
-package gobatch
+package batch_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MasterOfBinary/gobatch/item"
+	. "github.com/MasterOfBinary/gobatch/batch"
 	"github.com/MasterOfBinary/gobatch/processor"
 	"github.com/MasterOfBinary/gobatch/source"
 )
@@ -18,7 +18,7 @@ type sourceFromSlice struct {
 	duration time.Duration
 }
 
-func (s *sourceFromSlice) Read(ctx context.Context, source <-chan item.Item, items chan<- item.Item, errs chan<- error) {
+func (s *sourceFromSlice) Read(ctx context.Context, source <-chan *Item, items chan<- *Item, errs chan<- error) {
 	defer close(items)
 	defer close(errs)
 
@@ -35,7 +35,7 @@ type processorCounter struct {
 	num        uint32
 }
 
-func (p *processorCounter) Process(ctx context.Context, items []item.Item, errs chan<- error) {
+func (p *processorCounter) Process(ctx context.Context, items []*Item, errs chan<- error) {
 	atomic.AddUint32(&p.totalCount, uint32(len(items)))
 	atomic.AddUint32(&p.num, 1)
 	close(errs)

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/MasterOfBinary/gobatch/item"
+	"github.com/MasterOfBinary/gobatch/batch"
 )
 
 func TestChannelSource_Read(t *testing.T) {
@@ -17,10 +17,10 @@ func TestChannelSource_Read(t *testing.T) {
 	defer wg.Wait()
 
 	itemsIn := make(chan interface{}, size)
-	itemsOut := make(chan item.Item)
+	itemsOut := make(chan *batch.Item)
 	errsOut := make(chan error)
 
-	itemGen := item.NewMockGenerator()
+	itemGen := batch.NewMockItemGenerator()
 	defer itemGen.Close()
 
 	s := Channel(itemsIn)
