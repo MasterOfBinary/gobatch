@@ -10,7 +10,7 @@ type Config interface {
 	//
 	// If MinItems > MaxItems or MinTime > MaxTime, the min value will be
 	// set to the maximum value.
-	Get() *ConfigValues
+	Get() ConfigValues
 }
 
 // ConfigValues is a struct that contains the Batch config values.
@@ -57,6 +57,6 @@ type constantConfig struct {
 }
 
 // Get implements the Config interface.
-func (b *constantConfig) Get() *ConfigValues {
-	return &b.values
+func (b *constantConfig) Get() ConfigValues {
+	return b.values
 }

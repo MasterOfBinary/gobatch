@@ -38,7 +38,7 @@ func Example() {
 	config := batch.ConstantConfig(&batch.ConfigValues{
 		MinItems: 5,
 	})
-	b := batch.New(config, 1)
+	b := batch.New(config)
 	p := &printProcessor{}
 
 	// The channel Source reads from a channel until it's closed

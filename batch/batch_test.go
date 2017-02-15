@@ -77,29 +77,6 @@ func TestBatch_Go(t *testing.T) {
 		}
 	})
 
-	t.Run("concurrent test", func(t *testing.T) {
-		t.Parallel()
-
-		batch := New(nil, 5)
-		s := &sourceFromSlice{
-			slice: []interface{}{1, 2, 3, 4, 5},
-		}
-		p := processor.Nil(0)
-
-		errs := batch.Go(context.Background(), s, p)
-
-		select {
-		case err, ok := <-errs:
-			if !ok {
-				break
-			} else {
-				t.Errorf("Unexpected error %v returned from batch.Go", err.Error())
-			}
-		case <-time.After(time.Second):
-			t.Error("err channel never closed")
-		}
-	})
-
 	t.Run("concurrent calls", func(t *testing.T) {
 		t.Parallel()
 
@@ -192,19 +169,11 @@ func TestBatch_Go(t *testing.T) {
 			config             *ConfigValues
 			inputSize          int
 			inputDuration      time.Duration
-			readConcurrency    uint64
 			wantProcessingSize int
 		}{
 			{
 				name:               "default",
 				config:             nil,
-				inputSize:          100,
-				wantProcessingSize: 1,
-			},
-			{
-				name:               "multiple read goroutines",
-				config:             nil,
-				readConcurrency:    5,
 				inputSize:          100,
 				wantProcessingSize: 1,
 			},
@@ -320,7 +289,7 @@ func TestBatch_Go(t *testing.T) {
 					inputSlice[i] = rand.Int()
 				}
 
-				batch := New(ConstantConfig(test.config), test.readConcurrency)
+				batch := New(ConstantConfig(test.config))
 				s := &sourceFromSlice{
 					slice:    inputSlice,
 					duration: test.inputDuration,

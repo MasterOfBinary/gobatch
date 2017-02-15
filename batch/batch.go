@@ -62,8 +62,7 @@ import (
 // and errors from the processor will be of type ProcessorError. Errors from
 // Batch itself will be neither.
 type Batch struct {
-	config          Config
-	readConcurrency uint64
+	config Config
 
 	src   Source
 	proc  Processor
@@ -80,10 +79,9 @@ type Batch struct {
 
 // New creates a new Batch based on specified config. If config is nil,
 // the default config is used as described in Batch.
-func New(config Config, readConcurrency uint64) *Batch {
+func New(config Config) *Batch {
 	return &Batch{
-		config:          config,
-		readConcurrency: readConcurrency,
+		config: config,
 	}
 }
 
@@ -97,6 +95,9 @@ type Source interface {
 	// set it, and return it:
 	//
 	//    items <- batch.NextItem(in, myData)
+	//
+	// Read is only run in a single goroutine. It can spawn as many are
+	// necessary for reading.
 	//
 	// Once reading is finished (or when the program ends) both items and
 	// errs need to be closed. This signals to Batch that it should drain
@@ -134,6 +135,10 @@ type Processor interface {
 	//        fmt.Println(items)
 	//      }()
 	//    }
+	//
+	// Process may be run in any number of concurrent goroutines. If
+	// concurrency needs to be limited it must be done in Process; for
+	// example, by using a semaphore channel.
 	Process(ctx context.Context, items []*Item, errs chan<- error)
 }
 
@@ -172,10 +177,6 @@ func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
 		return nil
 	}
 
-	if b.readConcurrency == 0 {
-		b.readConcurrency = 1
-	}
-
 	if b.config == nil {
 		b.config = ConstantConfig(nil)
 	}
@@ -190,7 +191,7 @@ func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
 	b.done = make(chan struct{})
 
 	go b.doIDGenerator()
-	go b.doReaders(ctx)
+	go b.doReader(ctx)
 	go b.doProcessors(ctx)
 
 	return b.errs
@@ -215,17 +216,41 @@ func (b *Batch) doIDGenerator() {
 	}
 }
 
-// doReaders starts the reader goroutines.
-func (b *Batch) doReaders(ctx context.Context) {
-	var wg sync.WaitGroup
-	for i := uint64(0); i < b.readConcurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			b.read(ctx)
-		}()
+// doReader starts the reader goroutine and reads from its channels.
+func (b *Batch) doReader(ctx context.Context) {
+	itemsIn := make(chan *Item)
+	itemsOut := make(chan *Item)
+	errs := make(chan error)
+
+	go b.src.Read(ctx, itemsIn, itemsOut, errs)
+
+	nextItem := &Item{
+		id: <-b.ids,
 	}
-	wg.Wait()
+
+	var itemsClosed, errsClosed bool
+	for !itemsClosed || !errsClosed {
+		select {
+		case itemsIn <- nextItem:
+			nextItem = &Item{
+				id: <-b.ids,
+			}
+
+		case item, ok := <-itemsOut:
+			if ok {
+				b.items <- item
+			} else {
+				itemsClosed = true
+			}
+
+		case err, ok := <-errs:
+			if ok {
+				b.errs <- newSourceError(err)
+			} else {
+				errsClosed = true
+			}
+		}
+	}
 
 	close(b.items)
 }
@@ -246,42 +271,6 @@ func (b *Batch) doProcessors(ctx context.Context) {
 	close(b.done)
 	b.running = false
 	b.mu.Unlock()
-}
-
-func (b *Batch) read(ctx context.Context) {
-	itemSource := make(chan *Item)
-	itemsOut := make(chan *Item)
-	errs := make(chan error)
-
-	go b.src.Read(ctx, itemSource, itemsOut, errs)
-
-	nextItem := &Item{
-		id: <-b.ids,
-	}
-
-	var itemsClosed, errsClosed bool
-	for !itemsClosed || !errsClosed {
-		select {
-		case itemSource <- nextItem:
-			nextItem = &Item{
-				id: <-b.ids,
-			}
-
-		case item, ok := <-itemsOut:
-			if ok {
-				b.items <- item
-			} else {
-				itemsClosed = true
-			}
-
-		case err, ok := <-errs:
-			if ok {
-				b.errs <- newSourceError(err)
-			} else {
-				errsClosed = true
-			}
-		}
-	}
 }
 
 func (b *Batch) process(ctx context.Context) {
@@ -311,65 +300,11 @@ func (b *Batch) process(ctx context.Context) {
 			bufSize = 1024
 		}
 
-		var (
-			reachedMinTime bool
-			itemsRead      uint64
+		var items = make([]*Item, 0, bufSize)
+		done, items = b.waitForItems(ctx, items, &config)
 
-			items = make([]*Item, 0, bufSize)
-
-			minTimer <-chan time.Time
-			maxTimer <-chan time.Time
-		)
-
-		// Be careful not to set timers that end right away. Instead, if a
-		// min or max time is not specified, make a timer channel that's never
-		// written to
-		if config.MinTime > 0 {
-			minTimer = time.After(config.MinTime)
-		} else {
-			minTimer = make(chan time.Time)
-			reachedMinTime = true
-		}
-
-		if config.MaxTime > 0 {
-			maxTimer = time.After(config.MaxTime)
-		} else {
-			maxTimer = make(chan time.Time)
-		}
-
-	loop:
-		for {
-			select {
-			case item, ok := <-b.items:
-				if ok {
-					items = append(items, item)
-					itemsRead++
-					if itemsRead >= config.MinItems && reachedMinTime {
-						break loop
-					} else if config.MaxItems > 0 && itemsRead >= config.MaxItems {
-						break loop
-					}
-				} else {
-					// Done, break loop and finish processing the
-					// remaining items no matter what
-					done = true
-					break loop
-				}
-
-			case <-minTimer:
-				reachedMinTime = true
-				if itemsRead >= config.MinItems {
-					break loop
-				}
-
-			case <-maxTimer:
-				break loop
-			}
-		}
-
-		// TODO this resets the time whenever no items are available. The right
-		// way to do it is to have the above loop not break until at least one
-		// item is available
+		// TODO this resets the time whenever no items are available. Need to
+		// decide if that's the right way to do it.
 		if len(items) == 0 {
 			continue
 		}
@@ -388,4 +323,61 @@ func (b *Batch) process(ctx context.Context) {
 
 	// Wait for all processing to complete
 	wg.Wait()
+}
+
+// waitForItems waits until enough items are read to begin batch processing, based
+// on config. It returns true if processing is completely finished, and false
+// otherwise.
+func (b *Batch) waitForItems(ctx context.Context, items []*Item, config *ConfigValues) (bool, []*Item) {
+	var (
+		reachedMinTime bool
+		itemsRead      uint64
+
+		minTimer <-chan time.Time
+		maxTimer <-chan time.Time
+	)
+
+	// Be careful not to set timers that end right away. Instead, if a
+	// min or max time is not specified, make a timer channel that's never
+	// written to.
+	if config.MinTime > 0 {
+		minTimer = time.After(config.MinTime)
+	} else {
+		minTimer = make(chan time.Time)
+		reachedMinTime = true
+	}
+
+	if config.MaxTime > 0 {
+		maxTimer = time.After(config.MaxTime)
+	} else {
+		maxTimer = make(chan time.Time)
+	}
+
+	for {
+		select {
+		case item, ok := <-b.items:
+			if ok {
+				items = append(items, item)
+				itemsRead++
+				if itemsRead >= config.MinItems && reachedMinTime {
+					return false, items
+				}
+				if config.MaxItems > 0 && itemsRead >= config.MaxItems {
+					return false, items
+				}
+			} else {
+				// Finished processing
+				return true, items
+			}
+
+		case <-minTimer:
+			reachedMinTime = true
+			if itemsRead >= config.MinItems {
+				return false, items
+			}
+
+		case <-maxTimer:
+			return false, items
+		}
+	}
 }
