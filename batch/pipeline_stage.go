@@ -12,10 +12,14 @@ type PipelineStage struct {
 	//Retry chan<- *Item
 
 	// Error is for any errors encountered during the pipeline stage.
-	Error chan<- error
+	Errors chan<- error
 }
 
+// Close closes the pipeline stage.
+//
+// Note that it will also close the write channels. Do not close them separately
+// or it will panic.
 func (p *PipelineStage) Close() {
 	close(p.Output)
-	close(p.Error)
+	close(p.Errors)
 }

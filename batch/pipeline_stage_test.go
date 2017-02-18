@@ -7,7 +7,7 @@ func TestPipelineStage_Close(t *testing.T) {
 	errs := make(chan error)
 	ps := &PipelineStage{
 		Output: out,
-		Error:  errs,
+		Errors: errs,
 	}
 
 	ps.Close()
@@ -21,6 +21,6 @@ func TestPipelineStage_Close(t *testing.T) {
 	select {
 	case <-errs:
 	default:
-		t.Error("ps.Error was not closed")
+		t.Error("ps.Errors was not closed")
 	}
 }

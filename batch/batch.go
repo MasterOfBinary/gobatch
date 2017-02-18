@@ -273,7 +273,7 @@ func (b *Batch) doReader(ctx context.Context) {
 	ps := &PipelineStage{
 		Input:  in,
 		Output: out,
-		Error:  errs,
+		Errors: errs,
 	}
 
 	go b.src.Read(ctx, ps)
@@ -379,7 +379,7 @@ func (b *Batch) process(ctx context.Context) {
 			ps := &PipelineStage{
 				Input:  in,
 				Output: out,
-				Error:  errs,
+				Errors: errs,
 			}
 
 			go b.proc.Process(ctx, ps)

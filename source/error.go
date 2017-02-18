@@ -14,6 +14,6 @@ type Error struct {
 
 // Read returns an error and then closes.
 func (s *Error) Read(ctx context.Context, ps *batch.PipelineStage) {
-	ps.Error <- s.Err
+	ps.Errors <- s.Err
 	ps.Close()
 }

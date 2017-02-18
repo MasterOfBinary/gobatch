@@ -24,7 +24,7 @@ func (p printProcessor) Process(ctx context.Context, ps *batch.PipelineStage) {
 	for item := range ps.Input {
 		// Get returns the item itself
 		if item.Get() == 5 {
-			ps.Error <- errors.New("cannot process 5")
+			ps.Errors <- errors.New("cannot process 5")
 			continue
 		}
 
