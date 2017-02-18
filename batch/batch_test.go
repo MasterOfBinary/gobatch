@@ -302,7 +302,7 @@ func TestBatch_Go(t *testing.T) {
 					inputSlice[i] = rand.Int()
 				}
 
-				batch := New(ConstantConfig(test.config))
+				batch := New(NewConstantConfig(test.config))
 				s := &sourceFromSlice{
 					slice:    inputSlice,
 					duration: test.inputDuration,

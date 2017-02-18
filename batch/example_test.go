@@ -36,7 +36,7 @@ func (p printProcessor) Process(ctx context.Context, ps batch.PipelineStage) {
 
 func Example() {
 	// Create a batch processor that processes items 5 at a time
-	config := batch.ConstantConfig(&batch.ConfigValues{
+	config := batch.NewConstantConfig(&batch.ConfigValues{
 		MinItems: 5,
 	})
 	b := batch.New(config)

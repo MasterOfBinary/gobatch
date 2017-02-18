@@ -3,7 +3,7 @@
 // implementation of the Source interface, and items are processed in
 // batches by an implementation of the Processor interface. Some Source
 // and Processor implementations are provided in the source and processor
-// packages, respectively, or you can create your own custom one.
+// packages, respectively, or you can create your own based on your needs.
 //
 // Batch uses the MinTime, MinItems, MaxTime, and MaxItems configuration
 // parameters in Config to determine when and how many items are
@@ -49,33 +49,32 @@ import (
 // will return the default Batch.
 //
 //    // The following are equivalent
-//    defaultBatch1 := &gobatch.Batch{}
-//    defaultBatch2 := gobatch.New(nil)
-//    defaultBatch3 := gobatch.New(ConstantConfig(&ConstantConfig()))
+//    defaultBatch1 := &batch.Batch{}
+//    defaultBatch2 := batch.New(nil)
+//    defaultBatch3 := batch.New(batch.NewConstantConfig(&batch.ConfigValues{}))
 //
 // The defaults (with nil Config) provide a usable, but likely suboptimal, Batch
-// where items are processed as soon as they are retrieved from the source. Reading
-// is done by a single goroutine, and processing is done in the background using as
-// many goroutines as necessary with no limit.
+// where items are processed as soon as they are retrieved from the source.
+// Processing is done in the background using as many goroutines as necessary.
 //
-// This is a simplified version of how the default Batch works:
+// Both Source and Processor are given a PipelineSource, which contains
+// channels for input and output, as well as an error channel. Items in the
+// channel are wrapped in an Item struct that contains extra metadata used
+// by Batch. For easier usage, the helper function NextItem can be used to
+// read from the input channel, set the data, and return the modified Item:
 //
-//    itemsCh := make(chan item.Item)
-//    go source.Read(ctx, srcCh, itemsCh, errsCh)
-//    for item := range itemsCh {
-//      go processor.Process(ctx, []processor.Item{item, errsCh)
-//    }
+//    ps.Output() <- batch.NextItem(ps, item)
 //
-// Batch runs asynchronously until the source closes its write channels, signaling
-// that there is nothing else to process. Once that happens, and the pipeline has
+// Batch runs asynchronously until the source closes its PipelineSource, signaling
+// that there is nothing else to read. Once that happens, and the pipeline has
 // been drained (all items have been processed), there are two ways for the
 // caller to know: the error channel returned from Go is closed, or the channel
 // returned from Done is closed.
 //
-// The first way can be used if errors need to be processed. A simple loop
-// could look like this:
+// The first way can be used if errors need to be processed elsewhere. A simple
+// loop could look like this:
 //
-//    errs := batch.Go(ctx, s, p)
+//    errs := myBatch.Go(ctx, s, p)
 //    for err := range errs {
 //      // Log the error here...
 //      log.Print(err.Error())
@@ -86,8 +85,8 @@ import (
 // used to drain the error channel. Then the Done channel can be used to
 // determine whether or not batch processing is complete:
 //
-//    IgnoreErrors(batch.Go(ctx, s, p))
-//    <-batch.Done()
+//    batch.IgnoreErrors(myBatch.Go(ctx, s, p))
+//    <-myBatch.Done()
 //    // Now batch processing is done
 //
 // Note that the errors returned on the error channel may be wrapped in a
@@ -113,6 +112,10 @@ type Batch struct {
 
 // New creates a new Batch based on specified config. If config is nil,
 // the default config is used as described in Batch.
+//
+// To avoid race conditions, the config cannot be changed after the Batch
+// is created. Instead, implement the Config interface to support changing
+// values.
 func New(config Config) *Batch {
 	return &Batch{
 		config: config,
@@ -212,7 +215,7 @@ func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
 	}
 
 	if b.config == nil {
-		b.config = ConstantConfig(nil)
+		b.config = NewConstantConfig(nil)
 	}
 
 	b.running = true

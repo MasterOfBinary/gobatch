@@ -3,13 +3,16 @@ package batch
 import "time"
 
 // Config retrieves the config values used by Batch. If these values are
-// constant, ConstantConfig can be used to create an implementation
+// constant, NewConstantConfig can be used to create an implementation
 // of the interface.
 type Config interface {
 	// Get returns the values for configuration.
 	//
 	// If MinItems > MaxItems or MinTime > MaxTime, the min value will be
 	// set to the maximum value.
+	//
+	// If the config values may be modified during batch processing, Get
+	// must properly handle concurrency issues.
 	Get() ConfigValues
 }
 
@@ -40,23 +43,25 @@ type ConfigValues struct {
 	MaxItems uint64 `json:"maxItems"`
 }
 
-// ConstantConfig returns a Config with constant values. If values
+// NewConstantConfig returns a Config with constant values. If values
 // is nil, the default values are used as described in Batch.
-func ConstantConfig(values *ConfigValues) Config {
+func NewConstantConfig(values *ConfigValues) *ConstantConfig {
 	if values == nil {
-		values = &ConfigValues{}
+		return &ConstantConfig{}
 	}
 
-	return &constantConfig{
+	return &ConstantConfig{
 		values: *values,
 	}
 }
 
-type constantConfig struct {
+// ConstantConfig is a Config with constant values. Create one with
+// NewConstantConfig.
+type ConstantConfig struct {
 	values ConfigValues
 }
 
 // Get implements the Config interface.
-func (b *constantConfig) Get() ConfigValues {
+func (b *ConstantConfig) Get() ConfigValues {
 	return b.values
 }
