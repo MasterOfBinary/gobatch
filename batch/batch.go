@@ -144,7 +144,7 @@ type Source interface {
 	//    }
 	//
 	// Read should not modify an item after adding it to items.
-	Read(ctx context.Context, in <-chan *Item, items chan<- *Item, errs chan<- error)
+	Read(ctx context.Context, stage PipelineStage)
 }
 
 // Processor processes items in batches.
@@ -252,11 +252,13 @@ func (b *Batch) doIDGenerator() {
 
 // doReader starts the reader goroutine and reads from its channels.
 func (b *Batch) doReader(ctx context.Context) {
-	itemsIn := make(chan *Item)
-	itemsOut := make(chan *Item)
-	errs := make(chan error)
+	ps := &pipelineStage{
+		in:  make(chan *Item),
+		out: make(chan *Item),
+		err: make(chan error),
+	}
 
-	go b.src.Read(ctx, itemsIn, itemsOut, errs)
+	go b.src.Read(ctx, ps)
 
 	nextItem := &Item{
 		id: <-b.ids,
@@ -265,19 +267,19 @@ func (b *Batch) doReader(ctx context.Context) {
 	var itemsClosed, errsClosed bool
 	for !itemsClosed || !errsClosed {
 		select {
-		case itemsIn <- nextItem:
+		case ps.in <- nextItem:
 			nextItem = &Item{
 				id: <-b.ids,
 			}
 
-		case item, ok := <-itemsOut:
+		case item, ok := <-ps.out:
 			if ok {
 				b.items <- item
 			} else {
 				itemsClosed = true
 			}
 
-		case err, ok := <-errs:
+		case err, ok := <-ps.err:
 			if ok {
 				b.errs <- newSourceError(err)
 			} else {

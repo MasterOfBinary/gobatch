@@ -8,8 +8,8 @@ package batch
 //      items <- batch.NextItem(in, myData)
 //      // ...
 //    }
-func NextItem(in <-chan *Item, data interface{}) *Item {
-	i := <-in
+func NextItem(ps PipelineStage, data interface{}) *Item {
+	i := <-ps.Input()
 	i.Set(data)
 	return i
 }

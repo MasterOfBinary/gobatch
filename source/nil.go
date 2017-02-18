@@ -20,8 +20,7 @@ func Nil(duration time.Duration) batch.Source {
 }
 
 // Read doesn't read anything.
-func (s *nilSource) Read(ctx context.Context, in <-chan *batch.Item, items chan<- *batch.Item, errs chan<- error) {
+func (s *nilSource) Read(ctx context.Context, ps batch.PipelineStage) {
 	time.Sleep(s.duration)
-	close(items)
-	close(errs)
+	ps.Close()
 }

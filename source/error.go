@@ -19,8 +19,7 @@ func Error(err error) batch.Source {
 }
 
 // Read returns an error and then closes.
-func (s *errorSource) Read(ctx context.Context, in <-chan *batch.Item, items chan<- *batch.Item, errs chan<- error) {
-	errs <- s.err
-	close(items)
-	close(errs)
+func (s *errorSource) Read(ctx context.Context, ps batch.PipelineStage) {
+	ps.Error() <- s.err
+	ps.Close()
 }
