@@ -25,7 +25,9 @@ func TestChannelSource_Read(t *testing.T) {
 	itemGen := batch.NewMockItemGenerator()
 	defer itemGen.Close()
 
-	s := Channel(in)
+	s := Channel{
+		Input: in,
+	}
 
 	wg.Add(1)
 	go func() {

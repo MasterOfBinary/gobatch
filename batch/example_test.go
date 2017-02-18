@@ -10,17 +10,19 @@ import (
 	"github.com/MasterOfBinary/gobatch/source"
 )
 
-// printProcessor implements the processor.Processor interface.
+// printProcessor is a Processor that prints items in batches.
+//
+// To demonstrate how errors can be handled, it fails to process the number 5.
 type printProcessor struct{}
 
-// Process processes items in batches.
+// Process prints a batch of items.
 func (p printProcessor) Process(ctx context.Context, ps batch.PipelineStage) {
 	// Process needs to close ps after it's done
 	defer ps.Close()
 
 	toPrint := make([]interface{}, 0, 5)
-
 	for item := range ps.Input() {
+		// Get returns the item itself
 		if item.Get() == 5 {
 			ps.Error() <- errors.New("cannot process 5")
 			continue
@@ -40,14 +42,17 @@ func Example() {
 	b := batch.New(config)
 	p := &printProcessor{}
 
-	// The channel Source reads from a channel until it's closed
+	// Channel is a Source that reads from a channel until it's closed
 	ch := make(chan interface{})
-	s := source.Channel(ch)
+	s := source.Channel{
+		Input: ch,
+	}
 
 	// Go runs in the background while the main goroutine processes errors
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	errs := b.Go(ctx, s, p)
+
+	errs := b.Go(ctx, &s, p)
 
 	// Spawn a goroutine that simulates loading data from somewhere
 	go func() {

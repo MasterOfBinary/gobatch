@@ -87,10 +87,12 @@ func TestBatch_Go(t *testing.T) {
 
 		// Concurrent calls to Go should panic
 		batch := &Batch{}
-		s := source.Nil(time.Second)
+		s := source.Nil{
+			Duration: time.Second,
+		}
 		p := processor.Nil(0)
 
-		assertNoErrors(t, batch.Go(context.Background(), s, p))
+		assertNoErrors(t, batch.Go(context.Background(), &s, p))
 
 		// Next call should panic
 		var panics bool
@@ -100,7 +102,7 @@ func TestBatch_Go(t *testing.T) {
 					panics = true
 				}
 			}()
-			assertNoErrors(t, batch.Go(context.Background(), s, p))
+			assertNoErrors(t, batch.Go(context.Background(), &s, p))
 		}()
 
 		if !panics {
@@ -113,10 +115,12 @@ func TestBatch_Go(t *testing.T) {
 
 		errSrc := errors.New("source")
 		batch := &Batch{}
-		s := source.Error(errSrc)
+		s := source.Error{
+			Err: errSrc,
+		}
 		p := processor.Nil(0)
 
-		errs := batch.Go(context.Background(), s, p)
+		errs := batch.Go(context.Background(), &s, p)
 
 		var found bool
 		for err := range errs {
@@ -319,10 +323,12 @@ func TestBatch_Done(t *testing.T) {
 		t.Parallel()
 
 		batch := &Batch{}
-		s := source.Nil(0)
+		s := source.Nil{
+			Duration: 0,
+		}
 		p := processor.Nil(0)
 
-		assertNoErrors(t, batch.Go(context.Background(), s, p))
+		assertNoErrors(t, batch.Go(context.Background(), &s, p))
 
 		select {
 		case <-batch.Done():
