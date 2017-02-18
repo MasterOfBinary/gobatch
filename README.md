@@ -38,7 +38,8 @@ handled.
 Documentation
 -------------
 
-See the [GoDocs](https://godoc.org/github.com/MasterOfBinary/gobatch).
+See the [GoDocs](https://godoc.org/github.com/MasterOfBinary/gobatch) for documentation
+and examples.
 
 Installation
 ------------
