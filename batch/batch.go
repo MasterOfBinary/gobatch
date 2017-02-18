@@ -224,7 +224,6 @@ func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
 
 	if b.running {
 		panic("Concurrent calls to Batch.Go are not allowed")
-		return nil
 	}
 
 	if b.config == nil {
@@ -327,6 +326,16 @@ func (b *Batch) doProcessors(ctx context.Context) {
 	b.mu.Unlock()
 }
 
+func fixConfig(c ConfigValues) ConfigValues {
+	if c.MaxTime > 0 && c.MinTime > 0 && c.MaxTime < c.MinTime {
+		c.MinTime = c.MaxTime
+	}
+	if c.MaxItems > 0 && c.MinItems > 0 && c.MaxItems < c.MinItems {
+		c.MinItems = c.MaxItems
+	}
+	return c
+}
+
 func (b *Batch) process(ctx context.Context) {
 	var (
 		wg      sync.WaitGroup
@@ -336,14 +345,7 @@ func (b *Batch) process(ctx context.Context) {
 
 	// Process one batch each time
 	for !done {
-		config := b.config.Get()
-
-		if config.MaxTime > 0 && config.MinTime > 0 && config.MaxTime < config.MinTime {
-			config.MinTime = config.MaxTime
-		}
-		if config.MaxItems > 0 && config.MinItems > 0 && config.MaxItems < config.MinItems {
-			config.MinItems = config.MaxItems
-		}
+		config := fixConfig(b.config.Get())
 
 		// TODO smarter buffer size (perhaps from the config)
 		if config.MaxItems > 0 {
