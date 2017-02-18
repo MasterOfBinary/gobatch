@@ -1,15 +1,19 @@
 package batch
 
-// NextItem retrieves the next source item from the source channel, sets its data,
-// and returns it. It can be used in the Source.Read function:
+// NextItem retrieves the next source item from the input channel of ps, sets
+// its data, and returns it. If the input channel is closed, it returns nil.
+// NextItem can be used in the source Read function:
 //
-//    func (s *source) Read(ctx context.Context, in <-chan *batch.Item, items chan<- *batch.Item, errs chan<- error) {
+//    func (s *source) Read(ctx context.Context, ps batch.PipelineStage) {
 //      // Read data into myData...
-//      items <- batch.NextItem(in, myData)
+//      items <- batch.NextItem(ps, myData)
 //      // ...
 //    }
 func NextItem(ps PipelineStage, data interface{}) *Item {
-	i := <-ps.Input()
+	i, ok := <-ps.Input()
+	if !ok {
+		return nil
+	}
 	i.Set(data)
 	return i
 }

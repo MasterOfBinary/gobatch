@@ -8,25 +8,40 @@ import (
 )
 
 func TestNextItem(t *testing.T) {
-	ch := make(chan *Item)
+	t.Run("with item", func(t *testing.T) {
+		ch := make(chan *Item)
 
-	go func() {
-		ch <- &Item{
-			id: 100,
+		go func() {
+			ch <- &Item{
+				id: 100,
+			}
+		}()
+
+		ps := &pipelineStage{
+			in: ch,
 		}
-	}()
 
-	ps := &pipelineStage{
-		in: ch,
-	}
+		next := NextItem(ps, 200)
+		if next.id != 100 {
+			t.Errorf("next.id == %v, want 100", next.id)
+		}
+		if next.item != 200 {
+			t.Errorf("next.item == %v, want 200", next.item)
+		}
+	})
 
-	next := NextItem(ps, 200)
-	if next.id != 100 {
-		t.Errorf("next.id == %v, want 100", next.id)
-	}
-	if next.item != 200 {
-		t.Errorf("next.item == %v, want 200", next.item)
-	}
+	t.Run("closed channel", func(t *testing.T) {
+		ch := make(chan *Item)
+		close(ch)
+
+		ps := &pipelineStage{
+			in: ch,
+		}
+
+		if next := NextItem(ps, 200); next != nil {
+			t.Errorf("next == %v, want nil", next)
+		}
+	})
 }
 
 func TestIgnoreErrors(t *testing.T) {
