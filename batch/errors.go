@@ -1,7 +1,5 @@
 package batch
 
-
-
 // BatchError is a wrapped error message returned on the error channel.
 type BatchError interface {
 	// Original returns the original (unwrapped) error.

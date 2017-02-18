@@ -27,7 +27,7 @@ func NextItem(ps PipelineStage, data interface{}) *Item {
 //
 // Instead, IgnoreErrors can be used to safely throw away all errors:
 //
-//    IgnoreErrors(batch.Go(ctx, p, s))
+//    batch.IgnoreErrors(myBatch.Go(ctx, p, s))
 func IgnoreErrors(errs <-chan error) {
 	// nil channels always block, so check for nil first to avoid a goroutine
 	// leak
