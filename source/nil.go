@@ -15,7 +15,7 @@ type Nil struct {
 }
 
 // Read doesn't read anything.
-func (s *Nil) Read(ctx context.Context, ps batch.PipelineStage) {
+func (s *Nil) Read(ctx context.Context, ps *batch.PipelineStage) {
 	time.Sleep(s.Duration)
 	ps.Close()
 }

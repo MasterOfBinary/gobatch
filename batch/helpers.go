@@ -9,8 +9,8 @@ package batch
 //      items <- batch.NextItem(ps, myData)
 //      // ...
 //    }
-func NextItem(ps PipelineStage, data interface{}) *Item {
-	i, ok := <-ps.Input()
+func NextItem(ps *PipelineStage, data interface{}) *Item {
+	i, ok := <-ps.Input
 	if !ok {
 		return nil
 	}

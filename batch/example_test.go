@@ -16,15 +16,15 @@ import (
 type printProcessor struct{}
 
 // Process prints a batch of items.
-func (p printProcessor) Process(ctx context.Context, ps batch.PipelineStage) {
+func (p printProcessor) Process(ctx context.Context, ps *batch.PipelineStage) {
 	// Process needs to close ps after it's done
 	defer ps.Close()
 
 	toPrint := make([]interface{}, 0, 5)
-	for item := range ps.Input() {
+	for item := range ps.Input {
 		// Get returns the item itself
 		if item.Get() == 5 {
-			ps.Error() <- errors.New("cannot process 5")
+			ps.Error <- errors.New("cannot process 5")
 			continue
 		}
 

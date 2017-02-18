@@ -17,8 +17,8 @@ func TestNextItem(t *testing.T) {
 			}
 		}()
 
-		ps := &pipelineStage{
-			in: ch,
+		ps := &PipelineStage{
+			Input: ch,
 		}
 
 		next := NextItem(ps, 200)
@@ -34,8 +34,8 @@ func TestNextItem(t *testing.T) {
 		ch := make(chan *Item)
 		close(ch)
 
-		ps := &pipelineStage{
-			in: ch,
+		ps := &PipelineStage{
+			Input: ch,
 		}
 
 		if next := NextItem(ps, 200); next != nil {

@@ -133,21 +133,21 @@ type Source interface {
 	//
 	//    items <- batch.NextItem(ps, myData)
 	//
-	// Read is only run in a single goroutine. It can spawn as many are
-	// necessary for reading.
+	// Read is only run in a single goroutine. Any currency must be provided
+	// by the implementation.
 	//
 	// Once reading is finished (or when the program ends), the batch
 	// processor needs to be notified. This is done by calling the Close
 	// method on ps, which signals to Batch that it should drain the pipeline
 	// and finish. It is not enough for Read to return.
 	//
-	//    func (s source) Read(ctx context.Context, ps batch.PipelineStage) {
+	//    func (s source) Read(ctx context.Context, ps *batch.PipelineStage) {
 	//      defer ps.Close()
 	//      // Read items until done...
 	//    }
 	//
 	// Read should not modify an item after adding it to items.
-	Read(ctx context.Context, ps PipelineStage)
+	Read(ctx context.Context, ps *PipelineStage)
 }
 
 // Processor processes items in batches.
@@ -156,7 +156,7 @@ type Processor interface {
 	// encountered on the Errors channel. When it is done, it must close ps
 	// to signify that it's finished processing. Simply returning isn't enough.
 	//
-	//    func (p *processor) Process(ctx context.Context, ps batch.PipelineStage) {
+	//    func (p *processor) Process(ctx context.Context, ps *batch.PipelineStage) {
 	//      defer ps.Close()
 	//      // Do processing here...
 	//    }
@@ -165,7 +165,7 @@ type Processor interface {
 	// goroutine and then return, as long as ps is closed at the end.
 	//
 	//    // This is ok
-	//    func (p *processor) Process(ctx context.Context, ps batch.PipelineStage) {
+	//    func (p *processor) Process(ctx context.Context, ps *batch.PipelineStage) {
 	//      go func() {
 	//        defer ps.Close()
 	//        time.Sleep(time.Second)
@@ -177,7 +177,7 @@ type Processor interface {
 	// be returned on the Output channel:
 	//
 	//    // Process squares values in batches.
-	//    func (p *processor) Process(ctx context.Context, ps batch.PipelineStage) {
+	//    func (p *processor) Process(ctx context.Context, ps *batch.PipelineStage) {
 	//      defer ps.Close()
 	//      for item := range ps.Input() {
 	//        value, _ := item.Get().(int64)
@@ -189,7 +189,7 @@ type Processor interface {
 	// Process may be run in any number of concurrent goroutines. If
 	// concurrency needs to be limited it must be done in Process; for
 	// example, by using a semaphore channel.
-	Process(ctx context.Context, ps PipelineStage)
+	Process(ctx context.Context, ps *PipelineStage)
 }
 
 // Go starts batch processing asynchronously and returns a channel on
@@ -267,10 +267,13 @@ func (b *Batch) doIDGenerator() {
 
 // doReader starts the reader goroutine and reads from its channels.
 func (b *Batch) doReader(ctx context.Context) {
-	ps := &pipelineStage{
-		in:  make(chan *Item),
-		out: make(chan *Item),
-		err: make(chan error),
+	in := make(chan *Item)
+	out := make(chan *Item)
+	errs := make(chan error)
+	ps := &PipelineStage{
+		Input:  in,
+		Output: out,
+		Error:  errs,
 	}
 
 	go b.src.Read(ctx, ps)
@@ -282,19 +285,19 @@ func (b *Batch) doReader(ctx context.Context) {
 	var outClosed, errClosed bool
 	for !outClosed || !errClosed {
 		select {
-		case ps.in <- nextItem:
+		case in <- nextItem:
 			nextItem = &Item{
 				id: <-b.ids,
 			}
 
-		case item, ok := <-ps.out:
+		case item, ok := <-out:
 			if ok {
 				b.items <- item
 			} else {
 				outClosed = true
 			}
 
-		case err, ok := <-ps.err:
+		case err, ok := <-errs:
 			if ok {
 				b.errs <- &SourceError{
 					err: err,
@@ -369,32 +372,36 @@ func (b *Batch) process(ctx context.Context) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ps := &pipelineStage{
-				in:  make(chan *Item),
-				out: make(chan *Item),
-				err: make(chan error),
+
+			in := make(chan *Item)
+			out := make(chan *Item)
+			errs := make(chan error)
+			ps := &PipelineStage{
+				Input:  in,
+				Output: out,
+				Error:  errs,
 			}
 
 			go b.proc.Process(ctx, ps)
 
 			go func() {
 				for _, item := range items {
-					ps.in <- item
+					in <- item
 				}
-				close(ps.in)
+				close(in)
 			}()
 
 			var outClosed, errClosed bool
 			for !outClosed || !errClosed {
 				select {
-				case item, ok := <-ps.out:
+				case item, ok := <-out:
 					if ok {
 						b.items <- item
 					} else {
 						outClosed = true
 					}
 
-				case err, ok := <-ps.err:
+				case err, ok := <-errs:
 					if ok {
 						b.errs <- &ProcessorError{
 							err: err,

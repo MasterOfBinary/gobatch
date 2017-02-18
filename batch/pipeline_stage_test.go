@@ -3,22 +3,24 @@ package batch
 import "testing"
 
 func TestPipelineStage_Close(t *testing.T) {
-	ps := &pipelineStage{
-		out: make(chan *Item),
-		err: make(chan error),
+	out := make(chan *Item)
+	errs := make(chan error)
+	ps := &PipelineStage{
+		Output: out,
+		Error:  errs,
 	}
 
 	ps.Close()
 
 	select {
-	case <-ps.out:
+	case <-out:
 	default:
-		t.Error("ps.out was not closed")
+		t.Error("ps.Output was not closed")
 	}
 
 	select {
-	case <-ps.err:
+	case <-errs:
 	default:
-		t.Error("ps.err was not closed")
+		t.Error("ps.Error was not closed")
 	}
 }

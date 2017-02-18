@@ -18,13 +18,12 @@ type sourceFromSlice struct {
 	duration time.Duration
 }
 
-func (s *sourceFromSlice) Read(ctx context.Context, ps PipelineStage) {
+func (s *sourceFromSlice) Read(ctx context.Context, ps *PipelineStage) {
 	defer ps.Close()
-	out := ps.Output()
 
 	for _, item := range s.slice {
 		time.Sleep(s.duration)
-		out <- NextItem(ps, item)
+		ps.Output <- NextItem(ps, item)
 	}
 }
 
@@ -33,13 +32,14 @@ type processorCounter struct {
 	num        uint32
 }
 
-func (p *processorCounter) Process(ctx context.Context, ps PipelineStage) {
+func (p *processorCounter) Process(ctx context.Context, ps *PipelineStage) {
 	defer ps.Close()
 
 	count := 0
-	for range ps.Input() {
+	for range ps.Input {
 		count++
 	}
+
 	atomic.AddUint32(&p.totalCount, uint32(count))
 	atomic.AddUint32(&p.num, 1)
 }
