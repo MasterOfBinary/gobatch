@@ -33,7 +33,7 @@ func IgnoreErrors(errs <-chan error) {
 	// leak
 	if errs != nil {
 		go func() {
-			for _ = range errs {
+			for range errs {
 			}
 		}()
 	}

@@ -37,7 +37,7 @@ func (p *processorCounter) Process(ctx context.Context, ps PipelineStage) {
 	defer ps.Close()
 
 	count := 0
-	for _ = range ps.Input() {
+	for range ps.Input() {
 		count++
 	}
 	atomic.AddUint32(&p.totalCount, uint32(count))
