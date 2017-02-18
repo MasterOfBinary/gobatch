@@ -9,9 +9,6 @@ type MockItemGenerator struct {
 	closeOnce sync.Once
 	done      chan struct{}
 	ch        chan *Item
-
-	mu     sync.Mutex
-	nextID uint64
 }
 
 // NewMockItemGenerator returns a new MockItemGenerator.
