@@ -90,7 +90,7 @@ import (
 //    // Now batch processing is done
 //
 // Note that the errors returned on the error channel may be wrapped in a
-// BatchError so the caller knows whether they come from the source or the
+// batch.Error so the caller knows whether they come from the source or the
 // processor (or neither). Errors from the source will be of type SourceError,
 // and errors from the processor will be of type ProcessorError. Errors from
 // Batch itself will be neither.

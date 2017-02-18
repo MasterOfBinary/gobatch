@@ -1,7 +1,7 @@
 package batch
 
-// BatchError is a wrapped error message returned on the error channel.
-type BatchError interface {
+// Error is a wrapped error message returned on the error channel.
+type Error interface {
 	// Original returns the original (unwrapped) error.
 	Original() error
 }
@@ -17,7 +17,7 @@ func (e ProcessorError) Error() string {
 	return e.err.Error()
 }
 
-// Original implements BatchError. It returns the original error.
+// Original implements Error. It returns the original error.
 func (e ProcessorError) Original() error {
 	return e.err
 }
@@ -33,7 +33,7 @@ func (e SourceError) Error() string {
 	return e.err.Error()
 }
 
-// Original implements BatchError. It returns the original error.
+// Original implements Error. It returns the original error.
 func (e SourceError) Original() error {
 	return e.err
 }
