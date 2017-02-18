@@ -33,10 +33,15 @@ type processorCounter struct {
 	num        uint32
 }
 
-func (p *processorCounter) Process(ctx context.Context, items []*Item, errs chan<- error) {
-	atomic.AddUint32(&p.totalCount, uint32(len(items)))
+func (p *processorCounter) Process(ctx context.Context, ps PipelineStage) {
+	defer ps.Close()
+
+	count := 0
+	for _ = range ps.Input() {
+		count++
+	}
+	atomic.AddUint32(&p.totalCount, uint32(count))
 	atomic.AddUint32(&p.num, 1)
-	close(errs)
 }
 
 func (p *processorCounter) average() int {

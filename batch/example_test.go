@@ -14,20 +14,19 @@ import (
 type printProcessor struct{}
 
 // Process processes items in batches.
-func (p printProcessor) Process(ctx context.Context, items []*batch.Item, errs chan<- error) {
-	// Process needs to close the error channel after it's done
-	defer close(errs)
+func (p printProcessor) Process(ctx context.Context, ps batch.PipelineStage) {
+	// Process needs to close ps after it's done
+	defer ps.Close()
 
-	toPrint := make([]interface{}, 0, len(items))
+	toPrint := make([]interface{}, 0, 5)
 
-	// This processor prints all the items in a line. If items includes 5 it removes
-	// it and throws an error for no reason
-	for i := 0; i < len(items); i++ {
-		if items[i].Get() == 5 {
-			errs <- errors.New("Cannot process 5")
-		} else {
-			toPrint = append(toPrint, items[i].Get())
+	for item := range ps.Input() {
+		if item.Get() == 5 {
+			ps.Error() <- errors.New("cannot process 5")
+			continue
 		}
+
+		toPrint = append(toPrint, item.Get())
 	}
 
 	fmt.Println(toPrint)
@@ -76,5 +75,5 @@ func Example() {
 	// [10 11 12 13 14]
 	// [15 16 17 18 19]
 	// Finished processing.
-	// Found error: Cannot process 5
+	// Found error: cannot process 5
 }

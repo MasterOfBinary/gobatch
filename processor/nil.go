@@ -20,7 +20,7 @@ func Nil(duration time.Duration) batch.Processor {
 }
 
 // Process discards all data sent to it after a certain amount of time.
-func (p *nilProcessor) Process(ctx context.Context, items []*batch.Item, errs chan<- error) {
+func (p *nilProcessor) Process(ctx context.Context, ps batch.PipelineStage) {
 	time.Sleep(p.duration)
-	close(errs)
+	ps.Close()
 }

@@ -18,7 +18,7 @@ func Error(err error) batch.Processor {
 }
 
 // Process discards all data sent to it after a certain amount of time.
-func (p *errorProcessor) Process(ctx context.Context, items []*batch.Item, errs chan<- error) {
-	errs <- p.err
-	close(errs)
+func (p *errorProcessor) Process(ctx context.Context, ps batch.PipelineStage) {
+	ps.Error() <- p.err
+	ps.Close()
 }

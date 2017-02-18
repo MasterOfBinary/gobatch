@@ -173,7 +173,7 @@ type Processor interface {
 	// Process may be run in any number of concurrent goroutines. If
 	// concurrency needs to be limited it must be done in Process; for
 	// example, by using a semaphore channel.
-	Process(ctx context.Context, items []*Item, errs chan<- error)
+	Process(ctx context.Context, ps PipelineStage)
 }
 
 // Go starts batch processing asynchronously and returns a channel on
@@ -264,8 +264,8 @@ func (b *Batch) doReader(ctx context.Context) {
 		id: <-b.ids,
 	}
 
-	var itemsClosed, errsClosed bool
-	for !itemsClosed || !errsClosed {
+	var outClosed, errClosed bool
+	for !outClosed || !errClosed {
 		select {
 		case ps.in <- nextItem:
 			nextItem = &Item{
@@ -276,14 +276,14 @@ func (b *Batch) doReader(ctx context.Context) {
 			if ok {
 				b.items <- item
 			} else {
-				itemsClosed = true
+				outClosed = true
 			}
 
 		case err, ok := <-ps.err:
 			if ok {
 				b.errs <- newSourceError(err)
 			} else {
-				errsClosed = true
+				errClosed = true
 			}
 		}
 	}
@@ -349,10 +349,38 @@ func (b *Batch) process(ctx context.Context) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs := make(chan error)
-			go b.proc.Process(ctx, items, errs)
-			for err := range errs {
-				b.errs <- newProcessorError(err)
+			ps := &pipelineStage{
+				in:  make(chan *Item),
+				out: make(chan *Item),
+				err: make(chan error),
+			}
+
+			go b.proc.Process(ctx, ps)
+
+			go func() {
+				for _, item := range items {
+					ps.in <- item
+				}
+				close(ps.in)
+			}()
+
+			var outClosed, errClosed bool
+			for !outClosed || !errClosed {
+				select {
+				case item, ok := <-ps.out:
+					if ok {
+						b.items <- item
+					} else {
+						outClosed = true
+					}
+
+				case err, ok := <-ps.err:
+					if ok {
+						b.errs <- newProcessorError(err)
+					} else {
+						errClosed = true
+					}
+				}
 			}
 		}()
 	}
