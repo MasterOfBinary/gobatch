@@ -284,7 +284,9 @@ func (b *Batch) doReader(ctx context.Context) {
 
 		case err, ok := <-ps.err:
 			if ok {
-				b.errs <- newSourceError(err)
+				b.errs <- &SourceError{
+					err: err,
+				}
 			} else {
 				errClosed = true
 			}
@@ -379,7 +381,9 @@ func (b *Batch) process(ctx context.Context) {
 
 				case err, ok := <-ps.err:
 					if ok {
-						b.errs <- newProcessorError(err)
+						b.errs <- &ProcessorError{
+							err: err,
+						}
 					} else {
 						errClosed = true
 					}
