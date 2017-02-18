@@ -12,7 +12,7 @@ before_install:
  - go get -u gopkg.in/alecthomas/gometalinter.v1
 
 install:
- - go get -u -t ./...
+ - go get -t ./...
  - gometalinter.v1 --install
 
 script:

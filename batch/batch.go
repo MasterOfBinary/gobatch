@@ -124,53 +124,66 @@ func New(config Config) *Batch {
 
 // Source reads items that are to be batch processed.
 type Source interface {
-	// Read reads items from somewhere and writes them to the items
-	// channel. Any errors it encounters while reading are written to the
-	// errs channel. The in channel provides a steady stream of Items that
-	// have pre-set data so the batch processor can identify them. A helper
-	// function, NextItem, is provided to retrieve an item from the channel,
+	// Read reads items from somewhere and writes them to the Output
+	// channel of ps. Any errors it encounters while reading are written to the
+	// Errors channel. The Input channel provides a steady stream of Items that
+	// have pre-set metadata so the batch processor can identify them. A helper
+	// function, NextItem, can be used to retrieve an item from the channel,
 	// set it, and return it:
 	//
-	//    items <- batch.NextItem(in, myData)
+	//    items <- batch.NextItem(ps, myData)
 	//
 	// Read is only run in a single goroutine. It can spawn as many are
 	// necessary for reading.
 	//
-	// Once reading is finished (or when the program ends) both items and
-	// errs need to be closed. This signals to Batch that it should drain
-	// the pipeline and finish. It is not enough for Read to return.
+	// Once reading is finished (or when the program ends), the batch
+	// processor needs to be notified. This is done by calling the Close
+	// method on ps, which signals to Batch that it should drain the pipeline
+	// and finish. It is not enough for Read to return.
 	//
-	//    func (s source) Read(ctx context.Context, in <-chan *Item, items chan<- *Item, errs chan<- error) {
-	//      defer close(items)
-	//      defer close(errs)
+	//    func (s source) Read(ctx context.Context, ps batch.PipelineStage) {
+	//      defer ps.Close()
 	//      // Read items until done...
 	//    }
 	//
 	// Read should not modify an item after adding it to items.
-	Read(ctx context.Context, stage PipelineStage)
+	Read(ctx context.Context, ps PipelineStage)
 }
 
 // Processor processes items in batches.
 type Processor interface {
-	// Process processes items and returns any errors on the errs channel.
-	// When it is done, it must close the errs channel to signify that it's
-	// finished processing. Simply returning isn't enough.
+	// Process processes items from ps's Input channel and returns any errors
+	// encountered on the Errors channel. When it is done, it must close ps
+	// to signify that it's finished processing. Simply returning isn't enough.
 	//
-	//    func (p *processor) Process(ctx context.Context, items []interface{}, errs chan<- error) {
-	//      defer close(errs)
+	//    func (p *processor) Process(ctx context.Context, ps batch.PipelineStage) {
+	//      defer ps.Close()
 	//      // Do processing here...
 	//    }
 	//
 	// Batch does not wait for Process to finish, so it can spawn a
-	// goroutine and then return, as long as errs is closed at the end.
+	// goroutine and then return, as long as ps is closed at the end.
 	//
 	//    // This is ok
-	//    func (p *processor) Process(ctx context.Context, items []interface{}, errs chan<- error) {
+	//    func (p *processor) Process(ctx context.Context, ps batch.PipelineStage) {
 	//      go func() {
-	//        defer close(errs)
+	//        defer ps.Close()
 	//        time.Sleep(time.Second)
 	//        fmt.Println(items)
 	//      }()
+	//    }
+	//
+	// To allow Processors to be chained together, processed items should
+	// be returned on the Output channel:
+	//
+	//    // Process squares values in batches.
+	//    func (p *processor) Process(ctx context.Context, ps batch.PipelineStage) {
+	//      defer ps.Close()
+	//      for item := range ps.Input() {
+	//        value, _ := item.Get().(int64)
+	//        item.Set(value*value)
+	//        ps.Output() <- item
+	//      }
 	//    }
 	//
 	// Process may be run in any number of concurrent goroutines. If

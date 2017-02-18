@@ -13,8 +13,6 @@ type pipelineStage struct {
 	in  chan *Item
 	out chan *Item
 	err chan error
-
-	closed bool
 }
 
 func (p *pipelineStage) Input() <-chan *Item {
