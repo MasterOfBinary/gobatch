@@ -12,9 +12,12 @@ before_install:
 
 install:
  - go get -t ./...
+ - go get -u gopkg.in/alecthomas/gometalinter.v1
+ - gometalinter --install
 
 script:
  - go test -v -race ./...
+ - gometalinter ./...
 
 after_script:
  - $HOME/gopath/bin/goveralls -service=travis-ci
