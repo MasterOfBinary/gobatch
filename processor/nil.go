@@ -7,20 +7,14 @@ import (
 	"github.com/MasterOfBinary/gobatch/batch"
 )
 
-type nilProcessor struct {
-	duration time.Duration
-}
-
-// Nil returns a Processor that discards all data after a specified duration.
+// Nil is a Processor that discards all data after a specified duration.
 // It can be used as a mock Processor.
-func Nil(duration time.Duration) batch.Processor {
-	return &nilProcessor{
-		duration: duration,
-	}
+type Nil struct {
+	Duration time.Duration
 }
 
 // Process discards all data sent to it after a certain amount of time.
-func (p *nilProcessor) Process(ctx context.Context, ps batch.PipelineStage) {
-	time.Sleep(p.duration)
+func (p *Nil) Process(ctx context.Context, ps batch.PipelineStage) {
+	time.Sleep(p.Duration)
 	ps.Close()
 }

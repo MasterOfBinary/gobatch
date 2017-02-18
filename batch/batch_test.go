@@ -66,7 +66,7 @@ func TestBatch_Go(t *testing.T) {
 		s := &sourceFromSlice{
 			slice: []interface{}{1, 2, 3, 4, 5},
 		}
-		p := processor.Nil(0)
+		p := &processor.Nil{}
 
 		errs := batch.Go(context.Background(), s, p)
 
@@ -87,12 +87,14 @@ func TestBatch_Go(t *testing.T) {
 
 		// Concurrent calls to Go should panic
 		batch := &Batch{}
-		s := source.Nil{
+		s := &source.Nil{
 			Duration: time.Second,
 		}
-		p := processor.Nil(0)
+		p := &processor.Nil{
+			Duration: 0,
+		}
 
-		assertNoErrors(t, batch.Go(context.Background(), &s, p))
+		assertNoErrors(t, batch.Go(context.Background(), s, p))
 
 		// Next call should panic
 		var panics bool
@@ -102,7 +104,7 @@ func TestBatch_Go(t *testing.T) {
 					panics = true
 				}
 			}()
-			assertNoErrors(t, batch.Go(context.Background(), &s, p))
+			assertNoErrors(t, batch.Go(context.Background(), s, p))
 		}()
 
 		if !panics {
@@ -115,12 +117,12 @@ func TestBatch_Go(t *testing.T) {
 
 		errSrc := errors.New("source")
 		batch := &Batch{}
-		s := source.Error{
+		s := &source.Error{
 			Err: errSrc,
 		}
-		p := processor.Nil(0)
+		p := &processor.Nil{}
 
-		errs := batch.Go(context.Background(), &s, p)
+		errs := batch.Go(context.Background(), s, p)
 
 		var found bool
 		for err := range errs {
@@ -148,7 +150,9 @@ func TestBatch_Go(t *testing.T) {
 		s := &sourceFromSlice{
 			slice: []interface{}{1},
 		}
-		p := processor.Error(errProc)
+		p := &processor.Error{
+			Err: errProc,
+		}
 
 		errs := batch.Go(context.Background(), s, p)
 
@@ -323,12 +327,14 @@ func TestBatch_Done(t *testing.T) {
 		t.Parallel()
 
 		batch := &Batch{}
-		s := source.Nil{
+		s := &source.Nil{
 			Duration: 0,
 		}
-		p := processor.Nil(0)
+		p := &processor.Nil{
+			Duration: 0,
+		}
 
-		assertNoErrors(t, batch.Go(context.Background(), &s, p))
+		assertNoErrors(t, batch.Go(context.Background(), s, p))
 
 		select {
 		case <-batch.Done():
@@ -346,7 +352,9 @@ func TestBatch_Done(t *testing.T) {
 			slice:    []interface{}{1},
 			duration: 100 * time.Millisecond,
 		}
-		p := processor.Nil(10 * time.Millisecond)
+		p := &processor.Nil{
+			Duration: 10 * time.Millisecond,
+		}
 
 		timer := time.After(100 * time.Millisecond)
 		assertNoErrors(t, batch.Go(context.Background(), s, p))
@@ -369,7 +377,9 @@ func TestBatch_Done(t *testing.T) {
 			slice:    []interface{}{1},
 			duration: 10 * time.Millisecond,
 		}
-		p := processor.Nil(100 * time.Millisecond)
+		p := &processor.Nil{
+			Duration: 100 * time.Millisecond,
+		}
 
 		timer := time.After(100 * time.Millisecond)
 		assertNoErrors(t, batch.Go(context.Background(), s, p))
