@@ -8,16 +8,16 @@ go:
  - 1.7
 
 before_install:
- - go get github.com/mattn/goveralls
+ - go get -u github.com/mattn/goveralls
+ - go get -u gopkg.in/alecthomas/gometalinter.v1
 
 install:
- - go get -t ./...
- - go get -u gopkg.in/alecthomas/gometalinter.v1
- - gometalinter --install
+ - go get -u -t ./...
+ - gometalinter.v1 --install
 
 script:
  - go test -v -race ./...
- - gometalinter ./...
+ - gometalinter.v1 ./...
 
 after_script:
  - $HOME/gopath/bin/goveralls -service=travis-ci
