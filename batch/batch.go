@@ -216,9 +216,6 @@ type Processor interface {
 // Finally, the batch processor signals to its caller that processing is
 // complete and the entire pipeline is drained.
 func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
