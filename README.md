@@ -33,10 +33,11 @@ release, wait for version 1.
 Features
 --------
 
-* Complete control over the number of items to process at once.
+* Complete control over the number of items to process at once and amount of time
+between batches.
 * Errors are returned over a channel, so that they can be logged or otherwise
 handled.
-* GoBatch is highly concurrent.
+* GoBatch is concurrency-safe.
 
 Documentation
 -------------
