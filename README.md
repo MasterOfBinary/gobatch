@@ -36,8 +36,7 @@ Features
 * Complete control over the number of items to process at once.
 * Errors are returned over a channel, so that they can be logged or otherwise
 handled.
-* Channels are used throughout the library, not just for errors. Everything is
-(or can be) highly concurrent.
+* GoBatch is highly concurrent.
 
 Documentation
 -------------
@@ -55,8 +54,8 @@ To download, run
 GoBatch doesn't require any dependencies except Go 1.7 or later and the
 standard library.
 
-Example
--------
+Examples
+--------
 
 See the [GoDocs](https://godoc.org/github.com/MasterOfBinary/gobatch) for examples.
 
