@@ -409,6 +409,7 @@ func (b *Batch) process(ctx context.Context) {
 				}
 			}
 		}()
+		wg.Wait()
 	}
 
 	// Wait for all processing to complete
