@@ -3,7 +3,7 @@ GoBatch
 
 [![Build Status](https://travis-ci.org/MasterOfBinary/gobatch.svg?branch=master)](https://travis-ci.org/MasterOfBinary/gobatch)
 [![Coverage Status](https://coveralls.io/repos/github/MasterOfBinary/gobatch/badge.svg?branch=master)](https://coveralls.io/github/MasterOfBinary/gobatch?branch=master)
-[![GoDoc](https://godoc.org/github.com/MasterOfBinary/gobatch?status.svg)](https://godoc.org/github.com/MasterOfBinary/gobatch)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/MasterOfBinary/gobatch)](https://pkg.go.dev/github.com/MasterOfBinary/gobatch)
 
 GoBatch is a batch processing library for Go. The data reader and processor are
 implementations of `batch.Source` and `batch.Processor`, respectively. The
