@@ -42,7 +42,7 @@ handled.
 Documentation
 -------------
 
-See the [GoDocs](https://godoc.org/github.com/MasterOfBinary/gobatch) for documentation
+See the [pkg.go.dev docs](https://pkg.go.dev/github.com/MasterOfBinary/gobatch) for documentation
 and examples.
 
 Installation
@@ -58,7 +58,7 @@ standard library.
 Examples
 --------
 
-See the [GoDocs](https://godoc.org/github.com/MasterOfBinary/gobatch) for examples.
+See the [pkg.go.dev docs](https://pkg.go.dev/github.com/MasterOfBinary/gobatch) for examples.
 
 License
 -------
