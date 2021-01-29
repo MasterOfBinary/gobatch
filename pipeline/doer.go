@@ -16,16 +16,23 @@ type DoerElem struct {
 	done chan<- struct{}
 }
 
-type DoerFunc func(ctx context.Context, es []*DoerElem) error
+type DoerFunc func(ctx context.Context, elems []*DoerElem) error
 
-func getDoerFuncOrNoop(s *Doer) DoerFunc {
-	if s == nil || s.doerFunc == nil {
-		return func(ctx context.Context, es []*DoerElem) error { return nil }
+func noopDoerFunc(_ context.Context, _ []*DoerElem) error {
+	return nil
+}
+
+func getDoerFuncOrNoop(d *Doer) DoerFunc {
+	if d == nil {
+		return noopDoerFunc
 	}
-	return s.doerFunc
+	return d.doerFunc
 }
 
 func NewDoer(f DoerFunc) *Doer {
+	if f == nil {
+		f = noopDoerFunc
+	}
 	return &Doer{
 		doerFunc: f,
 		isSetup:  true,
@@ -33,7 +40,7 @@ func NewDoer(f DoerFunc) *Doer {
 	}
 }
 
-// Do not use BatchSetter directly; instead, use NewBatchSetter.
+// Do not use Doer directly; instead, use NewDoer.
 type Doer struct {
 	doerFunc DoerFunc
 	isSetup  bool
@@ -45,44 +52,44 @@ type Doer struct {
 }
 
 // If ctx is done, ctx.Err() is returned.
-func (s *Doer) Do(ctx context.Context, val interface{}) (interface{}, error) {
+func (d *Doer) Do(ctx context.Context, val interface{}) (interface{}, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
 
-	if s == nil {
-		return nil, errors.New("gobatch: called Set on nil BatchSetter")
+	if d == nil {
+		return nil, errors.New("gobatch: called Do on nil Doer")
 	}
 
-	// There's a bit of a tradeoff here: we could use an empty BatchSetter
+	// There'd a bit of a tradeoff here: we could use an empty Doer
 	// as a noop, and if !isSetup we return nil. However, that could lead to
 	// some hard-to-find bugs for the user, so we prefer to return an error
 	// in this case.
 	//
-	// To create a noop BatchSetter, one can use NewBatchSetter(nil) in which
-	// case we assume it's intentional.
-	if !s.isSetup {
-		return nil, errors.New("gobatch: called Set on uninitialized BatchSetter")
+	// To create a noop Doer, one can use NewDoer(nil) in which
+	// case we assume it'd intentional.
+	if !d.isSetup {
+		return nil, errors.New("gobatch: called Do on uninitialized Doer")
 	}
 
-	s.mu.RLock()
-	if s.closed {
-		s.mu.RUnlock()
-		return nil, errors.New("gobatch: BatchSetter has been closed")
+	d.mu.RLock()
+	if d.closed {
+		d.mu.RUnlock()
+		return nil, errors.New("gobatch: Doer has been closed")
 	}
 
 	// This needs to be done inside the mutex. Otherwise the channel could be
-	// closed between the time we check and the time we write to the channel
+	// closed between the time we check and the time we write to the channel.
 	done := make(chan struct{})
 	elem := &DoerElem{
 		Input: val,
 		done:  done,
 	}
-	s.ch <- elem
+	d.ch <- elem
 
-	s.mu.RUnlock()
+	d.mu.RUnlock()
 
 	// Block and wait for the response
 	<-done
@@ -91,30 +98,31 @@ func (s *Doer) Do(ctx context.Context, val interface{}) (interface{}, error) {
 }
 
 // Close can be called multiple times with no problems.
-func (s *Doer) Close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+func (d *Doer) Close() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
 		return
 	}
-	close(s.ch)
-	s.closed = true
+	close(d.ch)
+	d.closed = true
 }
 
-func (s *Doer) Read(ctx context.Context, ps *batch.PipelineStage) {
+func (d *Doer) Read(_ context.Context, ps *batch.PipelineStage) {
 	defer ps.Close()
 
 	out := ps.Output
-	for item := range s.ch {
+	for item := range d.ch {
 		out <- batch.NextItem(ps, item)
 	}
 }
 
 // Note: if multiple items are in a batch, results are undefined.
-func (s *Doer) Process(ctx context.Context, ps *batch.PipelineStage) {
+func (d *Doer) Process(ctx context.Context, ps *batch.PipelineStage) {
 	defer ps.Close()
 
-	es := make([]*DoerElem, 0)
+	// TODO find a better buffer size, maybe make it configurable
+	elems := make([]*DoerElem, 0, 10)
 
 	for in := range ps.Input {
 		var (
@@ -127,16 +135,16 @@ func (s *Doer) Process(ctx context.Context, ps *batch.PipelineStage) {
 			continue
 		}
 
-		es = append(es, cur)
+		elems = append(elems, cur)
 	}
 
-	if len(es) == 0 {
+	if len(elems) == 0 {
 		return
 	}
 
-	err := getDoerFuncOrNoop(s)(ctx, es)
+	err := getDoerFuncOrNoop(d)(ctx, elems)
 
-	for _, e := range es {
+	for _, e := range elems {
 		e.err = err
 		close(e.done)
 	}

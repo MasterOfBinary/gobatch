@@ -8,7 +8,7 @@ import (
 )
 
 func TestNextItem(t *testing.T) {
-	t.Run("with item", func(t *testing.T) {
+	t.Run("with-item", func(t *testing.T) {
 		ch := make(chan *Item)
 
 		go func() {
@@ -30,7 +30,7 @@ func TestNextItem(t *testing.T) {
 		}
 	})
 
-	t.Run("closed channel", func(t *testing.T) {
+	t.Run("closed-channel", func(t *testing.T) {
 		ch := make(chan *Item)
 		close(ch)
 

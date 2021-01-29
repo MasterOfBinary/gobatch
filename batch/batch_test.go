@@ -18,7 +18,7 @@ type sourceFromSlice struct {
 	duration time.Duration
 }
 
-func (s *sourceFromSlice) Read(ctx context.Context, ps *PipelineStage) {
+func (s *sourceFromSlice) Read(_ context.Context, ps *PipelineStage) {
 	defer ps.Close()
 
 	for _, item := range s.slice {
@@ -32,7 +32,7 @@ type processorCounter struct {
 	num        uint32
 }
 
-func (p *processorCounter) Process(ctx context.Context, ps *PipelineStage) {
+func (p *processorCounter) Process(_ context.Context, ps *PipelineStage) {
 	defer ps.Close()
 
 	count := 0
@@ -59,7 +59,7 @@ func assertNoErrors(t *testing.T, errs <-chan error) {
 }
 
 func TestBatch_Go(t *testing.T) {
-	t.Run("basic test", func(t *testing.T) {
+	t.Run("basic-test", func(t *testing.T) {
 		t.Parallel()
 
 		batch := &Batch{}
@@ -82,7 +82,7 @@ func TestBatch_Go(t *testing.T) {
 		}
 	})
 
-	t.Run("concurrent calls", func(t *testing.T) {
+	t.Run("concurrent-calls", func(t *testing.T) {
 		t.Parallel()
 
 		// Concurrent calls to Go should panic
@@ -112,7 +112,7 @@ func TestBatch_Go(t *testing.T) {
 		}
 	})
 
-	t.Run("source error", func(t *testing.T) {
+	t.Run("source-error", func(t *testing.T) {
 		t.Parallel()
 
 		errSrc := errors.New("source")
@@ -142,7 +142,7 @@ func TestBatch_Go(t *testing.T) {
 		}
 	})
 
-	t.Run("processor error", func(t *testing.T) {
+	t.Run("processor-error", func(t *testing.T) {
 		t.Parallel()
 
 		errProc := errors.New("processor")
@@ -191,7 +191,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 1,
 			},
 			{
-				name: "min items",
+				name: "min-items",
 				config: &ConfigValues{
 					MinItems: 5,
 				},
@@ -199,7 +199,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 5,
 			},
 			{
-				name: "min time",
+				name: "min-time",
 				config: &ConfigValues{
 					MinTime: 250 * time.Millisecond,
 				},
@@ -208,7 +208,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 2,
 			},
 			{
-				name: "max items",
+				name: "max-items",
 				config: &ConfigValues{
 					MaxItems: 5,
 				},
@@ -216,7 +216,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 1,
 			},
 			{
-				name: "max time",
+				name: "max-time",
 				config: &ConfigValues{
 					MaxTime: 200 * time.Millisecond,
 				},
@@ -225,7 +225,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 1,
 			},
 			{
-				name: "min time and min items",
+				name: "min-time-and-min-items",
 				config: &ConfigValues{
 					MinTime:  450 * time.Millisecond,
 					MinItems: 2,
@@ -235,7 +235,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 4, // MinTime > MinItems
 			},
 			{
-				name: "min time and max items",
+				name: "min-time-and-max-items",
 				config: &ConfigValues{
 					MinTime:  450 * time.Millisecond,
 					MaxItems: 2,
@@ -245,7 +245,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 2, // MaxItems > MinTime
 			},
 			{
-				name: "min time and max time",
+				name: "min-time-and-max-time",
 				config: &ConfigValues{
 					MinTime: 450 * time.Millisecond,
 					MaxTime: 1 * time.Second,
@@ -255,7 +255,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 4, // MinTime > MaxTime
 			},
 			{
-				name: "min items and max time",
+				name: "min-items-and-max-time",
 				config: &ConfigValues{
 					MinItems: 10,
 					MaxTime:  200 * time.Millisecond,
@@ -265,7 +265,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 1, // MaxTime > MinItems
 			},
 			{
-				name: "min items and max items",
+				name: "min-items-and-max-items",
 				config: &ConfigValues{
 					MinItems: 10,
 					MaxItems: 20,
@@ -275,7 +275,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 10, // MaxItems > MinItems
 			},
 			{
-				name: "min items and eof",
+				name: "min-items-and-eof",
 				config: &ConfigValues{
 					MinItems: 10,
 				},
@@ -283,7 +283,7 @@ func TestBatch_Go(t *testing.T) {
 				wantProcessingSize: 5, // EOF > MinItems
 			},
 			{
-				name: "min time and eof",
+				name: "min-time-and-eof",
 				config: &ConfigValues{
 					MinTime: 100 * time.Millisecond,
 				},
@@ -323,7 +323,7 @@ func TestBatch_Go(t *testing.T) {
 }
 
 func TestBatch_Done(t *testing.T) {
-	t.Run("basic test", func(t *testing.T) {
+	t.Run("basic-test", func(t *testing.T) {
 		t.Parallel()
 
 		batch := &Batch{}
@@ -344,7 +344,7 @@ func TestBatch_Done(t *testing.T) {
 		}
 	})
 
-	t.Run("with source sleep", func(t *testing.T) {
+	t.Run("with-source-sleep", func(t *testing.T) {
 		t.Parallel()
 
 		batch := &Batch{}
@@ -369,7 +369,7 @@ func TestBatch_Done(t *testing.T) {
 		}
 	})
 
-	t.Run("with processor sleep", func(t *testing.T) {
+	t.Run("with-processor-sleep", func(t *testing.T) {
 		t.Parallel()
 
 		batch := &Batch{}
