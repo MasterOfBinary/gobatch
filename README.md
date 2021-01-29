@@ -3,7 +3,7 @@ GoBatch
 
 [![Build Status](https://travis-ci.org/MasterOfBinary/gobatch.svg?branch=master)](https://travis-ci.org/MasterOfBinary/gobatch)
 [![Coverage Status](https://coveralls.io/repos/github/MasterOfBinary/gobatch/badge.svg?branch=master)](https://coveralls.io/github/MasterOfBinary/gobatch?branch=master)
-[![GoDoc](https://godoc.org/github.com/MasterOfBinary/gobatch?status.svg)](https://godoc.org/github.com/MasterOfBinary/gobatch)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/MasterOfBinary/gobatch)](https://pkg.go.dev/github.com/MasterOfBinary/gobatch)
 
 GoBatch is a batch processing library for Go. The data reader and processor are
 implementations of `batch.Source` and `batch.Processor`, respectively. The
@@ -33,17 +33,17 @@ release, wait for version 1.
 Features
 --------
 
-* Complete control over the number of items to process at once.
+* Complete control over the number of items to process at once and amount of time
+between batches.
 * Errors are returned over a channel, so that they can be logged or otherwise
 handled.
-* Channels are used throughout the library, not just for errors. Everything is
-(or can be) highly concurrent.
+* GoBatch is concurrency-safe.
 
 Documentation
 -------------
 
-See the [GoDocs](https://godoc.org/github.com/MasterOfBinary/gobatch) for documentation
-and examples.
+See the [pkg.go.dev docs](https://pkg.go.dev/github.com/MasterOfBinary/gobatch) for documentation
+and an [example](https://pkg.go.dev/github.com/MasterOfBinary/gobatch/batch#example-package).
 
 Installation
 ------------
@@ -55,10 +55,10 @@ To download, run
 GoBatch doesn't require any dependencies except Go 1.7 or later and the
 standard library.
 
-Example
--------
+Examples
+--------
 
-See the [GoDocs](https://godoc.org/github.com/MasterOfBinary/gobatch) for examples.
+See the [pkg.go.dev docs](https://pkg.go.dev/github.com/MasterOfBinary/gobatch) for examples.
 
 License
 -------
