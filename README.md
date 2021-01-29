@@ -43,7 +43,7 @@ Documentation
 -------------
 
 See the [pkg.go.dev docs](https://pkg.go.dev/github.com/MasterOfBinary/gobatch) for documentation
-and examples.
+and an [example](https://pkg.go.dev/github.com/MasterOfBinary/gobatch/batch#example-package).
 
 Installation
 ------------
