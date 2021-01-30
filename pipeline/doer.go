@@ -63,7 +63,7 @@ func (d *Doer) Do(ctx context.Context, val interface{}) (interface{}, error) {
 		return nil, errors.New("gobatch: called Do on nil Doer")
 	}
 
-	// There'd a bit of a tradeoff here: we could use an empty Doer
+	// There's a bit of a tradeoff here: we could use an empty Doer
 	// as a noop, and if !isSetup we return nil. However, that could lead to
 	// some hard-to-find bugs for the user, so we prefer to return an error
 	// in this case.
