@@ -68,8 +68,7 @@ To download, run
 - `Source`: An interface for providing data to be processed.
 - `Processor`: An interface for processing batches of data.
 - `Config`: An interface for providing configuration values.
-- `Item`: A struct representing a single item in the processing pipeline.
-  - Each `Item` has a unique ID for traceability.
+- `Item`: A struct representing a single item in the processing pipeline. Each `Item` has a unique ID for traceability.
 - `PipelineStage`: A struct containing input and output channels for a single stage of the batch pipeline.
 
 ## Basic Usage
