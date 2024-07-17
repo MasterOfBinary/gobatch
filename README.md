@@ -16,7 +16,7 @@ the master branch. If you need a stable release, wait for version 1.
 
 ### Core Components
 
-1. `Source`: An interface implemented by the user to define where data comes from (e.g., a channel, database, API, or file system).
+1. `Source`: An interface implemented by the user to define where data comes from (e.g. a channel, database, API, or file system).
 2. `Processor`: An interface implemented by the user to define how batches of data should be processed.
 3. `Batch`: The central structure provided by GoBatch that manages the batch processing pipeline.
 
@@ -36,15 +36,6 @@ the master branch. If you need a stable release, wait for version 1.
 
 4. **Result Handling**:
     - Processed results and any errors are managed by the `Batch` structure.
-
-### Configuration
-
-GoBatch offers control over the batch size through configurable parameters:
-
-- Minimum and maximum items per batch.
-- Minimum and maximum time to wait before processing a batch.
-
-This flexibility allows GoBatch to be optimized for various scenarios, from real-time processing to bulk operations.
 
 ### Typical Use Cases
 
@@ -67,9 +58,6 @@ To download, run
 
     go get github.com/MasterOfBinary/gobatch
 
-GoBatch doesn't require any dependencies except Go 1.7 or later and the
-standard library.
-
 ## Requirements
 
 - Go 1.7 or later
@@ -81,6 +69,7 @@ standard library.
 - `Processor`: An interface for processing batches of data.
 - `Config`: An interface for providing configuration values.
 - `Item`: A struct representing a single item in the processing pipeline.
+  - Each `Item` has a unique ID for traceability.
 - `PipelineStage`: A struct containing input and output channels for a single stage of the batch pipeline.
 
 ## Basic Usage
