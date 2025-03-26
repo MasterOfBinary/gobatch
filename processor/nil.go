@@ -14,7 +14,7 @@ type Nil[I, O any] struct {
 }
 
 // Process discards all data sent to it after a certain amount of time.
-func (p *Nil[I, O]) Process(ctx context.Context, ps *batch.PipelineStage[I, O]) {
+func (p *Nil[I, O]) Process(_ context.Context, ps *batch.PipelineStage[I, O]) {
 	time.Sleep(p.Duration)
 	ps.Close()
 }

@@ -18,7 +18,7 @@ type sourceFromSlice struct {
 	duration time.Duration
 }
 
-func (s *sourceFromSlice) Read(ctx context.Context, ps *PipelineStage[int, int]) {
+func (s *sourceFromSlice) Read(_ context.Context, ps *PipelineStage[int, int]) {
 	defer ps.Close()
 
 	for _, item := range s.slice {
@@ -32,7 +32,7 @@ type processorCounter struct {
 	num        uint32
 }
 
-func (p *processorCounter) Process(ctx context.Context, ps *PipelineStage[int, int]) {
+func (p *processorCounter) Process(_ context.Context, ps *PipelineStage[int, int]) {
 	defer ps.Close()
 
 	count := 0
@@ -126,14 +126,13 @@ func TestBatch_Go(t *testing.T) {
 
 		var found bool
 		for err := range errs {
-			if src, ok := err.(*SourceError); ok {
-				if src.Original() == errSrc {
+			var src *SourceError
+			if errors.As(err, &src) {
+				if errors.Is(errSrc, src.Original()) {
 					found = true
 				} else {
 					t.Errorf("Found source error %v, want %v", src.Original(), errSrc)
 				}
-			} else {
-				t.Error("Found an unexpected error")
 			}
 		}
 
@@ -158,14 +157,13 @@ func TestBatch_Go(t *testing.T) {
 
 		var found bool
 		for err := range errs {
-			if proc, ok := err.(*ProcessorError); ok {
-				if proc.Original() == errProc {
+			var proc *ProcessorError
+			if errors.As(err, &proc) {
+				if errors.Is(errProc, proc.Original()) {
 					found = true
 				} else {
 					t.Errorf("Found processor error %v, want %v", proc.Original(), errProc)
 				}
-			} else {
-				t.Error("Found an unexpected error")
 			}
 		}
 

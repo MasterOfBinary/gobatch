@@ -16,7 +16,7 @@ import (
 type printProcessor[I, O any] struct{}
 
 // Process prints a batch of items.
-func (p printProcessor[I, O]) Process(ctx context.Context, ps *batch.PipelineStage[int, any]) {
+func (p printProcessor[I, O]) Process(_ context.Context, ps *batch.PipelineStage[int, any]) {
 	// Process needs to close ps after it's done
 	defer ps.Close()
 

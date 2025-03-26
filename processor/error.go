@@ -12,7 +12,7 @@ type Error[I, O any] struct {
 }
 
 // Process discards all data sent to it after a certain amount of time.
-func (p *Error[I, O]) Process(ctx context.Context, ps *batch.PipelineStage[I, O]) {
+func (p *Error[I, O]) Process(_ context.Context, ps *batch.PipelineStage[I, O]) {
 	ps.Errors <- p.Err
 	ps.Close()
 }

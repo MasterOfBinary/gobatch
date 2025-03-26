@@ -13,7 +13,7 @@ type Channel[I any] struct {
 }
 
 // Read reads from items until the input channel is closed.
-func (s *Channel[I]) Read(ctx context.Context, ps *batch.PipelineStage[I, I]) {
+func (s *Channel[I]) Read(_ context.Context, ps *batch.PipelineStage[I, I]) {
 	defer ps.Close()
 
 	out := ps.Output

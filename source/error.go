@@ -13,7 +13,7 @@ type Error[I any] struct {
 }
 
 // Read returns an error and then closes.
-func (s *Error[I]) Read(ctx context.Context, ps *batch.PipelineStage[I, I]) {
+func (s *Error[I]) Read(_ context.Context, ps *batch.PipelineStage[I, I]) {
 	ps.Errors <- s.Err
 	ps.Close()
 }

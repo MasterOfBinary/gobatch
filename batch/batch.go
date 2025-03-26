@@ -421,7 +421,7 @@ func (b *Batch[I, O]) process(ctx context.Context) {
 // waitForItems waits until enough items are read to begin batch processing, based
 // on config. It returns true if processing is completely finished, and false
 // otherwise.
-func (b *Batch[I, O]) waitForItems(ctx context.Context, items []*Item[I], config *ConfigValues) (bool, []*Item[I]) {
+func (b *Batch[I, O]) waitForItems(_ context.Context, items []*Item[I], config *ConfigValues) (bool, []*Item[I]) {
 	var (
 		reachedMinTime bool
 		itemsRead      uint64
