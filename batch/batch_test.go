@@ -14,16 +14,16 @@ import (
 )
 
 type sourceFromSlice struct {
-	slice    []interface{}
+	slice    []int
 	duration time.Duration
 }
 
-func (s *sourceFromSlice) Read(ctx context.Context, ps *PipelineStage) {
+func (s *sourceFromSlice) Read(ctx context.Context, ps *PipelineStage[int, int]) {
 	defer ps.Close()
 
 	for _, item := range s.slice {
 		time.Sleep(s.duration)
-		ps.Output <- NextItem(ps, item)
+		ps.Output <- NextItem[int, int](ps, item)
 	}
 }
 
@@ -32,7 +32,7 @@ type processorCounter struct {
 	num        uint32
 }
 
-func (p *processorCounter) Process(ctx context.Context, ps *PipelineStage) {
+func (p *processorCounter) Process(ctx context.Context, ps *PipelineStage[int, int]) {
 	defer ps.Close()
 
 	count := 0
@@ -62,11 +62,11 @@ func TestBatch_Go(t *testing.T) {
 	t.Run("basic test", func(t *testing.T) {
 		t.Parallel()
 
-		batch := &Batch{}
+		batch := &Batch[int, any]{}
 		s := &sourceFromSlice{
-			slice: []interface{}{1, 2, 3, 4, 5},
+			slice: []int{1, 2, 3, 4, 5},
 		}
-		p := &processor.Nil{}
+		p := &processor.Nil[int, any]{}
 
 		errs := batch.Go(context.Background(), s, p)
 
@@ -86,11 +86,11 @@ func TestBatch_Go(t *testing.T) {
 		t.Parallel()
 
 		// Concurrent calls to Go should panic
-		batch := &Batch{}
-		s := &source.Nil{
+		batch := &Batch[int, any]{}
+		s := &source.Nil[int]{
 			Duration: time.Second,
 		}
-		p := &processor.Nil{
+		p := &processor.Nil[int, any]{
 			Duration: 0,
 		}
 
@@ -116,11 +116,11 @@ func TestBatch_Go(t *testing.T) {
 		t.Parallel()
 
 		errSrc := errors.New("source")
-		batch := &Batch{}
-		s := &source.Error{
+		batch := &Batch[int, any]{}
+		s := &source.Error[int]{
 			Err: errSrc,
 		}
-		p := &processor.Nil{}
+		p := &processor.Nil[int, any]{}
 
 		errs := batch.Go(context.Background(), s, p)
 
@@ -146,11 +146,11 @@ func TestBatch_Go(t *testing.T) {
 		t.Parallel()
 
 		errProc := errors.New("processor")
-		batch := &Batch{}
+		batch := &Batch[int, any]{}
 		s := &sourceFromSlice{
-			slice: []interface{}{1},
+			slice: []int{1},
 		}
-		p := &processor.Error{
+		p := &processor.Error[int, any]{
 			Err: errProc,
 		}
 
@@ -297,12 +297,12 @@ func TestBatch_Go(t *testing.T) {
 			t.Run(test.name, func(t *testing.T) {
 				t.Parallel()
 
-				inputSlice := make([]interface{}, test.inputSize)
+				inputSlice := make([]int, test.inputSize)
 				for i := 0; i < len(inputSlice); i++ {
 					inputSlice[i] = rand.Int()
 				}
 
-				batch := New(NewConstantConfig(test.config))
+				batch := New[int, int](NewConstantConfig(test.config))
 				s := &sourceFromSlice{
 					slice:    inputSlice,
 					duration: test.inputDuration,
@@ -326,11 +326,11 @@ func TestBatch_Done(t *testing.T) {
 	t.Run("basic test", func(t *testing.T) {
 		t.Parallel()
 
-		batch := &Batch{}
-		s := &source.Nil{
+		batch := &Batch[int, any]{}
+		s := &source.Nil[int]{
 			Duration: 0,
 		}
-		p := &processor.Nil{
+		p := &processor.Nil[int, any]{
 			Duration: 0,
 		}
 
@@ -347,12 +347,12 @@ func TestBatch_Done(t *testing.T) {
 	t.Run("with source sleep", func(t *testing.T) {
 		t.Parallel()
 
-		batch := &Batch{}
+		batch := &Batch[int, any]{}
 		s := &sourceFromSlice{
-			slice:    []interface{}{1},
+			slice:    []int{1},
 			duration: 100 * time.Millisecond,
 		}
-		p := &processor.Nil{
+		p := &processor.Nil[int, any]{
 			Duration: 10 * time.Millisecond,
 		}
 
@@ -372,12 +372,12 @@ func TestBatch_Done(t *testing.T) {
 	t.Run("with processor sleep", func(t *testing.T) {
 		t.Parallel()
 
-		batch := &Batch{}
+		batch := &Batch[int, any]{}
 		s := &sourceFromSlice{
-			slice:    []interface{}{1},
+			slice:    []int{1},
 			duration: 10 * time.Millisecond,
 		}
-		p := &processor.Nil{
+		p := &processor.Nil[int, any]{
 			Duration: 100 * time.Millisecond,
 		}
 

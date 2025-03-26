@@ -14,7 +14,7 @@
 // to prioritize the parameters in some way. They are prioritized as follows
 // (with EOF signifying the end of the input data):
 //
-//    MaxTime = MaxItems > EOF > MinTime > MinItems
+//	MaxTime = MaxItems > EOF > MinTime > MinItems
 //
 // A few examples:
 //
@@ -48,10 +48,10 @@ import (
 // To create a new Batch, call the New function. Creating one using &Batch{}
 // will return the default Batch.
 //
-//    // The following are equivalent
-//    defaultBatch1 := &batch.Batch{}
-//    defaultBatch2 := batch.New(nil)
-//    defaultBatch3 := batch.New(batch.NewConstantConfig(&batch.ConfigValues{}))
+//	// The following are equivalent
+//	defaultBatch1 := &batch.Batch{}
+//	defaultBatch2 := batch.New(nil)
+//	defaultBatch3 := batch.New(batch.NewConstantConfig(&batch.ConfigValues{}))
 //
 // The defaults (with nil Config) provide a usable, but likely suboptimal, Batch
 // where items are processed as soon as they are retrieved from the source.
@@ -63,7 +63,7 @@ import (
 // by Batch. For easier usage, the helper function NextItem can be used to
 // read from the input channel, set the data, and return the modified Item:
 //
-//    ps.Output() <- batch.NextItem(ps, item)
+//	ps.Output() <- batch.NextItem(ps, item)
 //
 // Batch runs asynchronously until the source closes its PipelineSource, signaling
 // that there is nothing else to read. Once that happens, and the pipeline has
@@ -74,34 +74,36 @@ import (
 // The first way can be used if errors need to be processed elsewhere. A simple
 // loop could look like this:
 //
-//    errs := myBatch.Go(ctx, s, p)
-//    for err := range errs {
-//      // Log the error here...
-//      log.Print(err.Error())
-//    }
-//    // Now batch processing is done
+//	errs := myBatch.Go(ctx, s, p)
+//	for err := range errs {
+//	  // Log the error here...
+//	  log.Print(err.Error())
+//	}
+//	// Now batch processing is done
 //
 // If the errors don't need to be processed, the IgnoreErrors function can be
 // used to drain the error channel. Then the Done channel can be used to
 // determine whether or not batch processing is complete:
 //
-//    batch.IgnoreErrors(myBatch.Go(ctx, s, p))
-//    <-myBatch.Done()
-//    // Now batch processing is done
+//	batch.IgnoreErrors(myBatch.Go(ctx, s, p))
+//	<-myBatch.Done()
+//	// Now batch processing is done
 //
 // Note that the errors returned on the error channel may be wrapped in a
 // batch.Error so the caller knows whether they come from the source or the
 // processor (or neither). Errors from the source will be of type SourceError,
 // and errors from the processor will be of type ProcessorError. Errors from
 // Batch itself will be neither.
-type Batch struct {
+type Batch[I any, O any] struct {
 	config Config
 
-	src   Source
-	proc  Processor
-	items chan *Item
-	ids   chan uint64 // For unique IDs
-	done  chan struct{}
+	src  Source[I, I]
+	proc Processor[I, O]
+	in   chan *Item[I]
+	out  chan *Item[O]
+
+	ids  chan uint64 // For unique IDs
+	done chan struct{}
 
 	// mu protects the following variables. The reason errs is protected is
 	// to avoid sending on a closed channel in the Go method.
@@ -116,15 +118,15 @@ type Batch struct {
 // To avoid race conditions, the config cannot be changed after the Batch
 // is created. Instead, implement the Config interface to support changing
 // values.
-func New(config Config) *Batch {
-	return &Batch{
+func New[I any, O any](config Config) *Batch[I, O] {
+	return &Batch[I, O]{
 		config: config,
 	}
 }
 
 // Source reads items that are to be batch processed.
-type Source interface {
-	// Read reads items from somewhere and writes them to the Output
+type Source[I any, O any] interface {
+	// Read reads in from somewhere and writes them to the Output
 	// channel of ps. Any errors it encounters while reading are written to the
 	// Errors channel. The Input channel provides a steady stream of Items that
 	// have pre-set metadata so the batch processor can identify them. A helper
@@ -147,11 +149,11 @@ type Source interface {
 	//    }
 	//
 	// Read should not modify an item after adding it to items.
-	Read(ctx context.Context, ps *PipelineStage)
+	Read(ctx context.Context, ps *PipelineStage[I, O])
 }
 
 // Processor processes items in batches.
-type Processor interface {
+type Processor[I any, O any] interface {
 	// Process processes items from ps's Input channel and returns any errors
 	// encountered on the Errors channel. When it is done, it must close ps
 	// to signify that it's finished processing. Simply returning isn't enough.
@@ -189,7 +191,7 @@ type Processor interface {
 	// Process may be run in any number of concurrent goroutines. If
 	// concurrency needs to be limited it must be done in Process; for
 	// example, by using a semaphore channel.
-	Process(ctx context.Context, ps *PipelineStage)
+	Process(ctx context.Context, ps *PipelineStage[I, O])
 }
 
 // Go starts batch processing asynchronously and returns a channel on
@@ -200,9 +202,9 @@ type Processor interface {
 // calls to Go are not allowed. If Go is called before a previous call
 // completes, the second one will panic.
 //
-//    // NOTE: bad - this will panic!
-//    errs := batch.Go(ctx, s, p)
-//    errs2 := batch.Go(ctx, s, p) // this call panics
+//	// NOTE: bad - this will panic!
+//	errs := batch.Go(ctx, s, p)
+//	errs2 := batch.Go(ctx, s, p) // this call panics
 //
 // Note that Go does not stop if ctx is done. Otherwise loss of data could occur.
 // Suppose the source reads item A and then ctx is canceled. If Go were to return
@@ -215,7 +217,7 @@ type Processor interface {
 // done, it closes its error channel to signal to the batch processor.
 // Finally, the batch processor signals to its caller that processing is
 // complete and the entire pipeline is drained.
-func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
+func (b *Batch[I, O]) Go(ctx context.Context, s Source[I, I], p Processor[I, O]) <-chan error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -232,7 +234,8 @@ func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
 
 	b.src = s
 	b.proc = p
-	b.items = make(chan *Item)
+	b.in = make(chan *Item[I])
+	b.out = make(chan *Item[O])
 	b.ids = make(chan uint64)
 	b.done = make(chan struct{})
 
@@ -246,12 +249,12 @@ func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
 // Done provides an alternative way to determine when processing is
 // complete. When it is, the channel is closed, signaling that everything
 // is done.
-func (b *Batch) Done() <-chan struct{} {
+func (b *Batch[I, O]) Done() <-chan struct{} {
 	return b.done
 }
 
-// doIDGenerator generates unique IDs for the items in the pipeline.
-func (b *Batch) doIDGenerator() {
+// doIDGenerator generates unique IDs for the in in the pipeline.
+func (b *Batch[I, O]) doIDGenerator() {
 	for id := uint64(0); ; id++ {
 		select {
 		case b.ids <- id:
@@ -263,11 +266,11 @@ func (b *Batch) doIDGenerator() {
 }
 
 // doReader starts the reader goroutine and reads from its channels.
-func (b *Batch) doReader(ctx context.Context) {
-	in := make(chan *Item)
-	out := make(chan *Item)
+func (b *Batch[I, O]) doReader(ctx context.Context) {
+	in := make(chan *Item[I])
+	out := make(chan *Item[I])
 	errs := make(chan error)
-	ps := &PipelineStage{
+	ps := &PipelineStage[I, I]{
 		Input:  in,
 		Output: out,
 		Errors: errs,
@@ -275,7 +278,7 @@ func (b *Batch) doReader(ctx context.Context) {
 
 	go b.src.Read(ctx, ps)
 
-	nextItem := &Item{
+	nextItem := &Item[I]{
 		id: <-b.ids,
 	}
 
@@ -283,13 +286,13 @@ func (b *Batch) doReader(ctx context.Context) {
 	for !outClosed || !errClosed {
 		select {
 		case in <- nextItem:
-			nextItem = &Item{
+			nextItem = &Item[I]{
 				id: <-b.ids,
 			}
 
 		case item, ok := <-out:
 			if ok {
-				b.items <- item
+				b.in <- item
 			} else {
 				outClosed = true
 			}
@@ -305,11 +308,11 @@ func (b *Batch) doReader(ctx context.Context) {
 		}
 	}
 
-	close(b.items)
+	close(b.in)
 }
 
 // doProcessors starts the processor goroutine.
-func (b *Batch) doProcessors(ctx context.Context) {
+func (b *Batch[I, O]) doProcessors(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -336,7 +339,7 @@ func fixConfig(c ConfigValues) ConfigValues {
 	return c
 }
 
-func (b *Batch) process(ctx context.Context) {
+func (b *Batch[I, O]) process(ctx context.Context) {
 	var (
 		wg      sync.WaitGroup
 		done    bool
@@ -356,10 +359,10 @@ func (b *Batch) process(ctx context.Context) {
 			bufSize = 1024
 		}
 
-		var items = make([]*Item, 0, bufSize)
+		var items = make([]*Item[I], 0, bufSize)
 		done, items = b.waitForItems(ctx, items, &config)
 
-		// TODO this resets the time whenever no items are available. Need to
+		// TODO this resets the time whenever no in are available. Need to
 		// decide if that's the right way to do it.
 		if len(items) == 0 {
 			continue
@@ -370,10 +373,10 @@ func (b *Batch) process(ctx context.Context) {
 		go func() {
 			defer wg.Done()
 
-			in := make(chan *Item)
-			out := make(chan *Item)
+			in := make(chan *Item[I])
+			out := make(chan *Item[O])
 			errs := make(chan error)
-			ps := &PipelineStage{
+			ps := &PipelineStage[I, O]{
 				Input:  in,
 				Output: out,
 				Errors: errs,
@@ -393,7 +396,7 @@ func (b *Batch) process(ctx context.Context) {
 				select {
 				case item, ok := <-out:
 					if ok {
-						b.items <- item
+						b.out <- item
 					} else {
 						outClosed = true
 					}
@@ -418,7 +421,7 @@ func (b *Batch) process(ctx context.Context) {
 // waitForItems waits until enough items are read to begin batch processing, based
 // on config. It returns true if processing is completely finished, and false
 // otherwise.
-func (b *Batch) waitForItems(ctx context.Context, items []*Item, config *ConfigValues) (bool, []*Item) {
+func (b *Batch[I, O]) waitForItems(ctx context.Context, items []*Item[I], config *ConfigValues) (bool, []*Item[I]) {
 	var (
 		reachedMinTime bool
 		itemsRead      uint64
@@ -445,7 +448,7 @@ func (b *Batch) waitForItems(ctx context.Context, items []*Item, config *ConfigV
 
 	for {
 		select {
-		case item, ok := <-b.items:
+		case item, ok := <-b.in:
 			if ok {
 				items = append(items, item)
 				itemsRead++

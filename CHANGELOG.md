@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Note: This project is in early development. The API may change without warning in any 0.x version.
 
+## [Unreleased]
+
+### Changed
+
+- Introduced golang generics support for entire library Batch, Source, and Processor interfaces
+- Increased Go version requirement to 1.18
+
 ## [0.1.1] - 2024-07-18
 
 ### Changed
