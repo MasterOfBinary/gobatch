@@ -3,9 +3,9 @@ package batch
 import "testing"
 
 func TestPipelineStage_Close(t *testing.T) {
-	out := make(chan *Item)
+	out := make(chan *Item[any])
 	errs := make(chan error)
-	ps := &PipelineStage{
+	ps := &PipelineStage[any, any]{
 		Output: out,
 		Errors: errs,
 	}

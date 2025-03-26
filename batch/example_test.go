@@ -13,17 +13,19 @@ import (
 // printProcessor is a Processor that prints items in batches.
 //
 // To demonstrate how errors can be handled, it fails to process the number 5.
-type printProcessor struct{}
+type printProcessor[I, O any] struct{}
 
 // Process prints a batch of items.
-func (p printProcessor) Process(ctx context.Context, ps *batch.PipelineStage) {
+func (p printProcessor[I, O]) Process(_ context.Context, ps *batch.PipelineStage[int, any]) {
 	// Process needs to close ps after it's done
 	defer ps.Close()
 
-	toPrint := make([]interface{}, 0, 5)
+	var errValue = 5
+
+	toPrint := make([]int, 0, 5)
 	for item := range ps.Input {
 		// Get returns the item itself
-		if item.Get() == 5 {
+		if item.Get() == errValue {
 			ps.Errors <- errors.New("cannot process 5")
 			continue
 		}
@@ -39,12 +41,12 @@ func Example() {
 	config := batch.NewConstantConfig(&batch.ConfigValues{
 		MinItems: 5,
 	})
-	b := batch.New(config)
-	p := &printProcessor{}
+	b := batch.New[int, any](config)
+	p := &printProcessor[int, any]{}
 
 	// Channel is a Source that reads from a channel until it's closed
-	ch := make(chan interface{})
-	s := source.Channel{
+	ch := make(chan int)
+	s := source.Channel[int]{
 		Input: ch,
 	}
 

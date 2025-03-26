@@ -18,14 +18,14 @@ func TestChannelSource_Read(t *testing.T) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
-	in := make(chan interface{}, size)
-	items := make(chan *batch.Item)
+	in := make(chan any, size)
+	items := make(chan *batch.Item[any])
 	_ = make(chan error)
 
 	itemGen := batch.NewMockItemGenerator()
 	defer itemGen.Close()
 
-	s := Channel{
+	s := Channel[any]{
 		Input: in,
 	}
 

@@ -9,15 +9,15 @@ import (
 
 func TestNextItem(t *testing.T) {
 	t.Run("with item", func(t *testing.T) {
-		ch := make(chan *Item)
+		ch := make(chan *Item[any])
 
 		go func() {
-			ch <- &Item{
+			ch <- &Item[any]{
 				id: 100,
 			}
 		}()
 
-		ps := &PipelineStage{
+		ps := &PipelineStage[any, any]{
 			Input: ch,
 		}
 
@@ -31,10 +31,10 @@ func TestNextItem(t *testing.T) {
 	})
 
 	t.Run("closed channel", func(t *testing.T) {
-		ch := make(chan *Item)
+		ch := make(chan *Item[any])
 		close(ch)
 
-		ps := &PipelineStage{
+		ps := &PipelineStage[any, any]{
 			Input: ch,
 		}
 

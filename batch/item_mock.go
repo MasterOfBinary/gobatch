@@ -8,7 +8,7 @@ import "sync"
 type MockItemGenerator struct {
 	closeOnce sync.Once
 	done      chan struct{}
-	ch        chan *Item
+	ch        chan *Item[int]
 }
 
 // NewMockItemGenerator returns a new MockItemGenerator.
@@ -17,19 +17,19 @@ type MockItemGenerator struct {
 func NewMockItemGenerator() *MockItemGenerator {
 	m := &MockItemGenerator{
 		done: make(chan struct{}),
-		ch:   make(chan *Item),
+		ch:   make(chan *Item[int]),
 	}
 
 	go func() {
 		id := uint64(0)
-		nextItem := &Item{
+		nextItem := &Item[int]{
 			id: id,
 		}
 		for {
 			select {
 			case m.ch <- nextItem:
 				id++
-				nextItem = &Item{
+				nextItem = &Item[int]{
 					id: id,
 				}
 
@@ -50,6 +50,6 @@ func (m *MockItemGenerator) Close() {
 }
 
 // GetCh returns a channel of Items with unique IDs.
-func (m *MockItemGenerator) GetCh() <-chan *Item {
+func (m *MockItemGenerator) GetCh() <-chan *Item[int] {
 	return m.ch
 }

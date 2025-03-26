@@ -10,12 +10,12 @@ import (
 // Nil is a Source that doesn't read any data. Instead it closes the
 // pipeline stage after specified duration. It can be used as a mock
 // Source.
-type Nil struct {
+type Nil[I any] struct {
 	Duration time.Duration
 }
 
 // Read doesn't read anything.
-func (s *Nil) Read(ctx context.Context, ps *batch.PipelineStage) {
+func (s *Nil[I]) Read(_ context.Context, ps *batch.PipelineStage[I, I]) {
 	time.Sleep(s.Duration)
 	ps.Close()
 }

@@ -2,12 +2,12 @@ package batch
 
 // PipelineStage contains the input and output channels for a single
 // stage of the batch pipeline.
-type PipelineStage struct {
-	// Input contains the input items for a pipeline stage.
-	Input <-chan *Item
+type PipelineStage[I any, O any] struct {
+	// Input contains the input in for a pipeline stage.
+	Input <-chan *Item[I]
 
 	// Output is for the output of the pipeline stage.
-	Output chan<- *Item
+	Output chan<- *Item[O]
 
 	//Retry chan<- *Item
 
@@ -19,7 +19,7 @@ type PipelineStage struct {
 //
 // Note that it will also close the write channels. Do not close them separately
 // or it will panic.
-func (p *PipelineStage) Close() {
+func (p *PipelineStage[T, O]) Close() {
 	close(p.Output)
 	close(p.Errors)
 }
