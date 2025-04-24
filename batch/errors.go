@@ -1,39 +1,29 @@
 package batch
 
-// Error is a wrapped error message returned on the error channel.
-type Error interface {
-	// Original returns the original (unwrapped) error.
-	Original() error
-}
+import "fmt"
 
-// ProcessorError is an error returned from the processor.
+// ProcessorError is returned when a processor fails.
 type ProcessorError struct {
-	err error
+	Err error
 }
 
-// Error implements error. It returns the error string of the original
-// error.
 func (e ProcessorError) Error() string {
-	return e.err.Error()
+	return fmt.Sprintf("processor error: %v", e.Err)
 }
 
-// Original implements Error. It returns the original error.
-func (e ProcessorError) Original() error {
-	return e.err
+func (e ProcessorError) Unwrap() error {
+	return e.Err
 }
 
-// SourceError is an error returned from the source.
+// SourceError is returned when a source fails.
 type SourceError struct {
-	err error
+	Err error
 }
 
-// Error implements error. It returns the error string of the original
-// error.
 func (e SourceError) Error() string {
-	return e.err.Error()
+	return fmt.Sprintf("source error: %v", e.Err)
 }
 
-// Original implements Error. It returns the original error.
-func (e SourceError) Original() error {
-	return e.err
+func (e SourceError) Unwrap() error {
+	return e.Err
 }

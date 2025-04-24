@@ -3,19 +3,28 @@ package source
 import (
 	"context"
 	"time"
-
-	"github.com/MasterOfBinary/gobatch/batch"
 )
 
-// Nil is a Source that doesn't read any data. Instead it closes the
-// pipeline stage after specified duration. It can be used as a mock
-// Source.
+// Nil is a Source that does nothing but sleeps for a given duration before closing.
+// Useful for testing shutdown and timing.
 type Nil struct {
 	Duration time.Duration
 }
 
-// Read doesn't read anything.
-func (s *Nil) Read(ctx context.Context, ps *batch.PipelineStage) {
-	time.Sleep(s.Duration)
-	ps.Close()
+// Read blocks for the given duration and then closes the channels.
+func (s *Nil) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
+	out := make(chan interface{})
+	errs := make(chan error)
+
+	go func() {
+		defer close(out)
+		defer close(errs)
+
+		select {
+		case <-time.After(s.Duration):
+		case <-ctx.Done():
+		}
+	}()
+
+	return out, errs
 }

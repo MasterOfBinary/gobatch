@@ -6,13 +6,14 @@ import (
 	"github.com/MasterOfBinary/gobatch/batch"
 )
 
-// Error returns a Processor that returns an error while processing.
+// Error is a Processor that marks all incoming items with the given error.
 type Error struct {
 	Err error
 }
 
-// Process discards all data sent to it after a certain amount of time.
-func (p *Error) Process(ctx context.Context, ps *batch.PipelineStage) {
-	ps.Errors <- p.Err
-	ps.Close()
+func (p *Error) Process(_ context.Context, items []*batch.Item) []*batch.Item {
+	for _, item := range items {
+		item.Error = p.Err
+	}
+	return items
 }

@@ -11,27 +11,21 @@ import (
 )
 
 // printProcessor is a Processor that prints items in batches.
-//
 // To demonstrate how errors can be handled, it fails to process the number 5.
 type printProcessor struct{}
 
-// Process prints a batch of items.
-func (p printProcessor) Process(ctx context.Context, ps *batch.PipelineStage) {
-	// Process needs to close ps after it's done
-	defer ps.Close()
-
-	toPrint := make([]interface{}, 0, 5)
-	for item := range ps.Input {
-		// Get returns the item itself
-		if item.Get() == 5 {
-			ps.Errors <- errors.New("cannot process 5")
+// Process prints a batch of items and marks item 5 as failed.
+func (p printProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+	toPrint := make([]interface{}, 0, len(items))
+	for _, item := range items {
+		if num, ok := item.Data.(int); ok && num == 5 {
+			item.Error = errors.New("cannot process 5")
 			continue
 		}
-
-		toPrint = append(toPrint, item.Get())
+		toPrint = append(toPrint, item.Data)
 	}
-
 	fmt.Println(toPrint)
+	return items, nil
 }
 
 func Example() {
@@ -48,13 +42,11 @@ func Example() {
 		Input: ch,
 	}
 
-	// Go runs in the background while the main goroutine processes errors
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	errs := b.Go(ctx, &s, p)
 
-	// Spawn a goroutine that simulates loading data from somewhere
 	go func() {
 		for i := 0; i < 20; i++ {
 			time.Sleep(time.Millisecond * 10)
@@ -63,8 +55,6 @@ func Example() {
 		close(ch)
 	}()
 
-	// Wait for errors. When the error channel is closed the pipeline has been
-	// completely drained. Alternatively, we could wait for Done.
 	var lastErr error
 	for err := range errs {
 		lastErr = err
@@ -80,5 +70,5 @@ func Example() {
 	// [10 11 12 13 14]
 	// [15 16 17 18 19]
 	// Finished processing.
-	// Found error: cannot process 5
+	// Found error: processor error: cannot process 5
 }

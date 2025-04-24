@@ -2,18 +2,33 @@ package source
 
 import (
 	"context"
-
-	"github.com/MasterOfBinary/gobatch/batch"
 )
 
-// Error is a Source that returns an error and then closes immediately.
-// It can be used as a mock Source.
+// Error is a Source that emits any errors from a channel and closes when the channel is done.
+// Useful for simulating intermittent or streaming error cases.
 type Error struct {
-	Err error
+	Errs <-chan error
 }
 
-// Read returns an error and then closes.
-func (s *Error) Read(ctx context.Context, ps *batch.PipelineStage) {
-	ps.Errors <- s.Err
-	ps.Close()
+func (s *Error) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
+	out := make(chan interface{})
+	errs := make(chan error)
+
+	go func() {
+		defer close(out)
+		defer close(errs)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case err, ok := <-s.Errs:
+				if !ok {
+					return
+				}
+				errs <- err
+			}
+		}
+	}()
+
+	return out, errs
 }

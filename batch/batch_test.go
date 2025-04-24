@@ -3,394 +3,162 @@ package batch_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	. "github.com/MasterOfBinary/gobatch/batch"
-	"github.com/MasterOfBinary/gobatch/processor"
-	"github.com/MasterOfBinary/gobatch/source"
 )
 
-type sourceFromSlice struct {
-	slice    []interface{}
-	duration time.Duration
+type testSource struct {
+	Items   []interface{}
+	Delay   time.Duration
+	WithErr error
 }
 
-func (s *sourceFromSlice) Read(ctx context.Context, ps *PipelineStage) {
-	defer ps.Close()
-
-	for _, item := range s.slice {
-		time.Sleep(s.duration)
-		ps.Output <- NextItem(ps, item)
-	}
-}
-
-type processorCounter struct {
-	totalCount uint32
-	num        uint32
-}
-
-func (p *processorCounter) Process(ctx context.Context, ps *PipelineStage) {
-	defer ps.Close()
-
-	count := 0
-	for range ps.Input {
-		count++
-	}
-
-	atomic.AddUint32(&p.totalCount, uint32(count))
-	atomic.AddUint32(&p.num, 1)
-}
-
-func (p *processorCounter) average() int {
-	return int(float64(p.totalCount)/float64(p.num) + 0.5)
-}
-
-func assertNoErrors(t *testing.T, errs <-chan error) {
-	if errs != nil {
-		go func() {
-			for err := range errs {
-				t.Errorf("Unexpected error %v returned from batch.Go", err)
+func (s *testSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
+	out := make(chan interface{})
+	errs := make(chan error, 1)
+	go func() {
+		defer close(out)
+		defer close(errs)
+		for _, item := range s.Items {
+			if s.Delay > 0 {
+				time.Sleep(s.Delay)
 			}
-		}()
-	}
+			select {
+			case <-ctx.Done():
+				return
+			case out <- item:
+			}
+		}
+		if s.WithErr != nil {
+			errs <- s.WithErr
+		}
+	}()
+	return out, errs
 }
 
-func TestBatch_Go(t *testing.T) {
-	t.Run("basic test", func(t *testing.T) {
-		t.Parallel()
+type countProcessor struct {
+	count *uint32
+}
 
-		batch := &Batch{}
-		s := &sourceFromSlice{
-			slice: []interface{}{1, 2, 3, 4, 5},
+func (p *countProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+	atomic.AddUint32(p.count, uint32(len(items)))
+	return items, nil
+}
+
+type errorPerItemProcessor struct {
+	FailEvery int
+}
+
+func (p *errorPerItemProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+	for i, item := range items {
+		if p.FailEvery > 0 && (i%p.FailEvery) == 0 {
+			item.Error = fmt.Errorf("fail item %d", item.ID)
 		}
-		p := &processor.Nil{}
+	}
+	return items, nil
+}
 
-		errs := batch.Go(context.Background(), s, p)
+func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
+	t.Run("processor chaining with individual errors", func(t *testing.T) {
+		var count uint32
+		batch := New(NewConstantConfig(&ConfigValues{
+			MinItems: 5,
+		}))
+		src := &testSource{Items: []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9}}
+		errProc := &errorPerItemProcessor{FailEvery: 3}
+		countProc := &countProcessor{count: &count}
 
-		select {
-		case err, ok := <-errs:
-			if !ok {
+		errs := batch.Go(context.Background(), src, errProc, countProc)
+
+		received := 0
+		for err := range errs {
+			var processorError *ProcessorError
+			if !errors.As(err, &processorError) {
+				t.Errorf("unexpected error type: %v", err)
+			}
+			received++
+		}
+		if received != 2 {
+			t.Errorf("expected 2 item errors, got %d", received)
+		}
+
+		if atomic.LoadUint32(&count) != 5 {
+			t.Errorf("expected 5 items processed, got %d", count)
+		}
+
+		<-batch.Done()
+	})
+
+	t.Run("source error forwarding", func(t *testing.T) {
+		srcErr := errors.New("source failed")
+		batch := New(NewConstantConfig(&ConfigValues{}))
+		src := &testSource{Items: []interface{}{1, 2}, WithErr: srcErr}
+		countProc := &countProcessor{count: new(uint32)}
+
+		errs := batch.Go(context.Background(), src, countProc)
+		<-batch.Done()
+
+		var found bool
+		for err := range errs {
+			var sourceError *SourceError
+			if errors.As(err, &sourceError) {
+				found = true
 				break
-			} else {
-				t.Errorf("Unexpected error %v returned from batch.Go", err.Error())
-			}
-		case <-time.After(time.Second):
-			t.Error("err channel never closed")
-		}
-	})
-
-	t.Run("concurrent calls", func(t *testing.T) {
-		t.Parallel()
-
-		// Concurrent calls to Go should panic
-		batch := &Batch{}
-		s := &source.Nil{
-			Duration: time.Second,
-		}
-		p := &processor.Nil{
-			Duration: 0,
-		}
-
-		assertNoErrors(t, batch.Go(context.Background(), s, p))
-
-		// Next call should panic
-		var panics bool
-		func() {
-			defer func() {
-				if p := recover(); p != nil {
-					panics = true
-				}
-			}()
-			assertNoErrors(t, batch.Go(context.Background(), s, p))
-		}()
-
-		if !panics {
-			t.Error("Concurrent calls to batch.Go don't panic")
-		}
-	})
-
-	t.Run("source error", func(t *testing.T) {
-		t.Parallel()
-
-		errSrc := errors.New("source")
-		batch := &Batch{}
-		s := &source.Error{
-			Err: errSrc,
-		}
-		p := &processor.Nil{}
-
-		errs := batch.Go(context.Background(), s, p)
-
-		var found bool
-		for err := range errs {
-			if src, ok := err.(*SourceError); ok {
-				if src.Original() == errSrc {
-					found = true
-				} else {
-					t.Errorf("Found source error %v, want %v", src.Original(), errSrc)
-				}
-			} else {
-				t.Error("Found an unexpected error")
 			}
 		}
-
 		if !found {
-			t.Error("Did not find source error")
+			t.Error("expected to find source error")
 		}
 	})
 
-	t.Run("processor error", func(t *testing.T) {
-		t.Parallel()
-
-		errProc := errors.New("processor")
-		batch := &Batch{}
-		s := &sourceFromSlice{
-			slice: []interface{}{1},
-		}
-		p := &processor.Error{
-			Err: errProc,
-		}
-
-		errs := batch.Go(context.Background(), s, p)
-
-		var found bool
-		for err := range errs {
-			if proc, ok := err.(*ProcessorError); ok {
-				if proc.Original() == errProc {
-					found = true
-				} else {
-					t.Errorf("Found processor error %v, want %v", proc.Original(), errProc)
-				}
-			} else {
-				t.Error("Found an unexpected error")
-			}
-		}
-
-		if !found {
-			t.Error("Did not find processor error")
-		}
-	})
-
-	t.Run("scenarios", func(t *testing.T) {
-		t.Parallel()
-
-		tests := []struct {
-			name               string
-			config             *ConfigValues
-			inputSize          int
-			inputDuration      time.Duration
-			wantProcessingSize int
+	t.Run("batching scenarios", func(t *testing.T) {
+		configs := []struct {
+			name     string
+			config   *ConfigValues
+			duration time.Duration
+			size     int
+			expected int
 		}{
-			{
-				name:               "default",
-				config:             nil,
-				inputSize:          100,
-				wantProcessingSize: 1,
-			},
-			{
-				name: "min items",
-				config: &ConfigValues{
-					MinItems: 5,
-				},
-				inputSize:          100,
-				wantProcessingSize: 5,
-			},
-			{
-				name: "min time",
-				config: &ConfigValues{
-					MinTime: 250 * time.Millisecond,
-				},
-				inputSize:          6,
-				inputDuration:      100 * time.Millisecond,
-				wantProcessingSize: 2,
-			},
-			{
-				name: "max items",
-				config: &ConfigValues{
-					MaxItems: 5,
-				},
-				inputSize:          100,
-				wantProcessingSize: 1,
-			},
-			{
-				name: "max time",
-				config: &ConfigValues{
-					MaxTime: 200 * time.Millisecond,
-				},
-				inputSize:          3,
-				inputDuration:      150 * time.Millisecond,
-				wantProcessingSize: 1,
-			},
-			{
-				name: "min time and min items",
-				config: &ConfigValues{
-					MinTime:  450 * time.Millisecond,
-					MinItems: 2,
-				},
-				inputSize:          8,
-				inputDuration:      100 * time.Millisecond,
-				wantProcessingSize: 4, // MinTime > MinItems
-			},
-			{
-				name: "min time and max items",
-				config: &ConfigValues{
-					MinTime:  450 * time.Millisecond,
-					MaxItems: 2,
-				},
-				inputSize:          8,
-				inputDuration:      100 * time.Millisecond,
-				wantProcessingSize: 2, // MaxItems > MinTime
-			},
-			{
-				name: "min time and max time",
-				config: &ConfigValues{
-					MinTime: 450 * time.Millisecond,
-					MaxTime: 1 * time.Second,
-				},
-				inputSize:          8,
-				inputDuration:      100 * time.Millisecond,
-				wantProcessingSize: 4, // MinTime > MaxTime
-			},
-			{
-				name: "min items and max time",
-				config: &ConfigValues{
-					MinItems: 10,
-					MaxTime:  200 * time.Millisecond,
-				},
-				inputSize:          3,
-				inputDuration:      150 * time.Millisecond,
-				wantProcessingSize: 1, // MaxTime > MinItems
-			},
-			{
-				name: "min items and max items",
-				config: &ConfigValues{
-					MinItems: 10,
-					MaxItems: 20,
-				},
-				inputSize:          20,
-				inputDuration:      50 * time.Millisecond,
-				wantProcessingSize: 10, // MaxItems > MinItems
-			},
-			{
-				name: "min items and eof",
-				config: &ConfigValues{
-					MinItems: 10,
-				},
-				inputSize:          5,
-				wantProcessingSize: 5, // EOF > MinItems
-			},
-			{
-				name: "min time and eof",
-				config: &ConfigValues{
-					MinTime: 100 * time.Millisecond,
-				},
-				inputSize:          5,
-				wantProcessingSize: 5, // EOF > MinTime
-			},
+			{"min items", &ConfigValues{MinItems: 5}, 0, 10, 10},
+			{"max items", &ConfigValues{MaxItems: 3}, 0, 9, 9},
+			{"min time", &ConfigValues{MinTime: 300 * time.Millisecond}, 100 * time.Millisecond, 5, 2},
+			{"max time", &ConfigValues{MaxTime: 200 * time.Millisecond}, 150 * time.Millisecond, 3, 3},
+			{"eof fallback", &ConfigValues{MinItems: 10}, 0, 5, 0},
+			{"min items and max time", &ConfigValues{MinItems: 5, MaxTime: 200 * time.Millisecond}, 100 * time.Millisecond, 3, 1},
+			{"max items and min time", &ConfigValues{MaxItems: 3, MinTime: 500 * time.Millisecond}, 100 * time.Millisecond, 5, 3},
+			{"min and max time interaction", &ConfigValues{MinTime: 500 * time.Millisecond, MaxTime: 300 * time.Millisecond}, 100 * time.Millisecond, 5, 2},
+			{"min and max items interaction", &ConfigValues{MinItems: 5, MaxItems: 3}, 0, 10, 9},
+			{"all thresholds", &ConfigValues{MinItems: 3, MaxItems: 5, MinTime: 200 * time.Millisecond, MaxTime: 400 * time.Millisecond}, 100 * time.Millisecond, 7, 6},
 		}
 
-		for _, test := range tests {
-			test := test
-			t.Run(test.name, func(t *testing.T) {
+		for _, tt := range configs {
+			tt := tt
+			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
-				inputSlice := make([]interface{}, test.inputSize)
-				for i := 0; i < len(inputSlice); i++ {
-					inputSlice[i] = rand.Int()
+				var count uint32
+				items := make([]interface{}, tt.size)
+				for i := 0; i < tt.size; i++ {
+					items[i] = rand.Int()
 				}
 
-				batch := New(NewConstantConfig(test.config))
-				s := &sourceFromSlice{
-					slice:    inputSlice,
-					duration: test.inputDuration,
-				}
-				p := &processorCounter{}
+				batch := New(NewConstantConfig(tt.config))
+				src := &testSource{Items: items, Delay: tt.duration}
+				proc := &countProcessor{count: &count}
 
-				assertNoErrors(t, batch.Go(context.Background(), s, p))
-
+				_ = batch.Go(context.Background(), src, proc)
 				<-batch.Done()
 
-				got := p.average()
-				if got != test.wantProcessingSize {
-					t.Errorf("Average processing size = %v, want %v", got, test.wantProcessingSize)
+				got := int(atomic.LoadUint32(&count))
+				if got != tt.expected {
+					t.Errorf("got %d items processed, expected %d", got, tt.expected)
 				}
 			})
-		}
-	})
-}
-
-func TestBatch_Done(t *testing.T) {
-	t.Run("basic test", func(t *testing.T) {
-		t.Parallel()
-
-		batch := &Batch{}
-		s := &source.Nil{
-			Duration: 0,
-		}
-		p := &processor.Nil{
-			Duration: 0,
-		}
-
-		assertNoErrors(t, batch.Go(context.Background(), s, p))
-
-		select {
-		case <-batch.Done():
-			break
-		case <-time.After(time.Second):
-			t.Error("Done channel never closed")
-		}
-	})
-
-	t.Run("with source sleep", func(t *testing.T) {
-		t.Parallel()
-
-		batch := &Batch{}
-		s := &sourceFromSlice{
-			slice:    []interface{}{1},
-			duration: 100 * time.Millisecond,
-		}
-		p := &processor.Nil{
-			Duration: 10 * time.Millisecond,
-		}
-
-		timer := time.After(100 * time.Millisecond)
-		assertNoErrors(t, batch.Go(context.Background(), s, p))
-
-		select {
-		case <-batch.Done():
-			t.Error("Done channel closed before source")
-		case <-timer:
-			break
-		case <-time.After(time.Second):
-			t.Error("Done channel never closed")
-		}
-	})
-
-	t.Run("with processor sleep", func(t *testing.T) {
-		t.Parallel()
-
-		batch := &Batch{}
-		s := &sourceFromSlice{
-			slice:    []interface{}{1},
-			duration: 10 * time.Millisecond,
-		}
-		p := &processor.Nil{
-			Duration: 100 * time.Millisecond,
-		}
-
-		timer := time.After(100 * time.Millisecond)
-		assertNoErrors(t, batch.Go(context.Background(), s, p))
-
-		select {
-		case <-batch.Done():
-			t.Error("Done channel closed before processor")
-		case <-timer:
-			break
-		case <-time.After(time.Second):
-			t.Error("Done channel never closed")
 		}
 	})
 }

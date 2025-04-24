@@ -22,9 +22,6 @@ func TestChannelSource_Read(t *testing.T) {
 	items := make(chan *batch.Item)
 	_ = make(chan error)
 
-	itemGen := batch.NewMockItemGenerator()
-	defer itemGen.Close()
-
 	s := Channel{
 		Input: in,
 	}
@@ -32,7 +29,7 @@ func TestChannelSource_Read(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		s.Read(ctx, nil)
+		s.Read(ctx)
 	}()
 
 	numItems := 10
@@ -47,7 +44,7 @@ func TestChannelSource_Read(t *testing.T) {
 			t.Fatalf("items in items > %v", i)
 		}
 
-		if item.Get() != i {
+		if item.Data != i {
 			t.Errorf("items <- %v, want %v", item, i)
 		}
 

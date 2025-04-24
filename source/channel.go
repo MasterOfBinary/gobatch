@@ -2,22 +2,25 @@ package source
 
 import (
 	"context"
-
-	"github.com/MasterOfBinary/gobatch/batch"
 )
 
-// Channel is a Source that reads from input until it is closed.
-// The input channel can be buffered or unbuffered.
+// Channel is a Source that reads from an input channel until it's closed.
 type Channel struct {
 	Input <-chan interface{}
 }
 
-// Read reads from items until the input channel is closed.
-func (s *Channel) Read(ctx context.Context, ps* batch.PipelineStage) {
-	defer ps.Close()
+// Read reads from the input channel and emits items until it's closed.
+func (s *Channel) Read(_ context.Context) (<-chan interface{}, <-chan error) {
+	out := make(chan interface{})
+	errs := make(chan error)
 
-	out := ps.Output
-	for item := range s.Input {
-		out <- batch.NextItem(ps, item)
-	}
+	go func() {
+		defer close(out)
+		defer close(errs)
+		for item := range s.Input {
+			out <- item
+		}
+	}()
+
+	return out, errs
 }
