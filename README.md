@@ -72,6 +72,43 @@ To download, run
 - `Config`: An interface for providing configuration values.
 - `Item`: A struct representing a single item in the processing pipeline. Each `Item` has a unique ID for traceability and an `Error` field for tracking item-specific errors.
 
+## Built-in Processors
+
+GoBatch includes several built-in processors for common tasks:
+
+1. **Filter**: Filters items based on a predicate function.
+   - Configurable with a custom `Predicate` function.
+   - Supports `InvertMatch` option to remove matching items instead of keeping them.
+
+2. **Transform**: Transforms item data using a custom function.
+   - Applies a transformation function to each item's `Data` field.
+   - Provides `ContinueOnError` option to control behavior when transformations fail.
+   - Skips items that already have errors set.
+
+3. **Error**: Simulates processor errors with configurable failure rates.
+   - Useful for testing error handling in your processing pipeline.
+   - Can be configured to fail at specific rates or patterns.
+
+4. **Nil**: For testing timing behavior without modifying items.
+   - Passes items through without changes.
+   - Useful for benchmarking and timing tests.
+
+## Built-in Sources
+
+GoBatch includes several built-in source implementations:
+
+1. **Channel**: Uses existing Go channels as batch sources.
+   - Supports `BufferSize` configuration for controlling buffering.
+   - Allows easy integration with existing channel-based code.
+
+2. **Error**: Simulates error-only sources without producing data.
+   - Useful for testing error handling in your processing pipeline.
+   - Supports `BufferSize` configuration and filters out nil errors.
+
+3. **Nil**: For testing timing behavior without emitting any data.
+   - Properly handles zero/negative durations.
+   - Uses timers correctly for precise timing tests.
+
 ## Basic Usage
 
 Here's a simple example of how to use GoBatch:
