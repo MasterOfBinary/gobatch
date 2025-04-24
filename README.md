@@ -17,7 +17,7 @@ the master branch. If you need a stable release, wait for version 1.
 ### Core Components
 
 1. `Source`: An interface implemented by the user to define where data comes from (e.g. a channel, database, API, or file system).
-2. `Processor`: An interface implemented by the user to define how batches of data should be processed.
+2. `Processor`: An interface implemented by the user to define how batches of data should be processed. Multiple processors can be chained together to create a processing pipeline.
 3. `Batch`: The central structure provided by GoBatch that manages the batch processing pipeline.
 
 ### The Batch Processing Pipeline
@@ -31,7 +31,8 @@ the master branch. If you need a stable release, wait for version 1.
     - It determines when to form a batch based on configured criteria (time elapsed, number of items, etc.).
 
 3. **Processing**:
-    - When a batch is ready, `Batch` sends it to the `Processor` implementation.
+    - When a batch is ready, `Batch` sends it to the `Processor` implementation(s).
+    - Each processor in the chain performs operations on the batch and passes the results to the next processor.
     - The `Processor` performs user-defined operations on the batch and returns processed items.
     - Individual item errors are tracked within the `Item` struct.
 
@@ -141,6 +142,19 @@ func (p *MyProcessor) Process(_ context.Context, items []*batch.Item) ([]*batch.
 	return items, nil
 }
 
+// AnotherProcessor demonstrates chaining processors together.
+type AnotherProcessor struct{}
+
+func (p *AnotherProcessor) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, error) {
+	for _, item := range items {
+		if val, ok := item.Data.(int); ok {
+			// Modify the data
+			item.Data = val * 2
+		}
+	}
+	return items, nil
+}
+
 func main() {
 	config := batch.NewConstantConfig(&batch.ConfigValues{
 		MinItems: 50,
@@ -155,10 +169,13 @@ func main() {
 	ch := make(chan interface{})
 	s := &source.Channel{Input: ch}
 
-	processor := &MyProcessor{}
+	// Create multiple processors to chain together
+	processor1 := &MyProcessor{}
+	processor2 := &AnotherProcessor{}
 
 	ctx := context.Background()
-	errs := batchProcessor.Go(ctx, s, processor)
+	// Pass multiple processors to create a processing pipeline
+	errs := batchProcessor.Go(ctx, s, processor1, processor2)
 
 	// Handle errors
 	go func() {

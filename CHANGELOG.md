@@ -8,10 +8,14 @@ All notable changes to this project will be documented in this file.
 
 ## [0.2.0] - 2025-04-24
 
-This release brings major improvements to the batch processing API, including a complete redesign of the pipeline architecture. It introduces new Filter and Transform processors, enhanced error handling, and better context cancellation support throughout the library. The PipelineStage has been replaced with more explicit interfaces, and the minimum Go version is updated to 1.18 to leverage generics.
+This release brings major improvements to the batch processing API, featuring a complete redesign to implement a chained processor design. It reimagines how processors connect, allowing them to be linked together seamlessly in a processing pipeline. The redesign introduces new Filter and Transform processors, enhanced error handling, and better context cancellation support throughout the library. The PipelineStage has been replaced with more explicit interfaces to facilitate processor chaining, and the minimum Go version is updated to 1.18 to leverage generics.
 
 ### Added
 
+- **Multi-processor support** enabling processor chaining in a single pipeline, a significant change to the interfaces.
+  - Processors are executed in the order they're provided to `Batch.Go()`.
+  - Each processor receives the output of the previous processor.
+  - Core interfaces redesigned to facilitate this capability.
 - New `Filter` processor for filtering items based on a predicate function.
   - Configurable with `Predicate` function to determine which items to keep.
   - `InvertMatch` option to invert filter logic (remove matching items instead of keeping them).
