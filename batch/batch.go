@@ -1,9 +1,9 @@
 // Package batch contains the core batch processing functionality. The main
-// class is Batch, which can be created using New. It reads from an
+// type is Batch, which can be created using New. It reads from an
 // implementation of the Source interface, and items are processed in
-// batches by an implementation of the Processor interface. Some Source
-// and Processor implementations are provided in the source and processor
-// packages, respectively, or you can create your own based on your needs.
+// batches by one or more implementations of the Processor interface. Some Source
+// and Processor implementations may be provided in related packages,
+// or you can create your own based on your needs.
 //
 // Batch uses the MinTime, MinItems, MaxTime, and MaxItems configuration
 // parameters in Config to determine when and how many items are
@@ -14,7 +14,7 @@
 // to prioritize the parameters in some way. They are prioritized as follows
 // (with EOF signifying the end of the input data):
 //
-//    MaxTime = MaxItems > EOF > MinTime > MinItems
+//	MaxTime = MaxItems > EOF > MinTime > MinItems
 //
 // A few examples:
 //
@@ -28,6 +28,13 @@
 // MaxItems = 10, MinTime = 2s. After 1s, 10 items have been read. They aren't
 // processed until 2s has passed.
 //
+// Multiple processors can be chained together when calling Go(). In a processor
+// chain, each processor receives the output items from the previous processor,
+// allowing for multi-stage processing pipelines:
+//
+//	// Chain three processors together
+//	b.Go(ctx, source, validator, transformer, enricher)
+//
 // Note that the timers and item counters are relative to the time when the
 // previous batch started processing. Just before the timers and counters are
 // started the config is read from the Config interface. This is so that
@@ -36,58 +43,50 @@ package batch
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
 
-// Batch provides batch processing given an Source and a Processor. Data is
-// read from the Source and processed in batches by the Processor. Any errors
+// Batch provides batch processing given a Source and one or more Processors. Data is
+// read from the Source and processed in batches through the Processors. Any errors
 // are wrapped in either a SourceError or a ProcessorError, so the caller
 // can determine where the errors came from.
 //
 // To create a new Batch, call the New function. Creating one using &Batch{}
 // will return the default Batch.
 //
-//    // The following are equivalent
-//    defaultBatch1 := &batch.Batch{}
-//    defaultBatch2 := batch.New(nil)
-//    defaultBatch3 := batch.New(batch.NewConstantConfig(&batch.ConfigValues{}))
+//	// The following are equivalent
+//	defaultBatch1 := &batch.Batch{}
+//	defaultBatch2 := batch.New(nil)
+//	defaultBatch3 := batch.New(batch.NewConstantConfig(&batch.ConfigValues{}))
 //
 // The defaults (with nil Config) provide a usable, but likely suboptimal, Batch
 // where items are processed as soon as they are retrieved from the source.
 // Processing is done in the background using as many goroutines as necessary.
 //
-// Both Source and Processor are given a PipelineSource, which contains
-// channels for input and output, as well as an error channel. Items in the
-// channel are wrapped in an Item struct that contains extra metadata used
-// by Batch. For easier usage, the helper function NextItem can be used to
-// read from the input channel, set the data, and return the modified Item:
-//
-//    ps.Output() <- batch.NextItem(ps, item)
-//
-// Batch runs asynchronously until the source closes its PipelineSource, signaling
-// that there is nothing else to read. Once that happens, and the pipeline has
-// been drained (all items have been processed), there are two ways for the
-// caller to know: the error channel returned from Go is closed, or the channel
-// returned from Done is closed.
+// Batch runs asynchronously until the source is exhausted and all items have been
+// processed. There are two ways for the caller to know when processing is complete:
+// the error channel returned from Go() is closed, or the channel returned from
+// Done() is closed.
 //
 // The first way can be used if errors need to be processed elsewhere. A simple
 // loop could look like this:
 //
-//    errs := myBatch.Go(ctx, s, p)
-//    for err := range errs {
-//      // Log the error here...
-//      log.Print(err.Error())
-//    }
-//    // Now batch processing is done
+//	errs := b.Go(ctx, s, p)
+//	for err := range errs {
+//	  // Log the error here...
+//	  log.Print(err.Error())
+//	}
+//	// Now batch processing is done
 //
 // If the errors don't need to be processed, the IgnoreErrors function can be
 // used to drain the error channel. Then the Done channel can be used to
 // determine whether or not batch processing is complete:
 //
-//    batch.IgnoreErrors(myBatch.Go(ctx, s, p))
-//    <-myBatch.Done()
-//    // Now batch processing is done
+//	batch.IgnoreErrors(b.Go(ctx, s, p))
+//	<-b.Done()
+//	// Now batch processing is done
 //
 // Note that the errors returned on the error channel may be wrapped in a
 // batch.Error so the caller knows whether they come from the source or the
@@ -95,16 +94,13 @@ import (
 // and errors from the processor will be of type ProcessorError. Errors from
 // Batch itself will be neither.
 type Batch struct {
-	config Config
+	config     Config
+	src        Source
+	processors []Processor
+	items      chan *Item
+	ids        chan uint64
+	done       chan struct{}
 
-	src   Source
-	proc  Processor
-	items chan *Item
-	ids   chan uint64 // For unique IDs
-	done  chan struct{}
-
-	// mu protects the following variables. The reason errs is protected is
-	// to avoid sending on a closed channel in the Go method.
 	mu      sync.Mutex
 	running bool
 	errs    chan error
@@ -122,87 +118,143 @@ func New(config Config) *Batch {
 	}
 }
 
+type Item struct {
+	ID    uint64      // Do not modify - unique identifier for tracking items
+	Data  interface{} // Safe to modify during processing - contains the item data
+	Error error       // Populated by processors to track per-item failure
+}
+
 // Source reads items that are to be batch processed.
 type Source interface {
-	// Read reads items from somewhere and writes them to the Output
-	// channel of ps. Any errors it encounters while reading are written to the
-	// Errors channel. The Input channel provides a steady stream of Items that
-	// have pre-set metadata so the batch processor can identify them. A helper
-	// function, NextItem, can be used to retrieve an item from the channel,
-	// set it, and return it:
+	// Read reads items from a data source and returns two channels:
+	// - out: for data items
+	// - errs: for any errors encountered during reading
 	//
-	//    items <- batch.NextItem(ps, myData)
+	// Each implementation should:
+	// 1. Set up appropriate channels for data and errors
+	// 2. Start a goroutine to read from the source
+	// 3. Close both channels when reading is complete
+	// 4. Respect context cancellation
 	//
-	// Read is only run in a single goroutine. Any currency must be provided
-	// by the implementation.
+	// Example implementation:
 	//
-	// Once reading is finished (or when the program ends), the batch
-	// processor needs to be notified. This is done by calling the Close
-	// method on ps, which signals to Batch that it should drain the pipeline
-	// and finish. It is not enough for Read to return.
+	//    func (s *MySource) Read(ctx context.Context) (out <-chan interface{}, errs <-chan error) {
+	//      dataCh := make(chan interface{})
+	//      errCh := make(chan error)
 	//
-	//    func (s source) Read(ctx context.Context, ps *batch.PipelineStage) {
-	//      defer ps.Close()
-	//      // Read items until done...
+	//      go func() {
+	//        defer close(dataCh)
+	//        defer close(errCh)
+	//
+	//        // Read items until done...
+	//        for _, item := range s.items {
+	//          select {
+	//          case <-ctx.Done():
+	//            errCh <- ctx.Err()
+	//            return
+	//          case dataCh <- item:
+	//            // Item sent successfully
+	//          }
+	//        }
+	//      }()
+	//
+	//      return dataCh, errCh
 	//    }
 	//
-	// Read should not modify an item after adding it to items.
-	Read(ctx context.Context, ps *PipelineStage)
+	// Important: Both channels must be properly closed when reading is finished
+	// or when the context is canceled. The source should never leave channels open
+	// indefinitely.
+	Read(ctx context.Context) (out <-chan interface{}, errs <-chan error)
 }
 
 // Processor processes items in batches.
 type Processor interface {
-	// Process processes items from ps's Input channel and returns any errors
-	// encountered on the Errors channel. When it is done, it must close ps
-	// to signify that it's finished processing. Simply returning isn't enough.
+	// Process receives a batch of items, performs operations on them, and returns
+	// the processed items along with any processor-wide error.
 	//
-	//    func (p *processor) Process(ctx context.Context, ps *batch.PipelineStage) {
-	//      defer ps.Close()
-	//      // Do processing here...
-	//    }
+	// Each implementation should:
+	// 1. Process items in the batch synchronously
+	// 2. Set item.Error on individual items that fail processing
+	// 3. Return processor-wide errors separately from per-item errors
+	// 4. Respect context cancellation
 	//
-	// Batch does not wait for Process to finish, so it can spawn a
-	// goroutine and then return, as long as ps is closed at the end.
+	// The returned slice may contain a different number of items than the input slice.
+	// Items can be added, removed, or reordered as needed.
 	//
-	//    // This is ok
-	//    func (p *processor) Process(ctx context.Context, ps *batch.PipelineStage) {
-	//      go func() {
-	//        defer ps.Close()
-	//        time.Sleep(time.Second)
-	//        fmt.Println(items)
-	//      }()
-	//    }
+	// Processors can be chained together in the Go() method, with each processor
+	// receiving the output from the previous one:
 	//
-	// To allow Processors to be chained together, processed items should
-	// be returned on the Output channel:
+	//    // Chain three processors together
+	//    batch.Go(ctx, source, processor1, processor2, processor3)
 	//
-	//    // Process squares values in batches.
-	//    func (p *processor) Process(ctx context.Context, ps *batch.PipelineStage) {
-	//      defer ps.Close()
-	//      for item := range ps.Input() {
-	//        value, _ := item.Get().(int64)
-	//        item.Set(value*value)
-	//        ps.Output() <- item
+	// In a processor chain, each processor receives the output items from the
+	// previous processor, allowing for multi-stage processing pipelines. This is
+	// useful for separating different processing concerns:
+	//
+	//    // First processor validates items
+	//    // Second processor transforms items
+	//    // Third processor enriches items with additional data
+	//    batch.Go(ctx, source, validationProc, transformProc, enrichmentProc)
+	//
+	// Example implementation:
+	//
+	//    func (p *MyProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+	//      for _, item := range items {
+	//        // Skip items that already have errors
+	//        if item.Error != nil {
+	//          continue
+	//        }
+	//
+	//        // Check for context cancellation
+	//        select {
+	//        case <-ctx.Done():
+	//          return items, ctx.Err()
+	//        default:
+	//          // Continue processing
+	//        }
+	//
+	//        // Process the item
+	//        result, err := p.processItem(item.Data)
+	//        if err != nil {
+	//          item.Error = err
+	//          continue
+	//        }
+	//
+	//        // Update with processed data
+	//        item.Data = result
 	//      }
+	//      return items, nil
 	//    }
 	//
-	// Process may be run in any number of concurrent goroutines. If
-	// concurrency needs to be limited it must be done in Process; for
-	// example, by using a semaphore channel.
-	Process(ctx context.Context, ps *PipelineStage)
+	// Important:
+	// - Never modify the ID field of items
+	// - Individual item errors should be set on the item.Error field
+	// - Return a non-nil error only for processor-wide failures
+	Process(ctx context.Context, items []*Item) ([]*Item, error)
 }
 
 // Go starts batch processing asynchronously and returns a channel on
 // which errors are written. When processing is done and the pipeline
 // is drained, the error channel is closed.
 //
+// Go launches the entire batch processing pipeline:
+// 1. The Source reads items and passes them to the batch collector
+// 2. The batch collector groups items according to Config parameters
+// 3. Each batch is processed through all Processors in sequence
+// 4. Errors from Source and Processors are forwarded to the returned channel
+//
+// Multiple processors can be chained together in order:
+//
+//	// Chain three processors in sequence
+//	errCh := b.Go(ctx, source, validateProc, transformProc, enrichProc)
+//
 // Even though Go has several goroutines running concurrently, concurrent
 // calls to Go are not allowed. If Go is called before a previous call
 // completes, the second one will panic.
 //
-//    // NOTE: bad - this will panic!
-//    errs := batch.Go(ctx, s, p)
-//    errs2 := batch.Go(ctx, s, p) // this call panics
+//	// NOTE: bad - this will panic!
+//	errs := b.Go(ctx, s, p)
+//	errs2 := b.Go(ctx, s, p) // this call panics
 //
 // Note that Go does not stop if ctx is done. Otherwise loss of data could occur.
 // Suppose the source reads item A and then ctx is canceled. If Go were to return
@@ -215,7 +267,27 @@ type Processor interface {
 // done, it closes its error channel to signal to the batch processor.
 // Finally, the batch processor signals to its caller that processing is
 // complete and the entire pipeline is drained.
-func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
+//
+// Example usage with error handling:
+//
+//	// Start processing
+//	errCh := b.Go(ctx, source, processor)
+//
+//	// Handle errors as they occur
+//	go func() {
+//		for err := range errCh {
+//			if sourceErr, ok := err.(*batch.SourceError); ok {
+//				log.Printf("Source error: %v", sourceErr.Unwrap())
+//			} else if procErr, ok := err.(*batch.ProcessorError); ok {
+//				log.Printf("Processor error: %v", procErr.Unwrap())
+//			} else {
+//				log.Printf("Other error: %v", err)
+//			}
+//		}
+//		// Processing is complete when the error channel is closed
+//		log.Println("Processing complete")
+//	}()
+func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -228,12 +300,31 @@ func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
 	}
 
 	b.running = true
-	b.errs = make(chan error)
+
+	// Check if source is nil and return error if it is
+	if s == nil {
+		b.errs = make(chan error, 1)
+		b.done = make(chan struct{})
+		b.errs <- errors.New("source cannot be nil")
+		close(b.errs)
+		close(b.done)
+		b.running = false
+		return b.errs
+	}
 
 	b.src = s
-	b.proc = p
-	b.items = make(chan *Item)
-	b.ids = make(chan uint64)
+
+	// Filter out nil processors
+	b.processors = make([]Processor, 0, len(procs))
+	for _, p := range procs {
+		if p != nil {
+			b.processors = append(b.processors, p)
+		}
+	}
+
+	b.items = make(chan *Item, 100)
+	b.ids = make(chan uint64, 100)
+	b.errs = make(chan error, 100)
 	b.done = make(chan struct{})
 
 	go b.doIDGenerator()
@@ -243,90 +334,211 @@ func (b *Batch) Go(ctx context.Context, s Source, p Processor) <-chan error {
 	return b.errs
 }
 
-// Done provides an alternative way to determine when processing is
-// complete. When it is, the channel is closed, signaling that everything
-// is done.
+// Done provides a channel that is closed when processing is complete.
+// This can be used to block until batch processing finishes or to be notified
+// of completion in a select statement.
+//
+// Example usage:
+//
+//	// Start processing and ignore errors
+//	batch.IgnoreErrors(b.Go(ctx, source, processor))
+//
+//	// Wait for completion
+//	<-b.Done()
+//	fmt.Println("Processing complete")
+//
+// Or with a select statement:
+//
+//	select {
+//	case <-b.Done():
+//		fmt.Println("Processing complete")
+//	case <-ctx.Done():
+//		fmt.Println("Context canceled")
+//	case <-time.After(timeout):
+//		fmt.Println("Timed out waiting for completion")
+//	}
 func (b *Batch) Done() <-chan struct{} {
 	return b.done
 }
 
+// Wait blocks until processing is done and collects all errors.
+// This is a convenience method that combines reading from the error channel
+// and waiting for the Done channel to close.
+//
+// Example usage:
+//
+//	// Start processing
+//	b.Go(ctx, source, processor)
+//
+//	// Wait for completion and collect all errors
+//	errors := b.Wait()
+//	for _, err := range errors {
+//		log.Printf("Error occurred: %v", err)
+//	}
+//
+//	// Continue with post-processing work
+//	fmt.Println("Processing complete with", len(errors), "errors")
+//
+// Note: Wait() blocks until processing is complete, so it should not be
+// called from a goroutine that might need to be canceled.
+func (b *Batch) Wait() []error {
+	var collected []error
+	for err := range b.errs {
+		collected = append(collected, err)
+	}
+	<-b.done
+	return collected
+}
+
 // doIDGenerator generates unique IDs for the items in the pipeline.
+// It runs as a goroutine and continuously increments IDs starting from 0,
+// sending them on the ids channel. It terminates when the done channel is closed.
+//
+// Each item processed by the batch system receives a unique ID that allows
+// tracking it through the pipeline. This ID should never be modified by
+// processors.
 func (b *Batch) doIDGenerator() {
-	for id := uint64(0); ; id++ {
+	var id uint64
+	for {
 		select {
 		case b.ids <- id:
-
+			id++
 		case <-b.done:
 			return
 		}
 	}
 }
 
-// doReader starts the reader goroutine and reads from its channels.
+// doReader reads from the Source and forwards items to the batch processor.
+// It runs as a goroutine and continuously reads from the Source's output and
+// error channels until both are closed. For each item read, it:
+// 1. Obtains a unique ID from the ID generator
+// 2. Creates an Item with the ID and data
+// 3. Sends the Item to the batch processor
+//
+// Any errors from the Source are wrapped in a SourceError and forwarded
+// to the error channel. When the Source is exhausted (both channels closed),
+// doReader closes the items channel to signal completion to the batch processor.
 func (b *Batch) doReader(ctx context.Context) {
-	in := make(chan *Item)
-	out := make(chan *Item)
-	errs := make(chan error)
-	ps := &PipelineStage{
-		Input:  in,
-		Output: out,
-		Errors: errs,
+	// Get channels from source
+	out, errs := b.src.Read(ctx)
+
+	// Handle nil channels from source - just report an error and finish
+	if out == nil || errs == nil {
+		b.errs <- errors.New("invalid source implementation: returned nil channel(s)")
+		close(b.items)
+		return
 	}
 
-	go b.src.Read(ctx, ps)
-
-	nextItem := &Item{
-		id: <-b.ids,
-	}
-
-	var outClosed, errClosed bool
-	for !outClosed || !errClosed {
+	var outClosed, errsClosed bool
+	for !outClosed || !errsClosed {
 		select {
-		case in <- nextItem:
-			nextItem = &Item{
-				id: <-b.ids,
-			}
-
-		case item, ok := <-out:
-			if ok {
-				b.items <- item
-			} else {
+		case data, ok := <-out:
+			if !ok {
 				outClosed = true
+				continue
+			}
+			id := <-b.ids
+			b.items <- &Item{
+				ID:   id,
+				Data: data,
 			}
 
 		case err, ok := <-errs:
-			if ok {
-				b.errs <- &SourceError{
-					err: err,
-				}
-			} else {
-				errClosed = true
+			if !ok {
+				errsClosed = true
+				continue
 			}
+			b.errs <- &SourceError{Err: err}
 		}
 	}
 
 	close(b.items)
 }
 
-// doProcessors starts the processor goroutine.
+// doProcessors handles the batch collection and processing of items.
+// It runs as a goroutine and performs the following steps:
+//  1. Collects items into batches according to configuration parameters
+//  2. For each batch, starts a processing goroutine that:
+//     a. Applies each processor in sequence to the batch
+//     b. Reports processor-wide errors to the error channel
+//     c. Reports item-specific errors to the error channel
+//  3. When the source is exhausted, waits for all processing to complete
+//  4. Signals completion by closing the error and done channels
+//
+// Multiple batches may be processed concurrently, but each batch is processed
+// through the entire processor chain before the next batch starts processing.
+// Within a batch, processors are applied sequentially, with each processor
+// receiving the output of the previous one.
 func (b *Batch) doProcessors(ctx context.Context) {
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		b.process(ctx)
-	}()
-	wg.Wait()
 
-	// Once processors are complete, everything is
-	b.mu.Lock()
+	for {
+		config := fixConfig(b.config.Get())
+		batch, done := b.waitForItems(ctx, config)
+
+		if done || len(batch) == 0 {
+			break
+		}
+
+		wg.Add(1)
+		go func(items []*Item) {
+			defer wg.Done()
+			for _, proc := range b.processors {
+				// Skip nil processors (although they should have been filtered out in Go)
+				if proc == nil {
+					continue
+				}
+
+				var err error
+				items, err = proc.Process(ctx, items)
+				if err != nil {
+					b.errs <- &ProcessorError{Err: err}
+				}
+			}
+
+			for _, item := range items {
+				if item.Error != nil {
+					b.errs <- &ProcessorError{Err: item.Error}
+				}
+			}
+		}(batch)
+	}
+
+	wg.Wait()
 	close(b.errs)
 	close(b.done)
+	b.mu.Lock()
 	b.running = false
 	b.mu.Unlock()
 }
 
+// fixConfig corrects any invalid configuration values to ensure
+// consistent batch processing behavior. It applies the following corrections:
+//
+// 1. If MinItems is 0, it sets it to 1 (at least one item must be processed)
+// 2. If MaxTime < MinTime, it sets MinTime = MaxTime
+// 3. If MaxItems < MinItems, it sets MinItems = MaxItems
+//
+// This ensures that batching logic operates correctly even with inconsistent
+// configuration values, following the principle of "fail safe" by adjusting
+// parameters rather than causing runtime errors.
+//
+// Example:
+//
+//	// Invalid config (max < min)
+//	config := ConfigValues{
+//		MinItems: 100,
+//		MaxItems: 50,
+//	}
+//
+//	// After fixConfig, MinItems will be adjusted to match MaxItems
+//	fixedConfig := fixConfig(config)
+//	// fixedConfig.MinItems == 50
 func fixConfig(c ConfigValues) ConfigValues {
+	if c.MinItems == 0 {
+		c.MinItems = 1
+	}
 	if c.MaxTime > 0 && c.MinTime > 0 && c.MaxTime < c.MinTime {
 		c.MinTime = c.MaxTime
 	}
@@ -336,95 +548,44 @@ func fixConfig(c ConfigValues) ConfigValues {
 	return c
 }
 
-func (b *Batch) process(ctx context.Context) {
-	var (
-		wg      sync.WaitGroup
-		done    bool
-		bufSize uint64
-	)
-
-	// Process one batch each time
-	for !done {
-		config := fixConfig(b.config.Get())
-
-		// TODO smarter buffer size (perhaps from the config)
-		if config.MaxItems > 0 {
-			bufSize = config.MaxItems
-		} else if config.MinItems > 0 {
-			bufSize = config.MinItems * 2
-		} else {
-			bufSize = 1024
-		}
-
-		var items = make([]*Item, 0, bufSize)
-		done, items = b.waitForItems(ctx, items, &config)
-
-		// TODO this resets the time whenever no items are available. Need to
-		// decide if that's the right way to do it.
-		if len(items) == 0 {
-			continue
-		}
-
-		// Process all current items
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			in := make(chan *Item)
-			out := make(chan *Item)
-			errs := make(chan error)
-			ps := &PipelineStage{
-				Input:  in,
-				Output: out,
-				Errors: errs,
-			}
-
-			go b.proc.Process(ctx, ps)
-
-			go func() {
-				for _, item := range items {
-					in <- item
-				}
-				close(in)
-			}()
-
-			var outClosed, errClosed bool
-			for !outClosed || !errClosed {
-				select {
-				case item, ok := <-out:
-					if ok {
-						b.items <- item
-					} else {
-						outClosed = true
-					}
-
-				case err, ok := <-errs:
-					if ok {
-						b.errs <- &ProcessorError{
-							err: err,
-						}
-					} else {
-						errClosed = true
-					}
-				}
-			}
-		}()
-	}
-
-	// Wait for all processing to complete
-	wg.Wait()
-}
-
-// waitForItems waits until enough items are read to begin batch processing, based
-// on config. It returns true if processing is completely finished, and false
-// otherwise.
-func (b *Batch) waitForItems(ctx context.Context, items []*Item, config *ConfigValues) (bool, []*Item) {
+// waitForItems collects items according to the batch configuration and returns
+// the collected batch. It implements the batching strategy according to the
+// configuration parameters.
+//
+// The priority order for batch processing decisions is:
+//
+//	MaxTime = MaxItems > EOF > MinTime > MinItems
+//
+// This means:
+// - If MaxItems is reached, process immediately (even if MinTime hasn't elapsed)
+// - If MaxTime is reached, process if at least one item is available
+// - If the source is exhausted (EOF), process any remaining items
+// - If MinTime has elapsed, process if MinItems is also satisfied
+// - If MinItems is reached, wait until MinTime has also elapsed
+//
+// Examples of different configurations:
+//
+//  1. Process each item individually:
+//     ConfigValues{MinItems: 1, MaxItems: 1}
+//
+//  2. Process in exact batches of 100:
+//     ConfigValues{MinItems: 100, MaxItems: 100}
+//
+//  3. Process at most every 5 seconds, or when 1000 items are ready:
+//     ConfigValues{MaxTime: 5*time.Second, MaxItems: 1000}
+//
+//  4. Wait for at least 1 second and 100 items, but no more than 5 seconds or 1000 items:
+//     ConfigValues{MinTime: 1*time.Second, MinItems: 100, MaxTime: 5*time.Second, MaxItems: 1000}
+//
+// The method returns two values:
+// - A slice containing the collected batch
+// - A boolean indicating whether the source is exhausted (true) or more items may be available (false)
+func (b *Batch) waitForItems(ctx context.Context, config ConfigValues) ([]*Item, bool) {
 	var (
 		reachedMinTime bool
-		itemsRead      uint64
-
-		minTimer <-chan time.Time
-		maxTimer <-chan time.Time
+		batch          = make([]*Item, 0, config.MinItems)
+		minTimer       <-chan time.Time
+		maxTimer       <-chan time.Time
 	)
 
 	// Be careful not to set timers that end right away. Instead, if a
@@ -446,28 +607,32 @@ func (b *Batch) waitForItems(ctx context.Context, items []*Item, config *ConfigV
 	for {
 		select {
 		case item, ok := <-b.items:
-			if ok {
-				items = append(items, item)
-				itemsRead++
-				if itemsRead >= config.MinItems && reachedMinTime {
-					return false, items
-				}
-				if config.MaxItems > 0 && itemsRead >= config.MaxItems {
-					return false, items
-				}
-			} else {
-				// Finished processing
-				return true, items
+			if !ok {
+				return batch, true // no more items
+			}
+
+			batch = append(batch, item)
+
+			if uint64(len(batch)) >= config.MinItems && reachedMinTime {
+				return batch, false
+			}
+			if config.MaxItems > 0 && uint64(len(batch)) >= config.MaxItems {
+				return batch, false
 			}
 
 		case <-minTimer:
 			reachedMinTime = true
-			if itemsRead >= config.MinItems {
-				return false, items
+			if uint64(len(batch)) >= config.MinItems {
+				return batch, false
 			}
+			// Keep waiting until MinItems is met
 
 		case <-maxTimer:
-			return false, items
+			if len(batch) > 0 {
+				return batch, false
+			}
+			// If maxTimer fires with no items, wait for items
+
 		}
 	}
 }

@@ -1,3 +1,11 @@
 // Package processor contains several implementations of the batch.Processor
-// interface.
+// interface for common processing scenarios, including:
+//
+// - Error: For simulating errors with configurable failure rates
+// - Filter: For filtering items based on custom predicates
+// - Nil: For testing timing behavior without modifying items
+// - Transform: For transforming item data values
+//
+// Each processor implementation follows a consistent error handling pattern and
+// respects context cancellation.
 package processor
