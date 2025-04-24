@@ -54,7 +54,10 @@ func (p *countProcessor) Process(ctx context.Context, items []*Item) ([]*Item, e
 		time.Sleep(p.delay)
 	}
 
-	atomic.AddUint32(p.count, uint32(len(items)))
+	// Make sure we only access the count pointer once and do proper nil checking
+	if p.count != nil {
+		atomic.AddUint32(p.count, uint32(len(items)))
+	}
 
 	if p.processorErr != nil {
 		return items, p.processorErr
@@ -678,29 +681,36 @@ func TestBatch_DynamicConfiguration(t *testing.T) {
 
 		src := &testSource{Items: items, Delay: 5 * time.Millisecond}
 
-		var processedBefore uint32
-		countProc := &countProcessor{
-			count: &processedBefore,
-			// Track before/after config change using a custom processor
-			delay: 10 * time.Millisecond,
+		// Use separate atomic counters instead of changing the pointer
+		var beforeConfigChange uint32
+		var afterConfigChange uint32
+
+		// Use a new processor type that's safe for this test
+		proc := &testProcessor{
+			processFn: func(ctx context.Context, items []*Item) ([]*Item, error) {
+				// Add a delay to ensure the processing happens over time
+				time.Sleep(10 * time.Millisecond)
+
+				// Check if config has changed and increment appropriate counter
+				minItems := dynamicCfg.Get().MinItems
+				if minItems == initialConfig.MinItems {
+					atomic.AddUint32(&beforeConfigChange, uint32(len(items)))
+				} else {
+					atomic.AddUint32(&afterConfigChange, uint32(len(items)))
+				}
+
+				return items, nil
+			},
 		}
 
 		// Start batch processing with initial config
-		errs := batch.Go(context.Background(), src, countProc)
+		errs := batch.Go(context.Background(), src, proc)
 
 		// Wait a bit for some items to be read, but not processed due to MinItems: 50
 		time.Sleep(100 * time.Millisecond)
 
-		// Check how many items were processed with initial config
-		itemsBeforeUpdate := atomic.LoadUint32(&processedBefore)
-
 		// Update config to release the items for processing
 		dynamicCfg.Update(ConfigValues{MinItems: 5, MaxItems: 10})
-
-		// Create new counter for after the update
-		afterCounter := uint32(0)
-		// Replace the counter to track separately
-		countProc.count = &afterCounter
 
 		// Wait for completion
 		<-batch.Done()
@@ -710,16 +720,13 @@ func TestBatch_DynamicConfiguration(t *testing.T) {
 			// Just drain
 		}
 
-		// Check final counts
-		itemsAfterUpdate := atomic.LoadUint32(&afterCounter)
-
 		// With initial MinItems: 50, we expect no items processed initially
-		if itemsBeforeUpdate > 0 {
-			t.Errorf("expected 0 items before config update, got %d", itemsBeforeUpdate)
+		if beforeConfigChange > 0 {
+			t.Errorf("expected 0 items before config update, got %d", beforeConfigChange)
 		}
 
 		// After changing to MinItems: 5, we expect items to be processed
-		if itemsAfterUpdate == 0 {
+		if afterConfigChange == 0 {
 			t.Error("expected items to be processed after config update, got 0")
 		}
 	})

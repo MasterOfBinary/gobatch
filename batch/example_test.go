@@ -201,30 +201,24 @@ func Example_customSourceAndProcessor() {
 
 	fmt.Println("Starting custom source and processor example...")
 
-	// Start processing
-	errs := batchProcessor.Go(ctx, source, filterProc, uppercaseProc)
-
-	// Wait for completion and collect errors
-	var processingErrors []error
-	for err := range errs {
-		processingErrors = append(processingErrors, err)
-	}
+	// Use the helper function to avoid race conditions by waiting for completion
+	errors := batch.RunBatchAndWait(ctx, batchProcessor, source, filterProc, uppercaseProc)
 
 	fmt.Println("Processing complete")
-	if len(processingErrors) > 0 {
+	if len(errors) > 0 {
 		fmt.Println("Errors occurred during processing:")
-		for _, err := range processingErrors {
+		for _, err := range errors {
 			fmt.Println("-", err)
 		}
 	}
 
 	// Output:
 	// Starting custom source and processor example...
-	// Processed batch: [[hello] [world]]
 	// Filtered out short strings: [go]
-	// Processed batch: [[batch]]
+	// Processed batch: [[hello] [world]]
 	// Filtered out short strings: [is]
-	// Processed batch: [[processing]]
+	// Processed batch: [[batch]]
 	// Filtered out short strings: [fun]
+	// Processed batch: [[processing]]
 	// Processing complete
 }
