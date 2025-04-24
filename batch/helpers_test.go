@@ -85,7 +85,7 @@ func TestRunBatchAndWait(t *testing.T) {
 	proc := &countProcessor{count: &count}
 
 	// Run the batch and collect errors
-	errors := RunBatchAndWait(context.Background(), batch, src, proc)
+	errs := RunBatchAndWait(context.Background(), batch, src, proc)
 
 	// Verify processing occurred
 	if atomic.LoadUint32(&count) != 3 {
@@ -93,7 +93,7 @@ func TestRunBatchAndWait(t *testing.T) {
 	}
 
 	// Verify error was collected
-	if len(errors) == 0 {
+	if len(errs) == 0 {
 		t.Error("expected at least one error, got none")
 	}
 }
@@ -120,7 +120,7 @@ func TestExecuteBatches(t *testing.T) {
 	}
 
 	// Execute all batches
-	errors := ExecuteBatches(context.Background(), configs...)
+	errs := ExecuteBatches(context.Background(), configs...)
 
 	// Verify processing occurred for all batches
 	if atomic.LoadUint32(&count1) != 3 {
@@ -132,7 +132,7 @@ func TestExecuteBatches(t *testing.T) {
 	}
 
 	// Verify we got the expected error
-	if len(errors) == 0 {
+	if len(errs) == 0 {
 		t.Error("expected at least one error, got none")
 	}
 }

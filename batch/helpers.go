@@ -31,9 +31,9 @@ func IgnoreErrors(errs <-chan error) {
 //
 // Example usage:
 //
-//	errors := batch.CollectErrors(myBatch.Go(ctx, source, processor))
+//	errs := batch.CollectErrors(myBatch.Go(ctx, source, processor))
 //	<-myBatch.Done()
-//	for _, err := range errors {
+//	for _, err := range errs {
 //		log.Printf("Error: %v", err)
 //	}
 func CollectErrors(errs <-chan error) []error {
@@ -55,8 +55,8 @@ func CollectErrors(errs <-chan error) []error {
 //
 // Example usage:
 //
-//	errors := batch.RunBatchAndWait(ctx, myBatch, source, processor1, processor2)
-//	if len(errors) > 0 {
+//	errs := batch.RunBatchAndWait(ctx, myBatch, source, processor1, processor2)
+//	if len(errs) > 0 {
 //		// Handle errors
 //	}
 func RunBatchAndWait(ctx context.Context, b *Batch, s Source, procs ...Processor) []error {
@@ -93,7 +93,7 @@ type BatchConfig struct {
 //
 // Example usage:
 //
-//	errors := batch.ExecuteBatches(ctx,
+//	errs := batch.ExecuteBatches(ctx,
 //		&batch.BatchConfig{B: batch1, S: source1, P: []Processor{proc1}},
 //		&batch.BatchConfig{B: batch2, S: source2, P: []Processor{proc2}},
 //	)
