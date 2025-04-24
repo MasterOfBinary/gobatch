@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Note: This project is in early development. The API may change without warning in any 0.x version.
 
+## [0.2.1] - 2025-05-15
+
+This release focuses on robustness, developer experience, and error handling. It introduces new helper functions, improves error handling throughout the codebase, and simplifies the API by moving some functionality to helper functions.
+
+### Added
+
+- New helper functions for common batch processing tasks:
+  - `CollectErrors` for collecting errors from an error channel into a slice.
+  - `RunBatchAndWait` for running a batch and waiting for completion in one step.
+  - `ExecuteBatches` for running multiple batches concurrently and collecting all errors.
+- Comprehensive handling of edge cases:
+  - Proper handling of nil processors, which are now filtered out automatically.
+  - Proper error handling for nil sources and sources returning nil channels.
+  - Detection and handling of very small time values.
+  - Support for empty item slices and zero configuration values.
+- Extensive test coverage for all edge cases and error scenarios.
+- Better documentation and examples for all public APIs.
+- Improved documentation comments throughout the codebase following Go standards:
+  - Complete sentences with proper punctuation.
+  - Comments begin with the entity name being documented.
+  - Consistent formatting for code blocks and examples.
+  - Detailed documentation for struct fields, methods, and interfaces.
+
+### Changed
+
+- Simplified API by removing the `Batch.Wait()` method in favor of the `RunBatchAndWait` helper function.
+- Improved error reporting with more specific error messages.
+- Enhanced error handling throughout the codebase for better diagnostics.
+- Better context cancellation support and testing.
+- Code structure reorganized to be more maintainable and testable.
+
+### Fixed
+
+- Fixed critical bug where items remaining in the pipeline would not be processed if fewer than MinItems when the source was exhausted.
+- Fixed potential issues with nil sources and nil processors.
+- Fixed handling of timing-dependent tests to make them more reliable.
+- Fixed error handling to properly identify and wrap errors from different sources.
+- Improved synchronization in concurrent processing scenarios.
+
 ## [0.2.0] - 2025-04-24
 
 This release brings major improvements to the batch processing API, featuring a complete redesign to implement a chained processor design. It reimagines how processors connect, allowing them to be linked together seamlessly in a processing pipeline. The redesign introduces new Filter and Transform processors, enhanced error handling, and better context cancellation support throughout the library. The PipelineStage has been replaced with more explicit interfaces to facilitate processor chaining, and the minimum Go version is updated to 1.18 to leverage generics.
@@ -55,6 +94,10 @@ This release brings major improvements to the batch processing API, featuring a 
 - Fixed the processor.go file which had invalid syntax.
 - All sources now properly respect context cancellation.
 - Resolved potential deadlock when reading `errs` and awaiting `Done()` by introducing coordinated draining in tests and examples.
+
+### Known Issues
+
+- When a source is exhausted, items remaining in the pipeline will not be processed if their count is less than MinItems. This issue has been fixed in version 0.2.1.
 
 ## [0.1.1] - 2024-07-18
 

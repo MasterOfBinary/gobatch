@@ -14,6 +14,17 @@ and processing logic.
 **NOTE:** GoBatch is considered a version 0 release and is in an unstable state. Compatibility may be broken at any time on
 the master branch. If you need a stable release, wait for version 1.
 
+### Latest Release - v0.2.1
+
+Version 0.2.1 fixes several important bugs and improves usability:
+
+- Fixed critical bug where items less than MinItems would not be processed when the source was exhausted
+- Added new helper functions for common batch processing operations
+- Improved documentation throughout the codebase following Go standards
+- Enhanced error handling and reporting
+
+See the [CHANGELOG.md](./CHANGELOG.md) for complete details.
+
 ### Core Components
 
 1. `Source`: An interface implemented by the user to define where data comes from (e.g. a channel, database, API, or file system).
@@ -73,7 +84,7 @@ To download, run
 - `Config`: An interface for providing configuration values.
 - `Item`: A struct representing a single item in the processing pipeline. Each `Item` has a unique ID for traceability and an `Error` field for tracking item-specific errors.
 
-## Built-in Processors
+### Built-in Processors
 
 GoBatch includes several built-in processors for common tasks:
 
@@ -94,7 +105,7 @@ GoBatch includes several built-in processors for common tasks:
    - Passes items through without changes.
    - Useful for benchmarking and timing tests.
 
-## Built-in Sources
+### Built-in Sources
 
 GoBatch includes several built-in source implementations:
 
@@ -109,6 +120,32 @@ GoBatch includes several built-in source implementations:
 3. **Nil**: For testing timing behavior without emitting any data.
    - Properly handles zero/negative durations.
    - Uses timers correctly for precise timing tests.
+
+### Helper Functions
+
+GoBatch provides several helper functions for common operations:
+
+1. **IgnoreErrors**: Safely drains the error channel without needing to process errors.
+
+2. **CollectErrors**: Collects all errors from the error channel into a slice for later processing.
+
+3. **RunBatchAndWait**: Runs a batch and waits for completion, collecting all errors in one step.
+
+4. **ExecuteBatches**: Runs multiple batches concurrently and collects all errors.
+
+```go
+// Example using RunBatchAndWait
+errors := batch.RunBatchAndWait(ctx, batchProcessor, source, processor1, processor2)
+if len(errors) > 0 {
+    // Handle errors
+}
+
+// Example using ExecuteBatches
+errors := batch.ExecuteBatches(ctx,
+    &batch.BatchConfig{B: batch1, S: source1, P: []batch.Processor{proc1}},
+    &batch.BatchConfig{B: batch2, S: source2, P: []batch.Processor{proc2}},
+)
+```
 
 ## Basic Usage
 
@@ -237,6 +274,8 @@ config := batch.NewConstantConfig(&batch.ConfigValues{
 batchProcessor := batch.New(config)
 ```
 
+**Important Note (v0.2.1+):** When a Source is exhausted, all remaining items will be processed even if there are fewer than MinItems. This ensures no data is lost when the input stream ends.
+
 ## Error Handling
 
 Errors can come from three sources:
@@ -274,27 +313,19 @@ go func() {
 }()
 ```
 
-Here's an example of waiting for both completion and draining all errors:
+Here's a simplified error handling approach using the built-in helper functions (v0.2.1+):
 
 ```go
-// Helper function to wait for both completion and error handling
-func waitAll(batch *batch.Batch, errs <-chan error) []error {
-	var collected []error
-	
-	// Create a goroutine to collect errors
-	errDone := make(chan struct{})
-	go func() {
-		defer close(errDone)
-		for err := range errs {
-			collected = append(collected, err)
-		}
-	}()
-	
-	// Wait for both completion signals
-	<-batch.Done()
-	<-errDone
-	
-	return collected
+// Collect all errors
+errors := batch.CollectErrors(batchProcessor.Go(ctx, source, processor))
+<-batchProcessor.Done()
+
+// Or use the RunBatchAndWait helper function
+errors := batch.RunBatchAndWait(ctx, batchProcessor, source, processor)
+
+// Process errors after completion
+for _, err := range errors {
+    // Handle error
 }
 ```
 
