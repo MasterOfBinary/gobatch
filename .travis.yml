@@ -1,26 +1,28 @@
 language: go
-sudo: false
 
 go:
- - 1.8.x
- - 1.8
- - 1.7.x
- - 1.7
+  - 1.18.x
+  - 1.19.x
+  - 1.20.x
+  - 1.21.x
+  - tip
 
 before_install:
- - go get -u github.com/mattn/goveralls
- - go get -u gopkg.in/alecthomas/gometalinter.v1
+  - go get -u github.com/mattn/goveralls
+  - go get -u gopkg.in/alecthomas/gometalinter.v1
+  - go get -t -v ./...
 
 install:
- - go get -t ./...
- - gometalinter.v1 --install
+  - gometalinter.v1 --install
 
 script:
- - go test -v -race ./...
- - gometalinter.v1 --disable=gocyclo ./...
+  - go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+  - gometalinter.v1 --disable=gocyclo ./...
 
-after_script:
- - $HOME/gopath/bin/goveralls -service=travis-ci
+after_success:
+  - $HOME/gopath/bin/goveralls -service=travis-ci
 
 notifications:
-  email: false
+  email:
+    on_success: change
+    on_failure: always
