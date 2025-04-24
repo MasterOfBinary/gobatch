@@ -37,10 +37,11 @@ jobs:
       run: $(go env GOPATH)/bin/golangci-lint run --timeout=3m
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v5
       with:
         files: ./coverage.txt
         fail_ci_if_error: false
+        token: ${{ secrets.CODECOV_TOKEN }}
 
     - name: Upload coverage to Coveralls
       env:
