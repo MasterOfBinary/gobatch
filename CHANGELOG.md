@@ -23,6 +23,11 @@ This release focuses on robustness, developer experience, and error handling. It
   - Support for empty item slices and zero configuration values.
 - Extensive test coverage for all edge cases and error scenarios.
 - Better documentation and examples for all public APIs.
+- Improved documentation comments throughout the codebase following Go standards:
+  - Complete sentences with proper punctuation.
+  - Comments begin with the entity name being documented.
+  - Consistent formatting for code blocks and examples.
+  - Detailed documentation for struct fields, methods, and interfaces.
 
 ### Changed
 
@@ -34,6 +39,7 @@ This release focuses on robustness, developer experience, and error handling. It
 
 ### Fixed
 
+- Fixed critical bug where items remaining in the pipeline would not be processed if fewer than MinItems when the source was exhausted.
 - Fixed potential issues with nil sources and nil processors.
 - Fixed handling of timing-dependent tests to make them more reliable.
 - Fixed error handling to properly identify and wrap errors from different sources.
@@ -88,6 +94,10 @@ This release brings major improvements to the batch processing API, featuring a 
 - Fixed the processor.go file which had invalid syntax.
 - All sources now properly respect context cancellation.
 - Resolved potential deadlock when reading `errs` and awaiting `Done()` by introducing coordinated draining in tests and examples.
+
+### Known Issues
+
+- When a source is exhausted, items remaining in the pipeline will not be processed if their count is less than MinItems. This issue has been fixed in version 0.2.1.
 
 ## [0.1.1] - 2024-07-18
 
