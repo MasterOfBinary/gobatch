@@ -76,7 +76,7 @@ func (p *errorPerItemProcessor) Process(ctx context.Context, items []*Item) ([]*
 	return items, nil
 }
 
-// Added: Processor that transforms item data
+// Processor that transforms item data
 type transformProcessor struct {
 	transformFn func(interface{}) interface{}
 }
@@ -97,7 +97,7 @@ func (p *transformProcessor) Process(ctx context.Context, items []*Item) ([]*Ite
 	return items, nil
 }
 
-// Added: Processor that filters items
+// Processor that filters items
 type filterProcessor struct {
 	filterFn func(interface{}) bool
 }
@@ -125,7 +125,7 @@ func (p *filterProcessor) Process(ctx context.Context, items []*Item) ([]*Item, 
 	return result, nil
 }
 
-// Added: Dynamic configuration implementation for testing
+// Dynamic configuration implementation for testing
 type dynamicConfig struct {
 	mu      sync.RWMutex
 	current ConfigValues
@@ -202,7 +202,7 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 		}
 	})
 
-	// Added: Test processor error handling and unwrapping
+	// Test processor error handling and unwrapping
 	t.Run("processor error handling", func(t *testing.T) {
 		procErr := errors.New("processor failed")
 		batch := New(NewConstantConfig(&ConfigValues{}))
@@ -233,7 +233,7 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 		<-batch.Done()
 	})
 
-	// Added: Test context cancellation behavior
+	// Test context cancellation behavior
 	t.Run("context cancellation", func(t *testing.T) {
 		var count uint32
 		batch := New(NewConstantConfig(&ConfigValues{
@@ -295,7 +295,7 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 			{"min and max time interaction", &ConfigValues{MinTime: 500 * time.Millisecond, MaxTime: 300 * time.Millisecond}, 100 * time.Millisecond, 5, 2},
 			{"min and max items interaction", &ConfigValues{MinItems: 5, MaxItems: 3}, 0, 10, 9},
 			{"all thresholds", &ConfigValues{MinItems: 3, MaxItems: 5, MinTime: 200 * time.Millisecond, MaxTime: 400 * time.Millisecond}, 100 * time.Millisecond, 7, 6},
-			// Added: Edge cases
+			// Edge cases
 			{"empty source", &ConfigValues{MinItems: 5}, 0, 0, 0},
 			{"zero thresholds", &ConfigValues{MinItems: 0, MaxItems: 0, MinTime: 0, MaxTime: 0}, 0, 10, 10},
 		}
@@ -327,7 +327,6 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 	})
 }
 
-// Added: Test complex chained processing pipelines
 func TestBatch_ComplexProcessingPipeline(t *testing.T) {
 	t.Run("transform and filter pipeline", func(t *testing.T) {
 		batch := New(NewConstantConfig(&ConfigValues{MinItems: 2}))
@@ -375,64 +374,6 @@ func TestBatch_ComplexProcessingPipeline(t *testing.T) {
 	})
 }
 
-// Added: Test Wait functionality
-func TestBatch_Wait(t *testing.T) {
-	t.Run("wait returns all errors", func(t *testing.T) {
-		batch := New(NewConstantConfig(&ConfigValues{}))
-
-		// Create source with an error
-		srcErr := errors.New("source error")
-		src := &testSource{
-			Items:   []interface{}{1, 2, 3},
-			WithErr: srcErr,
-		}
-
-		// Create processor with an error
-		procErr := errors.New("processor error")
-		proc := &countProcessor{
-			count:        new(uint32),
-			processorErr: procErr,
-		}
-
-		// Start batch processing
-		_ = batch.Go(context.Background(), src, proc)
-
-		// Wait for completion and collect all errors
-		allErrors := batch.Wait()
-
-		// We expect at least 2 errors (one from source, one from processor)
-		if len(allErrors) < 2 {
-			t.Errorf("expected at least 2 errors, got %d", len(allErrors))
-		}
-
-		// Verify source error is present
-		var foundSrcErr bool
-		var foundProcErr bool
-
-		for _, err := range allErrors {
-			var sourceError *SourceError
-			var processorError *ProcessorError
-
-			if errors.As(err, &sourceError) && errors.Is(errors.Unwrap(err), srcErr) {
-				foundSrcErr = true
-			}
-
-			if errors.As(err, &processorError) && errors.Is(errors.Unwrap(err), procErr) {
-				foundProcErr = true
-			}
-		}
-
-		if !foundSrcErr {
-			t.Error("source error not found in Wait() result")
-		}
-
-		if !foundProcErr {
-			t.Error("processor error not found in Wait() result")
-		}
-	})
-}
-
-// Added: Test concurrent batch processing
 func TestBatch_ConcurrentProcessing(t *testing.T) {
 	t.Run("multiple concurrent batches", func(t *testing.T) {
 		const numBatches = 5
@@ -480,7 +421,6 @@ func TestBatch_ConcurrentProcessing(t *testing.T) {
 	})
 }
 
-// Added: Test dynamic configuration updates
 func TestBatch_DynamicConfiguration(t *testing.T) {
 	t.Run("dynamic config updates during processing", func(t *testing.T) {
 		// Start with MinItems: 50 to hold processing
@@ -545,7 +485,6 @@ func TestBatch_DynamicConfiguration(t *testing.T) {
 	})
 }
 
-// Added: More edge cases and robustness tests
 func TestBatch_RobustnessAndEdgeCases(t *testing.T) {
 	t.Run("large batch handling", func(t *testing.T) {
 		// Test with a large number of items to ensure memory efficiency
@@ -660,7 +599,6 @@ func TestBatch_RobustnessAndEdgeCases(t *testing.T) {
 	})
 }
 
-// Added: Test normal error cases that should be handled
 func TestBatch_ErrorHandling(t *testing.T) {
 	t.Run("processor with error", func(t *testing.T) {
 		batch := New(NewConstantConfig(&ConfigValues{}))
@@ -770,7 +708,6 @@ func TestBatch_ErrorHandling(t *testing.T) {
 	})
 }
 
-// Test for source that returns nil channels
 func TestBatch_NilChannelHandling(t *testing.T) {
 	t.Run("source returning nil output channel", func(t *testing.T) {
 		batch := New(NewConstantConfig(&ConfigValues{}))
@@ -848,8 +785,6 @@ func (s *nilErrorChannelSource) Read(ctx context.Context) (<-chan interface{}, <
 	close(out)
 	return out, nil
 }
-
-// Test for nil source that returns nil channels
 
 func TestBatch_NoProcessors(t *testing.T) {
 	t.Run("no processors provided", func(t *testing.T) {

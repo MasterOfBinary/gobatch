@@ -88,6 +88,15 @@ import (
 //	<-b.Done()
 //	// Now batch processing is done
 //
+// For synchronous processing where you want to wait for completion and collect all errors,
+// the RunBatchAndWait helper function provides a convenient way to do this:
+//
+//	errors := batch.RunBatchAndWait(ctx, b, source, processor)
+//	// Process errors here
+//	for _, err := range errors {
+//		log.Printf("Error: %v", err)
+//	}
+//
 // Note that the errors returned on the error channel may be wrapped in a
 // batch.Error so the caller knows whether they come from the source or the
 // processor (or neither). Errors from the source will be of type SourceError,
@@ -359,35 +368,6 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 //	}
 func (b *Batch) Done() <-chan struct{} {
 	return b.done
-}
-
-// Wait blocks until processing is done and collects all errors.
-// This is a convenience method that combines reading from the error channel
-// and waiting for the Done channel to close.
-//
-// Example usage:
-//
-//	// Start processing
-//	b.Go(ctx, source, processor)
-//
-//	// Wait for completion and collect all errors
-//	errors := b.Wait()
-//	for _, err := range errors {
-//		log.Printf("Error occurred: %v", err)
-//	}
-//
-//	// Continue with post-processing work
-//	fmt.Println("Processing complete with", len(errors), "errors")
-//
-// Note: Wait() blocks until processing is complete, so it should not be
-// called from a goroutine that might need to be canceled.
-func (b *Batch) Wait() []error {
-	var collected []error
-	for err := range b.errs {
-		collected = append(collected, err)
-	}
-	<-b.done
-	return collected
 }
 
 // doIDGenerator generates unique IDs for the items in the pipeline.
