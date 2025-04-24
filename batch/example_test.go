@@ -88,14 +88,12 @@ func (s *stringSource) Read(ctx context.Context) (<-chan interface{}, <-chan err
 		defer close(errs)
 
 		for _, str := range s.strings {
-			// Use a consistent delay that's long enough to ensure deterministic batching
-			time.Sleep(time.Millisecond * 20)
-
 			select {
 			case <-ctx.Done():
 				return
 			case out <- str:
 				// String sent successfully
+				time.Sleep(time.Millisecond * 10) // Simulate some processing time
 			}
 		}
 	}()
@@ -133,7 +131,6 @@ func (p *uppercaseProcessor) Process(ctx context.Context, items []*batch.Item) (
 		}
 	}
 
-	// Wait a consistent amount of time before printing to ensure deterministic order
 	if len(processed) > 0 {
 		fmt.Printf("Processed batch: %v\n", processed)
 	}
@@ -171,7 +168,6 @@ func (p *filterShortStringsProcessor) Process(ctx context.Context, items []*batc
 		}
 	}
 
-	// Print filtered items first for deterministic output
 	if len(filtered) > 0 {
 		fmt.Printf("Filtered out short strings: %v\n", filtered)
 	}
@@ -185,11 +181,10 @@ func Example_customSourceAndProcessor() {
 		strings: []string{"hello", "world", "go", "batch", "processing", "is", "fun"},
 	}
 
-	// Create batch processor with custom config - using specific configuration for deterministic output
+	// Create batch processor with custom config
 	config := batch.NewConstantConfig(&batch.ConfigValues{
 		MinItems: 2, // Process at least 2 items at once
-		MaxItems: 2, // Process exactly 2 items at once for deterministic batching
-		MinTime:  0, // Don't use time-based batching for this example
+		MaxItems: 3, // Process at most 3 items at once
 	})
 
 	// Create processor chain
@@ -205,19 +200,30 @@ func Example_customSourceAndProcessor() {
 
 	fmt.Println("Starting custom source and processor example...")
 
-	// For deterministic execution in example tests, we'll use the RunBatchAndWait helper
-	// which ensures all processing is complete before returning
-	_ = batch.RunBatchAndWait(ctx, batchProcessor, source, filterProc, uppercaseProc)
+	// Start processing
+	errs := batchProcessor.Go(ctx, source, filterProc, uppercaseProc)
+
+	// Wait for completion and collect errors
+	var processingErrors []error
+	for err := range errs {
+		processingErrors = append(processingErrors, err)
+	}
 
 	fmt.Println("Processing complete")
+	if len(processingErrors) > 0 {
+		fmt.Println("Errors occurred during processing:")
+		for _, err := range processingErrors {
+			fmt.Println("-", err)
+		}
+	}
 
 	// Output:
 	// Starting custom source and processor example...
-	// Filtered out short strings: [go]
 	// Processed batch: [[hello] [world]]
-	// Filtered out short strings: [is]
+	// Filtered out short strings: [go]
 	// Processed batch: [[batch]]
-	// Filtered out short strings: [fun]
+	// Filtered out short strings: [is]
 	// Processed batch: [[processing]]
+	// Filtered out short strings: [fun]
 	// Processing complete
 }
