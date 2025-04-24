@@ -127,6 +127,9 @@ func New(config Config) *Batch {
 	}
 }
 
+// Item represents a single data item being processed through the batch pipeline.
+// Each item has a unique ID, the data payload being processed, and an optional
+// error field that processors can set when item-specific processing fails.
 type Item struct {
 	ID    uint64      // Do not modify - unique identifier for tracking items
 	Data  interface{} // Safe to modify during processing - contains the item data
@@ -147,28 +150,28 @@ type Source interface {
 	//
 	// Example implementation:
 	//
-	//    func (s *MySource) Read(ctx context.Context) (out <-chan interface{}, errs <-chan error) {
-	//      dataCh := make(chan interface{})
-	//      errCh := make(chan error)
+	//	func (s *MySource) Read(ctx context.Context) (out <-chan interface{}, errs <-chan error) {
+	//		dataCh := make(chan interface{})
+	//		errCh := make(chan error)
 	//
-	//      go func() {
-	//        defer close(dataCh)
-	//        defer close(errCh)
+	//		go func() {
+	//			defer close(dataCh)
+	//			defer close(errCh)
 	//
-	//        // Read items until done...
-	//        for _, item := range s.items {
-	//          select {
-	//          case <-ctx.Done():
-	//            errCh <- ctx.Err()
-	//            return
-	//          case dataCh <- item:
-	//            // Item sent successfully
-	//          }
-	//        }
-	//      }()
+	//			// Read items until done...
+	//			for _, item := range s.items {
+	//				select {
+	//				case <-ctx.Done():
+	//					errCh <- ctx.Err()
+	//					return
+	//				case dataCh <- item:
+	//					// Item sent successfully
+	//				}
+	//			}
+	//		}()
 	//
-	//      return dataCh, errCh
-	//    }
+	//		return dataCh, errCh
+	//	}
 	//
 	// Important: Both channels must be properly closed when reading is finished
 	// or when the context is canceled. The source should never leave channels open
@@ -193,47 +196,47 @@ type Processor interface {
 	// Processors can be chained together in the Go() method, with each processor
 	// receiving the output from the previous one:
 	//
-	//    // Chain three processors together
-	//    batch.Go(ctx, source, processor1, processor2, processor3)
+	//	// Chain three processors together
+	//	batch.Go(ctx, source, processor1, processor2, processor3)
 	//
 	// In a processor chain, each processor receives the output items from the
 	// previous processor, allowing for multi-stage processing pipelines. This is
 	// useful for separating different processing concerns:
 	//
-	//    // First processor validates items
-	//    // Second processor transforms items
-	//    // Third processor enriches items with additional data
-	//    batch.Go(ctx, source, validationProc, transformProc, enrichmentProc)
+	//	// First processor validates items
+	//	// Second processor transforms items
+	//	// Third processor enriches items with additional data
+	//	batch.Go(ctx, source, validationProc, transformProc, enrichmentProc)
 	//
 	// Example implementation:
 	//
-	//    func (p *MyProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
-	//      for _, item := range items {
-	//        // Skip items that already have errors
-	//        if item.Error != nil {
-	//          continue
-	//        }
+	//	func (p *MyProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+	//		for _, item := range items {
+	//			// Skip items that already have errors
+	//			if item.Error != nil {
+	//				continue
+	//			}
 	//
-	//        // Check for context cancellation
-	//        select {
-	//        case <-ctx.Done():
-	//          return items, ctx.Err()
-	//        default:
-	//          // Continue processing
-	//        }
+	//			// Check for context cancellation
+	//			select {
+	//			case <-ctx.Done():
+	//				return items, ctx.Err()
+	//			default:
+	//				// Continue processing
+	//			}
 	//
-	//        // Process the item
-	//        result, err := p.processItem(item.Data)
-	//        if err != nil {
-	//          item.Error = err
-	//          continue
-	//        }
+	//			// Process the item
+	//			result, err := p.processItem(item.Data)
+	//			if err != nil {
+	//				item.Error = err
+	//				continue
+	//			}
 	//
-	//        // Update with processed data
-	//        item.Data = result
-	//      }
-	//      return items, nil
-	//    }
+	//			// Update with processed data
+	//			item.Data = result
+	//		}
+	//		return items, nil
+	//	}
 	//
 	// Important:
 	// - Never modify the ID field of items
@@ -455,9 +458,10 @@ func (b *Batch) doProcessors(ctx context.Context) {
 
 	for {
 		config := fixConfig(b.config.Get())
-		batch, done := b.waitForItems(ctx, config)
+		batch := b.waitForItems(ctx, config)
 
-		if done || len(batch) == 0 {
+		// Only exit the loop if we have no items to process
+		if len(batch) == 0 {
 			break
 		}
 
@@ -557,10 +561,8 @@ func fixConfig(c ConfigValues) ConfigValues {
 //  4. Wait for at least 1 second and 100 items, but no more than 5 seconds or 1000 items:
 //     ConfigValues{MinTime: 1*time.Second, MinItems: 100, MaxTime: 5*time.Second, MaxItems: 1000}
 //
-// The method returns two values:
-// - A slice containing the collected batch
-// - A boolean indicating whether the source is exhausted (true) or more items may be available (false)
-func (b *Batch) waitForItems(ctx context.Context, config ConfigValues) ([]*Item, bool) {
+// The method returns a slice containing the collected batch
+func (b *Batch) waitForItems(ctx context.Context, config ConfigValues) []*Item {
 	var (
 		reachedMinTime bool
 		batch          = make([]*Item, 0, config.MinItems)
@@ -588,28 +590,29 @@ func (b *Batch) waitForItems(ctx context.Context, config ConfigValues) ([]*Item,
 		select {
 		case item, ok := <-b.items:
 			if !ok {
-				return batch, true // no more items
+				// Source is exhausted, return any remaining items regardless of MinItems, it can be empty
+				return batch
 			}
 
 			batch = append(batch, item)
 
 			if uint64(len(batch)) >= config.MinItems && reachedMinTime {
-				return batch, false
+				return batch
 			}
 			if config.MaxItems > 0 && uint64(len(batch)) >= config.MaxItems {
-				return batch, false
+				return batch
 			}
 
 		case <-minTimer:
 			reachedMinTime = true
 			if uint64(len(batch)) >= config.MinItems {
-				return batch, false
+				return batch
 			}
 			// Keep waiting until MinItems is met
 
 		case <-maxTimer:
 			if len(batch) > 0 {
-				return batch, false
+				return batch
 			}
 			// If maxTimer fires with no items, wait for items
 

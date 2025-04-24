@@ -77,6 +77,16 @@ func RunBatchAndWait(ctx context.Context, b *Batch, s Source, procs ...Processor
 	return collectedErrors
 }
 
+// BatchConfig holds the configuration for a single batch execution.
+// It combines a Batch instance, a Source to read from, and a list of Processors
+// to apply to the data from the source. This is used primarily with the
+// ExecuteBatches function to run multiple batch operations concurrently.
+type BatchConfig struct {
+	B *Batch      // The Batch instance to use
+	S Source      // The Source to read items from
+	P []Processor // The processors to apply to the items
+}
+
 // ExecuteBatches runs multiple batches concurrently and waits for all to complete.
 // It returns all errors from all batches as a slice. This is useful when you need
 // to process multiple data sources in parallel.
@@ -87,12 +97,6 @@ func RunBatchAndWait(ctx context.Context, b *Batch, s Source, procs ...Processor
 //		&batch.BatchConfig{B: batch1, S: source1, P: []Processor{proc1}},
 //		&batch.BatchConfig{B: batch2, S: source2, P: []Processor{proc2}},
 //	)
-type BatchConfig struct {
-	B *Batch
-	S Source
-	P []Processor
-}
-
 func ExecuteBatches(ctx context.Context, configs ...*BatchConfig) []error {
 	var (
 		wg      sync.WaitGroup
