@@ -2,7 +2,7 @@ name: Go
 
 on:
   push:
-    branches: [ master, travis-ci ]
+    branches: [ master, travis-test ]
   pull_request:
     branches: [ master ]
 
@@ -27,6 +27,8 @@ jobs:
         go get -t -v ./...
         # Install golangci-lint (modern replacement for gometalinter)
         curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.53.3
+        # Install goveralls for Coveralls integration
+        go install github.com/mattn/goveralls@latest
 
     - name: Test with coverage
       run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
@@ -41,7 +43,6 @@ jobs:
         fail_ci_if_error: false
 
     - name: Upload coverage to Coveralls
-      uses: coverallsapp/github-action@v2
-      with:
-        format: go
-        file: ./coverage.txt 
+      env:
+        COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: goveralls -coverprofile=coverage.txt -service=github 
