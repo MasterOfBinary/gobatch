@@ -93,7 +93,7 @@ func (s *stringSource) Read(ctx context.Context) (<-chan interface{}, <-chan err
 				return
 			case out <- str:
 				// String sent successfully
-				time.Sleep(time.Millisecond * 5) // Simulate some processing time
+				time.Sleep(time.Millisecond * 10) // Simulate some processing time
 			}
 		}
 	}()
@@ -183,9 +183,8 @@ func Example_customSourceAndProcessor() {
 
 	// Create batch processor with custom config
 	config := batch.NewConstantConfig(&batch.ConfigValues{
-		MinItems: 2,                     // Process at least 2 items at once
-		MaxItems: 3,                     // Process at most 3 items at once
-		MinTime:  10 * time.Millisecond, // Wait at least 10ms before processing
+		MinItems: 2, // Process at least 2 items at once
+		MaxItems: 3, // Process at most 3 items at once
 	})
 
 	// Create processor chain

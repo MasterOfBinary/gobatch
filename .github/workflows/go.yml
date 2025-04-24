@@ -1,0 +1,40 @@
+name: Go
+
+on:
+  push:
+    branches: [ master, travis-test ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.18.x', '1.19.x', '1.20.x', '1.21.x']
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: ${{ matrix.go-version }}
+        check-latest: true
+
+    - name: Install dependencies
+      run: |
+        go get -t -v ./...
+        # Install golangci-lint (modern replacement for gometalinter)
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.53.3
+
+    - name: Test with coverage
+      run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+    - name: Run linter
+      run: $(go env GOPATH)/bin/golangci-lint run --timeout=3m
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}

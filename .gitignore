@@ -23,5 +23,9 @@ _testmain.go
 *.test
 *.prof
 
+# Coverage files
+coverage.txt
+coverage.out
+
 # Gogland project files
 .idea
