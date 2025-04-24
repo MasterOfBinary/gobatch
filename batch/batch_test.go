@@ -940,10 +940,10 @@ func TestBatch_ErrorHandling(t *testing.T) {
 		// Pass a mix of nil and valid processors
 		errs := batch.Go(context.Background(), src, nil, validProc, nil)
 
-		// Ensure all errors are collected
-		var errsFound []error
-		for err := range errs {
-			errsFound = append(errsFound, err)
+		// Count errors instead of collecting them
+		errorCount := 0
+		for range errs {
+			errorCount++
 		}
 
 		<-batch.Done()
@@ -951,6 +951,11 @@ func TestBatch_ErrorHandling(t *testing.T) {
 		// Valid processor should still run
 		if atomic.LoadUint32(&count) != 3 {
 			t.Errorf("expected 3 items processed, got %d", count)
+		}
+
+		// The batch should process without errors
+		if errorCount > 0 {
+			t.Errorf("expected no errors with empty processor slice, got %d errors", errorCount)
 		}
 	})
 }
@@ -1044,18 +1049,18 @@ func TestBatch_NoProcessors(t *testing.T) {
 		// Call Go with source but no processors
 		errs := batch.Go(context.Background(), src)
 
-		// Collect any errors
-		var errsFound []error
-		for err := range errs {
-			errsFound = append(errsFound, err)
+		// Count errors instead of collecting them
+		errorCount := 0
+		for range errs {
+			errorCount++
 		}
 
 		// Wait for completion
 		<-batch.Done()
 
-		// The batch should process without errors, just passing through data
-		if len(errsFound) > 0 {
-			t.Errorf("expected no errors with no processors, got: %v", errsFound)
+		// The batch should process without errors
+		if errorCount > 0 {
+			t.Errorf("expected no errors with no processors, got %d errors", errorCount)
 		}
 	})
 
@@ -1072,18 +1077,18 @@ func TestBatch_NoProcessors(t *testing.T) {
 		// Call Go with source and empty processor slice
 		errs := batch.Go(context.Background(), src, emptyProcessors...)
 
-		// Collect any errors
-		var errsFound []error
-		for err := range errs {
-			errsFound = append(errsFound, err)
+		// Use a counter instead of collecting errors
+		errorCount := 0
+		for range errs {
+			errorCount++
 		}
 
 		// Wait for completion
 		<-batch.Done()
 
-		// The batch should process without errors, just passing through data
-		if len(errsFound) > 0 {
-			t.Errorf("expected no errors with empty processor slice, got: %v", errsFound)
+		// The batch should process without errors
+		if errorCount > 0 {
+			t.Errorf("expected no errors with empty processor slice, got %d errors", errorCount)
 		}
 	})
 }
@@ -1098,34 +1103,4 @@ func (p *testProcessor) Process(ctx context.Context, items []*Item) ([]*Item, er
 		return p.processFn(ctx, items)
 	}
 	return items, nil
-}
-
-// A slow, deterministic source for testing
-type testSlowSource struct {
-	items     []interface{}
-	itemDelay time.Duration
-}
-
-func (s *testSlowSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{})
-	errs := make(chan error)
-
-	go func() {
-		defer close(out)
-		defer close(errs)
-
-		for _, item := range s.items {
-			// Add predictable delay before sending each item
-			time.Sleep(s.itemDelay)
-
-			select {
-			case <-ctx.Done():
-				return
-			case out <- item:
-				// Item sent
-			}
-		}
-	}()
-
-	return out, errs
 }
