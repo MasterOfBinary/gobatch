@@ -23,8 +23,8 @@ the master branch. If you need a stable release, wait for version 1.
 ### The Batch Processing Pipeline
 
 1. **Data Reading**:
-    - The `Source` implementation reads data from its origin.
-    - Data items are sent to the `Batch` structure via channels in a `PipelineStage`.
+    - The `Source` implementation reads data from its origin and returns two channels: data and errors.
+    - Data items are sent to the `Batch` structure via these channels.
 
 2. **Batching**:
     - The `Batch` structure queues incoming items.
@@ -32,14 +32,16 @@ the master branch. If you need a stable release, wait for version 1.
 
 3. **Processing**:
     - When a batch is ready, `Batch` sends it to the `Processor` implementation.
-    - The `Processor` performs the user-defined operations on the batch.
+    - The `Processor` performs user-defined operations on the batch and returns processed items.
+    - Individual item errors are tracked within the `Item` struct.
 
 4. **Result Handling**:
     - Processed results and any errors are managed by the `Batch` structure.
+    - Errors can come from the Source, Processor, or individual items.
 
 ### Typical Use Cases
 
-GoBatch be applied to a lot of scenarios where processing items in batches is beneficial. Some potential use-cases
+GoBatch can be applied to a lot of scenarios where processing items in batches is beneficial. Some potential use-cases
 include:
 
 - Database Operations: Optimize database inserts, updates, or reads by batching operations.
@@ -60,16 +62,15 @@ To download, run
 
 ## Requirements
 
-- Go 1.7 or later
+- Go 1.18 or later
 
 ## Key Components
 
 - `Batch`: The main struct that manages the batch processing.
-- `Source`: An interface for providing data to be processed.
-- `Processor`: An interface for processing batches of data.
+- `Source`: An interface for providing data to be processed by implementing `Read(ctx) (<-chan interface{}, <-chan error)`.
+- `Processor`: An interface for processing batches of data by implementing `Process(ctx, []*Item) ([]*Item, error)`.
 - `Config`: An interface for providing configuration values.
-- `Item`: A struct representing a single item in the processing pipeline. Each `Item` has a unique ID for traceability.
-- `PipelineStage`: A struct containing input and output channels for a single stage of the batch pipeline.
+- `Item`: A struct representing a single item in the processing pipeline. Each `Item` has a unique ID for traceability and an `Error` field for tracking item-specific errors.
 
 ## Basic Usage
 
@@ -80,6 +81,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -91,13 +93,15 @@ import (
 // MyProcessor is a Processor that prints items in batches.
 type MyProcessor struct{}
 
-// Process prints a batch of items.
-func (p *MyProcessor) Process(_ context.Context, ps *batch.PipelineStage) {
-	defer ps.Close()
-
-	for range ps.Input {
-		// Process the data here...
+// Process prints a batch of items and returns them.
+func (p *MyProcessor) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, error) {
+	for _, item := range items {
+		fmt.Printf("Processing item %d: %v\n", item.ID, item.Data)
+		
+		// Optionally set an error on the item
+		// item.Error = fmt.Errorf("processing error")
 	}
+	return items, nil
 }
 
 func main() {
@@ -122,11 +126,15 @@ func main() {
 	// Handle errors
 	go func() {
 		for err := range errs {
-			if srcErr, ok := err.(*batch.SourceError); ok {
-				log.Printf("Source error: %v", srcErr.Original())
-			} else if procErr, ok := err.(*batch.ProcessorError); ok {
-				log.Printf("Processor error: %v", procErr.Original())
-			} else {
+			var srcErr *batch.SourceError
+			var procErr *batch.ProcessorError
+			
+			switch {
+			case errors.As(err, &srcErr):
+				log.Printf("Source error: %v", srcErr.Err)
+			case errors.As(err, &procErr):
+				log.Printf("Processor error: %v", procErr.Err)
+			default:
 				log.Printf("Error: %v", err)
 			}
 		}
@@ -177,14 +185,64 @@ batchProcessor := batch.New(config)
 
 ## Error Handling
 
-Errors from both the `Source` and `Processor` are returned on the error channel provided by the `Go` method. These
-errors are wrapped in `SourceError` and `ProcessorError` types respectively. You can use type assertions to determine
-the origin of the error.
+Errors can come from three sources:
 
-## Utility Functions
+1. **Source errors**: Returned on the error channel from `Source.Read()`.
+2. **Processor errors**: Returned from `Processor.Process()`.
+3. **Item-specific errors**: Set on individual items via the `Item.Error` field.
 
-- `NextItem`: Helper function for implementing `Source.Read`.
-- `IgnoreErrors`: Utility for discarding errors if they're not needed.
+All errors are reported through the error channel returned by the `Go` method. These errors are wrapped in `SourceError` and `ProcessorError` types respectively.
+
+Since GoBatch now requires Go 1.18+, it's recommended to use `errors.As` for error type checking:
+
+```go
+// Don't forget to import the "errors" package
+import (
+	"errors"
+	"github.com/MasterOfBinary/gobatch/batch"
+)
+
+// Handle errors
+go func() {
+	for err := range errs {
+		var srcErr *batch.SourceError
+		var procErr *batch.ProcessorError
+		
+		switch {
+		case errors.As(err, &srcErr):
+			log.Printf("Source error: %v", srcErr.Err)
+		case errors.As(err, &procErr):
+			log.Printf("Processor error: %v", procErr.Err)
+		default:
+			log.Printf("Error: %v", err)
+		}
+	}
+}()
+```
+
+Here's an example of waiting for both completion and draining all errors:
+
+```go
+// Helper function to wait for both completion and error handling
+func waitAll(batch *batch.Batch, errs <-chan error) []error {
+	var collected []error
+	
+	// Create a goroutine to collect errors
+	errDone := make(chan struct{})
+	go func() {
+		defer close(errDone)
+		for err := range errs {
+			collected = append(collected, err)
+		}
+	}()
+	
+	// Wait for both completion signals
+	<-batch.Done()
+	<-errDone
+	
+	return collected
+}
+```
 
 ## Documentation
 

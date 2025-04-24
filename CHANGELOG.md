@@ -6,7 +6,35 @@ Note: This project is in early development. The API may change without warning i
 
 All notable changes to this project will be documented in this file.
 
-## v0.2.0
+## [Unreleased]
+
+### Added
+- New `Filter` processor for filtering items based on a predicate function
+  - Configurable with `Predicate` function to determine which items to keep
+  - `InvertMatch` option to invert filter logic (remove matching items instead of keeping them)
+- New `Transform` processor for transforming item data
+  - Applies a transformation function to each item's `Data` field
+  - `ContinueOnError` option to control behavior when transformations fail
+  - Skips items that already have errors set
+- Improved source implementations with better error handling and context cancellation support
+  - `Channel` source now supports `BufferSize` configuration
+  - `Error` source now supports `BufferSize` and filters out nil errors
+  - `Nil` source now properly handles zero/negative durations and uses timers correctly
+- Added comprehensive test coverage for all source and processor implementations
+
+### Changed
+- Enhanced documentation across all interfaces and implementations
+- All processor implementations updated to follow the error pattern consistently
+- Source implementations now gracefully handle nil input channels
+- Better context cancellation handling in all source and processor implementations
+
+### Fixed
+- Fixed linter errors and improved code quality throughout
+- Fixed potential deadlocks in source implementations
+- Fixed the processor.go file which had invalid syntax
+- All sources now properly respect context cancellation
+
+## [0.2.0] - 2025-04-24
 
 ### Added
 - `Processor` interface now takes and returns `[]*Item`, enabling true batch-level processing and per-item error tracking.

@@ -32,11 +32,31 @@ type Item struct {
 }
 
 // Source provides raw data items to the batch pipeline.
+// Each Source implementation must handle:
+//  1. Setting up channels for data and errors (both must be non-nil)
+//  2. Launching a goroutine that processes incoming data
+//  3. Properly closing both channels when done
+//  4. Respecting context cancellation
+//
+// A Source should never block indefinitely and must always close its
+// output and error channels when it completes or the context is cancelled.
 type Source interface {
 	Read(ctx context.Context) (out <-chan interface{}, errs <-chan error)
 }
 
 // Processor processes batches of items and returns the modified batch or an error.
+// Each Processor implementation must handle:
+//  1. Processing batched items synchronously
+//  2. Setting item.Error on individual items that fail processing
+//  3. Returning the processed items (possibly a subset or superset of input items)
+//  4. Respecting context cancellation
+//
+// A Processor should never modify the ID field of an item, but is permitted to
+// modify the Data field. If processing of a specific item fails, the Error
+// field should be set instead of returning a processor-level error.
+//
+// When returning an error from Process(), it should only be used for processor-wide
+// failures that aren't specific to individual items.
 type Processor interface {
 	Process(ctx context.Context, items []*Item) ([]*Item, error)
 }
