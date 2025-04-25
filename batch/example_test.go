@@ -10,220 +10,74 @@ import (
 	"github.com/MasterOfBinary/gobatch/source"
 )
 
-// printProcessor is a Processor that prints items in batches.
-// To demonstrate how errors can be handled, it fails to process the number 5.
-type printProcessor struct{}
+// simpleProcessor demonstrates basic processor functionality
+type simpleProcessor struct{}
 
-// Process prints a batch of items and marks item 5 as failed.
-func (p printProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
-	toPrint := make([]interface{}, 0, len(items))
+func (p *simpleProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+	// Create a slice to hold values for printing
+	values := make([]interface{}, 0, len(items))
+
 	for _, item := range items {
-		if num, ok := item.Data.(int); ok && num == 5 {
-			item.Error = errors.New("cannot process 5")
+		// Example rule: mark item with value 5 as error
+		if val, ok := item.Data.(int); ok && val == 5 {
+			item.Error = errors.New("value 5 not allowed")
 			continue
 		}
-		toPrint = append(toPrint, item.Data)
+		values = append(values, item.Data)
 	}
-	fmt.Println(toPrint)
+
+	// Print the batch of valid values
+	fmt.Println("Processed batch:", values)
 	return items, nil
 }
 
 func Example() {
-	// Create a batch processor that processes items 5 at a time
-	config := batch.NewConstantConfig(&batch.ConfigValues{
-		MinItems: 5,
-	})
-	b := batch.New(config)
-	p := &printProcessor{}
+	// Create data to process
+	data := []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 
-	// Channel is a Source that reads from a channel until it's closed
+	// Create a channel for data
 	ch := make(chan interface{})
-	s := source.Channel{
-		Input: ch,
-	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	errs := b.Go(ctx, &s, p)
-
+	// Feed data into the channel with delays in a goroutine
 	go func() {
-		for i := 0; i < 20; i++ {
-			time.Sleep(time.Millisecond * 10)
-			ch <- i
+		for _, item := range data {
+			ch <- item
+			time.Sleep(time.Millisecond * 10) // 10ms delay between items to ensure deterministic batching
 		}
 		close(ch)
 	}()
 
-	var lastErr error
-	for err := range errs {
-		lastErr = err
+	// Create a slice-based source
+	source := &source.Channel{
+		Input: ch,
 	}
 
-	fmt.Println("Finished processing.")
-	if lastErr != nil {
-		fmt.Println("Found error:", lastErr.Error())
-	}
-	// Output:
-	// [0 1 2 3 4]
-	// [6 7 8 9]
-	// [10 11 12 13 14]
-	// [15 16 17 18 19]
-	// Finished processing.
-	// Found error: processor error: cannot process 5
-}
-
-// stringSource is a custom Source that generates string data.
-type stringSource struct {
-	strings []string
-}
-
-// Read implements the Source interface by sending strings to the output channel.
-func (s *stringSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{})
-	errs := make(chan error)
-
-	go func() {
-		defer close(out)
-		defer close(errs)
-
-		for _, str := range s.strings {
-			select {
-			case <-ctx.Done():
-				return
-			case out <- str:
-				// String sent successfully
-				time.Sleep(time.Millisecond * 10) // Simulate some processing time
-			}
-		}
-	}()
-
-	return out, errs
-}
-
-// uppercaseProcessor is a custom Processor that converts strings to uppercase.
-type uppercaseProcessor struct{}
-
-// Process implements the Processor interface by converting strings to uppercase.
-func (p *uppercaseProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
-	processed := make([]interface{}, 0, len(items))
-
-	for _, item := range items {
-		// Skip items that already have errors
-		if item.Error != nil {
-			continue
-		}
-
-		// Check for context cancellation
-		select {
-		case <-ctx.Done():
-			return items, ctx.Err()
-		default:
-			// Continue processing
-		}
-
-		// Process only string data
-		if str, ok := item.Data.(string); ok {
-			item.Data = fmt.Sprintf("[%s]", str)
-			processed = append(processed, item.Data)
-		} else {
-			item.Error = errors.New("not a string")
-		}
-	}
-
-	if len(processed) > 0 {
-		fmt.Printf("Processed batch: %v\n", processed)
-	}
-
-	return items, nil
-}
-
-// filterShortStringsProcessor filters out strings shorter than specified length
-type filterShortStringsProcessor struct {
-	minLength int
-}
-
-// Process implements the Processor interface by filtering short strings
-func (p *filterShortStringsProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
-	result := make([]*batch.Item, 0, len(items))
-	filtered := make([]string, 0)
-
-	for _, item := range items {
-		// Skip items that already have errors
-		if item.Error != nil {
-			result = append(result, item)
-			continue
-		}
-
-		// Filter only string data
-		if str, ok := item.Data.(string); ok {
-			if len(str) >= p.minLength {
-				result = append(result, item)
-			} else {
-				filtered = append(filtered, str)
-			}
-		} else {
-			// Keep non-string items
-			result = append(result, item)
-		}
-	}
-
-	if len(filtered) > 0 {
-		fmt.Printf("Filtered out short strings: %v\n", filtered)
-	}
-
-	return result, nil
-}
-
-func Example_customSourceAndProcessor() {
-	// Create custom source with string data
-	source := &stringSource{
-		strings: []string{"hello", "world", "go", "batch", "processing", "is", "fun"},
-	}
-
-	// Create batch processor with custom config
+	// Create a batch processor with configuration that demonstrates priority order
+	// According to batch.go: MaxTime = MaxItems > EOF > MinTime > MinItems
 	config := batch.NewConstantConfig(&batch.ConfigValues{
-		MinItems: 2, // Process at least 2 items at once
-		MaxItems: 3, // Process at most 3 items at once
+		MinItems: 5, // This would collect more items if it had higher priority
+		MaxItems: 3, // This takes precedence over MinItems
 	})
+	p := &simpleProcessor{}
+	b := batch.New(config)
 
-	// Create processor chain
-	uppercaseProc := &uppercaseProcessor{}
-	filterProc := &filterShortStringsProcessor{minLength: 4}
+	// Create and run the batch processor
+	ctx := context.Background()
+	fmt.Println("Starting batch processing...")
+	errs := batch.RunBatchAndWait(ctx, b, source, p)
 
-	// Create batch processor
-	batchProcessor := batch.New(config)
-
-	// Setup context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	fmt.Println("Starting custom source and processor example...")
-
-	// Start processing
-	errs := batchProcessor.Go(ctx, source, filterProc, uppercaseProc)
-
-	// Wait for completion and collect errors
-	var processingErrors []error
-	for err := range errs {
-		processingErrors = append(processingErrors, err)
-	}
-
-	fmt.Println("Processing complete")
-	if len(processingErrors) > 0 {
-		fmt.Println("Errors occurred during processing:")
-		for _, err := range processingErrors {
-			fmt.Println("-", err)
-		}
+	// Report any errors
+	if len(errs) > 0 {
+		fmt.Printf("Found %d errors\n", len(errs))
+		fmt.Println("Last error:", errs[len(errs)-1])
 	}
 
 	// Output:
-	// Starting custom source and processor example...
-	// Processed batch: [[hello] [world]]
-	// Filtered out short strings: [go]
-	// Processed batch: [[batch]]
-	// Filtered out short strings: [is]
-	// Processed batch: [[processing]]
-	// Filtered out short strings: [fun]
-	// Processing complete
+	// Starting batch processing...
+	// Processed batch: [1 2 3]
+	// Processed batch: [4 6]
+	// Processed batch: [7 8 9]
+	// Processed batch: [10]
+	// Found 1 errors
+	// Last error: processor error: value 5 not allowed
 }

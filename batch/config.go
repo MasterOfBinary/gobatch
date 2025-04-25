@@ -1,7 +1,10 @@
 // Package batch provides a flexible batch processing pipeline for handling data.
 package batch
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // Config retrieves the config values used by Batch. If these values are
 // constant, NewConstantConfig can be used to create an implementation
@@ -93,4 +96,83 @@ type ConstantConfig struct {
 // Returns the constant configuration values stored in this ConstantConfig.
 func (b *ConstantConfig) Get() ConfigValues {
 	return b.values
+}
+
+// NewDynamicConfig creates a configuration that can be adjusted at runtime.
+// It is thread-safe and suitable for use in environments where batch processing
+// parameters need to change dynamically in response to system conditions.
+//
+// If values is nil, the default values are used as described in Batch.
+//
+// This is useful for:
+// - Systems that need to adapt to changing workloads
+// - Services that implement backpressure mechanisms
+// - Applications that tune batch parameters based on performance metrics
+func NewDynamicConfig(values *ConfigValues) *DynamicConfig {
+	if values == nil {
+		return &DynamicConfig{}
+	}
+
+	return &DynamicConfig{
+		minItems: values.MinItems,
+		maxItems: values.MaxItems,
+		minTime:  values.MinTime,
+		maxTime:  values.MaxTime,
+	}
+}
+
+// DynamicConfig implements the Config interface with values that can be
+// modified at runtime. It provides thread-safe access to configuration values
+// and methods to update batch size and timing parameters.
+//
+// Unlike ConstantConfig, DynamicConfig allows changing batch parameters while
+// the system is running, enabling dynamic adaptation to varying conditions.
+type DynamicConfig struct {
+	mu       sync.RWMutex
+	minItems uint64
+	maxItems uint64
+	minTime  time.Duration
+	maxTime  time.Duration
+}
+
+// Get implements the Config interface by returning the current configuration values.
+// It uses a read lock to ensure thread safety when accessing the values.
+func (c *DynamicConfig) Get() ConfigValues {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return ConfigValues{
+		MinItems: c.minItems,
+		MaxItems: c.maxItems,
+		MinTime:  c.minTime,
+		MaxTime:  c.maxTime,
+	}
+}
+
+// UpdateBatchSize updates the batch size parameters.
+// This method is thread-safe and can be called while batch processing is active.
+func (c *DynamicConfig) UpdateBatchSize(minItems, maxItems uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.minItems = minItems
+	c.maxItems = maxItems
+}
+
+// UpdateTiming updates the timing parameters.
+// This method is thread-safe and can be called while batch processing is active.
+func (c *DynamicConfig) UpdateTiming(minTime, maxTime time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.minTime = minTime
+	c.maxTime = maxTime
+}
+
+// Update replaces all configuration values at once.
+// This method is thread-safe and can be called while batch processing is active.
+func (c *DynamicConfig) Update(config ConfigValues) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.minItems = config.MinItems
+	c.maxItems = config.MaxItems
+	c.minTime = config.MinTime
+	c.maxTime = config.MaxTime
 }
