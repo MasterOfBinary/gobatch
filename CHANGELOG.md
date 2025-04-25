@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Note: This project is in early development. The API may change without warning in any 0.x version.
 
+## [Unreleased]
+
+This release introduces the new `pipeline` package, providing higher-level abstractions for common batch processing patterns. The first implementation is a Redis batch executor that efficiently processes Redis commands in batches.
+
+### Added
+
+- New `pipeline` package with the following components:
+  - `RedisExecutor`: A pluggable processor for executing batched Redis operations using pipelining
+  - `RedisWork`: A struct for representing individual Redis operations (GET, SET, DEL, EXISTS)
+  - Comprehensive testing and example code showing batched Redis operations
+- Flexible design allowing the Redis executor to be used with any go-batch.Batch instance
+- Example code demonstrating how to use the Redis pipeline with both synchronous and asynchronous patterns
+- Unit tests with mock implementation for reliable testing
+- Proper error handling and reporting for Redis operations
+- Support for common Redis operations: GET, SET, DEL, EXISTS
+
+### Changed
+
+- Improved example code to handle errors from Stop() calls
+- Enhanced test reliability by removing timing dependencies
+- Better documentation and examples for pipeline components
+
 ## [0.2.1] - 2025-05-15
 
 This release focuses on robustness, developer experience, and error handling. It introduces new helper functions, improves error handling throughout the codebase, and simplifies the API by moving some functionality to helper functions.

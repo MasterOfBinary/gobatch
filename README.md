@@ -14,10 +14,18 @@ and processing logic.
 **NOTE:** GoBatch is considered a version 0 release and is in an unstable state. Compatibility may be broken at any time on
 the master branch. If you need a stable release, wait for version 1.
 
-### Latest Release - v0.2.1
+### Latest Release and Development
 
-Version 0.2.1 fixes several important bugs and improves usability:
+**Current Stable Release: v0.2.1** - This release focused on robustness, developer experience, and error handling. See details below.
 
+**Unreleased Features** - The next version will introduce the new `pipeline` package with the first implementation focused on Redis batching:
+
+- New `RedisExecutor` for batching Redis operations (GET, SET, DEL, EXISTS) using pipelining
+- Flexible design that lets you integrate Redis operations with any go-batch.Batch configuration
+- Improved example code with better error handling
+- Enhanced test reliability by removing timing dependencies
+
+**v0.2.1 Release Highlights:**
 - We fixed a critical bug where items less than MinItems would not be processed when the source was exhausted.
 - We added new helper functions for common batch processing operations.
 - We improved documentation throughout the codebase following Go standards.
@@ -145,6 +153,65 @@ errs := batch.ExecuteBatches(ctx,
     &batch.BatchConfig{B: batch1, S: source1, P: []batch.Processor{proc1}},
     &batch.BatchConfig{B: batch2, S: source2, P: []batch.Processor{proc2}},
 )
+```
+
+### Pipeline Components
+
+The new `pipeline` package provides high-level abstractions for common batch processing patterns:
+
+1. `RedisExecutor`: A processor implementation for batching Redis operations efficiently
+   - Executes multiple Redis commands in a single pipeline for better performance
+   - Supports common operations: GET, SET, DEL, EXISTS
+   - Maps results back to the correct batch items
+   - Handles errors at both batch and individual item levels
+   - Works with any go-batch.Batch instance
+
+2. `RedisWork`: A struct for representing Redis operations to be batched
+   - Defines the operation type, key, and optional value
+   - Used by the RedisExecutor to process commands efficiently
+
+Example usage:
+
+```go
+// Create a Redis client
+redisClient := redis.NewClient(&redis.Options{
+    Addr: "localhost:6379",
+})
+
+// Create the Redis executor
+redisExecutor := pipeline.NewRedisExecutor(redisClient)
+
+// Create your batch processor with desired configuration
+batchProcessor := batch.New(batch.NewConstantConfig(&batch.ConfigValues{
+    MinItems: 5,
+    MaxItems: 20,
+    MinTime:  10 * time.Millisecond,
+    MaxTime:  100 * time.Millisecond,
+}))
+
+// Create a source that yields RedisWork items
+// e.g., a channel source with your RedisWork objects
+workCh := make(chan interface{})
+source := &source.Channel{Input: workCh}
+
+// Start the batch processor with the Redis executor
+errs := batchProcessor.Go(ctx, source, redisExecutor.Process)
+
+// Send Redis work to your source
+go func() {
+    // Creating various Redis operations
+    work := &pipeline.RedisWork{Op: pipeline.Get, Key: "user:123"}
+    workCh <- work
+    
+    work = &pipeline.RedisWork{Op: pipeline.Set, Key: "user:456", Value: "Jane Doe"}
+    workCh <- work
+    
+    // Close when done
+    close(workCh)
+}()
+
+// Handle errors and wait for completion
+// ...
 ```
 
 ## Basic Usage
