@@ -37,7 +37,12 @@ func Example_redisPipeline() {
 		fmt.Printf("Failed to start pipeline: %v\n", err)
 		return
 	}
-	defer pipeline.Stop()
+	// Check error on stop
+	defer func() {
+		if err := pipeline.Stop(); err != nil {
+			fmt.Printf("Failed to stop pipeline: %v\n", err)
+		}
+	}()
 
 	// Demonstrate a simple GET operation
 	val, err := pipeline.Get(ctx, "user:123")
@@ -160,7 +165,12 @@ func Example_batchingBehavior() {
 		fmt.Printf("Failed to start pipeline: %v\n", err)
 		return
 	}
-	defer pipeline.Stop()
+	// Check error on stop
+	defer func() {
+		if err := pipeline.Stop(); err != nil {
+			fmt.Printf("Failed to stop pipeline: %v\n", err)
+		}
+	}()
 
 	// Submit many operations rapidly - these should be batched
 	var wg sync.WaitGroup
