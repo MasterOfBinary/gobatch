@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Note: This project is in early development. The API may change without warning in any 0.x version.
 
-## [0.2.1] - 2025-05-15
+## [0.2.1] - 2025-04-25
 
 This release focuses on robustness, developer experience, and error handling. It introduces new helper functions, improves error handling throughout the codebase, and simplifies the API by moving some functionality to helper functions.
 
