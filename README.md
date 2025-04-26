@@ -100,10 +100,10 @@ go get github.com/MasterOfBinary/gobatch
 
 ### Helper Functions
 
-- `IgnoreErrors`
-- `CollectErrors`
-- `RunBatchAndWait`
-- `ExecuteBatches`
+- `IgnoreErrors`: Drains the error channel automatically in a background goroutine, allowing you to ignore errors and just wait for processing to complete using `Done()`.
+- `CollectErrors`: Drains the error channel into a slice of errors. Useful if you want to collect and process all errors after the batch run finishes.
+- `RunBatchAndWait`: A convenience function that starts batch processing, waits for completion, and returns a slice of all collected errors. Ideal for simple workflows where you just want to run and handle all errors at the end.
+- `ExecuteBatches`: Runs multiple batches concurrently (each with its own Source and Processor pipeline), waits for all of them to finish, and collects all errors into a single slice.
 
 ```go
 // Example using RunBatchAndWait
@@ -123,79 +123,76 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/MasterOfBinary/gobatch/batch"
+	"github.com/MasterOfBinary/gobatch/processor"
 	"github.com/MasterOfBinary/gobatch/source"
 )
 
-type MyProcessor struct{}
-
-func (p *MyProcessor) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, error) {
-	for _, item := range items {
-		fmt.Printf("Processing item %d: %v\n", item.ID, item.Data)
-	}
-	return items, nil
-}
-
-type AnotherProcessor struct{}
-
-func (p *AnotherProcessor) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, error) {
-	for _, item := range items {
-		if val, ok := item.Data.(int); ok {
-			item.Data = val * 2
-		}
-	}
-	return items, nil
-}
-
 func main() {
-	config := batch.NewConstantConfig(&batch.ConfigValues{
-		MinItems: 50,
-		MaxItems: 200,
-		MinTime:  100 * time.Millisecond,
-		MaxTime:  500 * time.Millisecond,
-	})
+	// Create a batch processor with simple config
+	b := batch.New(batch.NewConstantConfig(&batch.ConfigValues{
+		MinItems: 2,
+		MaxItems: 5,
+		MinTime:  10 * time.Millisecond,
+		MaxTime:  100 * time.Millisecond,
+	}))
 
-	batchProcessor := batch.New(config)
-
+	// Create an input channel
 	ch := make(chan interface{})
-	s := &source.Channel{Input: ch}
 
-	processor1 := &MyProcessor{}
-	processor2 := &AnotherProcessor{}
+	// Wrap it with a source.Channel
+	src := &source.Channel{Input: ch}
+
+	// First processor: double each number
+	doubleProc := &processor.Transform{
+		Func: func(data interface{}) (interface{}, error) {
+			if v, ok := data.(int); ok {
+				return v * 2, nil
+			}
+			return data, nil
+		},
+	}
+
+	// Second processor: print each processed number
+	printProc := &processor.Transform{
+		Func: func(data interface{}) (interface{}, error) {
+			fmt.Println(data)
+			return data, nil
+		},
+	}
 
 	ctx := context.Background()
-	errs := batchProcessor.Go(ctx, s, processor1, processor2)
 
-	go func() {
-		for err := range errs {
-			var srcErr *batch.SourceError
-			var procErr *batch.ProcessorError
-			switch {
-			case errors.As(err, &srcErr):
-				log.Printf("Source error: %v", srcErr.Err)
-			case errors.As(err, &procErr):
-				log.Printf("Processor error: %v", procErr.Err)
-			default:
-				log.Printf("Error: %v", err)
-			}
-		}
-	}()
+	// Start batch processing with processors chained
+	errs := b.Go(ctx, src, doubleProc, printProc)
 
+	// Ignore errors for this simple example
+	batch.IgnoreErrors(errs)
+
+	// Send some items to the input channel
 	go func() {
-		for i := 0; i < 1000; i++ {
+		for i := 1; i <= 5; i++ {
 			ch <- i
 		}
 		close(ch)
 	}()
 
-	<-batchProcessor.Done()
-	fmt.Println("Batch processing completed")
+	// Wait for processing to complete
+	<-b.Done()
 }
+```
+
+**Expected output:**
+
+```
+2
+4
+6
+8
+10
 ```
 
 ## Configuration

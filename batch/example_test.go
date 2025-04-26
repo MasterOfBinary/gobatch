@@ -2,82 +2,70 @@ package batch_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/MasterOfBinary/gobatch/batch"
+	"github.com/MasterOfBinary/gobatch/processor"
 	"github.com/MasterOfBinary/gobatch/source"
 )
 
-// simpleProcessor demonstrates basic processor functionality
-type simpleProcessor struct{}
-
-func (p *simpleProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
-	// Create a slice to hold values for printing
-	values := make([]interface{}, 0, len(items))
-
-	for _, item := range items {
-		// Example rule: mark item with value 5 as error
-		if val, ok := item.Data.(int); ok && val == 5 {
-			item.Error = errors.New("value 5 not allowed")
-			continue
-		}
-		values = append(values, item.Data)
-	}
-
-	// Print the batch of valid values
-	fmt.Println("Processed batch:", values)
-	return items, nil
-}
-
 func Example() {
-	// Create data to process
-	data := []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	// Create a batch processor with simple config
+	b := batch.New(batch.NewConstantConfig(&batch.ConfigValues{
+		MinItems: 2,
+		MaxItems: 5,
+		MinTime:  10 * time.Millisecond,
+		MaxTime:  100 * time.Millisecond,
+	}))
 
-	// Create a channel for data
+	// Create an input channel
 	ch := make(chan interface{})
 
-	// Feed data into the channel with delays in a goroutine
+	// Wrap it with source.Channel
+	src := &source.Channel{Input: ch}
+
+	// First processor: double the value
+	doubleProc := &processor.Transform{
+		Func: func(data interface{}) (interface{}, error) {
+			if v, ok := data.(int); ok {
+				return v * 2, nil
+			}
+			return data, nil
+		},
+	}
+
+	// Second processor: print the result
+	printProc := &processor.Transform{
+		Func: func(data interface{}) (interface{}, error) {
+			fmt.Println(data)
+			return data, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	// Start processing with both processors chained
+	errs := b.Go(ctx, src, doubleProc, printProc)
+
+	// Ignore errors
+	batch.IgnoreErrors(errs)
+
+	// Send some items
 	go func() {
-		for _, item := range data {
-			ch <- item
-			time.Sleep(time.Millisecond * 10) // 10ms delay between items to ensure deterministic batching
+		for i := 1; i <= 5; i++ {
+			ch <- i
 		}
 		close(ch)
 	}()
 
-	// Create a slice-based source
-	source := &source.Channel{
-		Input: ch,
-	}
-
-	// Create a batch processor with configuration that demonstrates priority order
-	// According to batch.go: MaxTime = MaxItems > EOF > MinTime > MinItems
-	config := batch.NewConstantConfig(&batch.ConfigValues{
-		MinItems: 5, // This would collect more items if it had higher priority
-		MaxItems: 3, // This takes precedence over MinItems
-	})
-	p := &simpleProcessor{}
-	b := batch.New(config)
-
-	// Create and run the batch processor
-	ctx := context.Background()
-	fmt.Println("Starting batch processing...")
-	errs := batch.RunBatchAndWait(ctx, b, source, p)
-
-	// Report any errors
-	if len(errs) > 0 {
-		fmt.Printf("Found %d errors\n", len(errs))
-		fmt.Println("Last error:", errs[len(errs)-1])
-	}
+	// Wait for completion
+	<-b.Done()
 
 	// Output:
-	// Starting batch processing...
-	// Processed batch: [1 2 3]
-	// Processed batch: [4 6]
-	// Processed batch: [7 8 9]
-	// Processed batch: [10]
-	// Found 1 errors
-	// Last error: processor error: value 5 not allowed
+	// 2
+	// 4
+	// 6
+	// 8
+	// 10
 }
