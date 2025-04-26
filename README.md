@@ -100,21 +100,10 @@ go get github.com/MasterOfBinary/gobatch
 
 ### Helper Functions
 
-- `IgnoreErrors`: Drains the error channel automatically in a background goroutine, allowing you to ignore errors and just wait for processing to complete using `Done()`.
-- `CollectErrors`: Drains the error channel into a slice of errors. Useful if you want to collect and process all errors after the batch run finishes.
-- `RunBatchAndWait`: A convenience function that starts batch processing, waits for completion, and returns a slice of all collected errors. Ideal for simple workflows where you just want to run and handle all errors at the end.
-- `ExecuteBatches`: Runs multiple batches concurrently (each with its own Source and Processor pipeline), waits for all of them to finish, and collects all errors into a single slice.
-
-```go
-// Example using RunBatchAndWait
-errs := batch.RunBatchAndWait(ctx, batchProcessor, source, processor1, processor2)
-
-// Example using ExecuteBatches
-errs := batch.ExecuteBatches(ctx,
-    &batch.BatchConfig{B: batch1, S: source1, P: []batch.Processor{proc1}},
-    &batch.BatchConfig{B: batch2, S: source2, P: []batch.Processor{proc2}},
-)
-```
+- `IgnoreErrors`: Drains the error channel in the background, allowing you to call `Done()` without handling errors immediately.
+- `CollectErrors`: Collects all errors into a slice after batch processing finishes.
+- `RunBatchAndWait`: Starts a batch, waits for completion, and returns all collected errors.
+- `ExecuteBatches`: Runs multiple batches concurrently and collects all errors into a single slice.
 
 ## Basic Usage
 
@@ -197,8 +186,11 @@ func main() {
 
 ## Configuration
 
-The `Config` interface allows for flexible configuration of the batch processing behavior. You can use the provided
-`ConstantConfig` for static configuration, or implement your own `Config` for dynamic behaviour.
+GoBatch supports flexible configuration through the `Config` interface, which defines how batches are formed based on size and timing rules.
+
+You can choose between:
+- **`ConstantConfig`** for static, unchanging settings.
+- **`DynamicConfig`** for runtime-adjustable settings that can be updated while processing.
 
 Configuration options include:
 
@@ -211,70 +203,18 @@ The configuration is automatically adjusted to keep it consistent:
 
 - If `MinItems` > `MaxItems`, `MaxItems` will be set to `MinItems`.
 - If `MinTime` > `MaxTime`, `MaxTime` will be set to `MinTime`.
+### Example: Constant Configuration
 
 ```go
 config := batch.NewConstantConfig(&batch.ConfigValues{
-    MinItems:    10,
-    MaxItems:    100,
-    MinTime:     50 * time.Millisecond,
-    MaxTime:     500 * time.Millisecond,
+    MinItems: 10,
+    MaxItems: 100,
+    MinTime:  50 * time.Millisecond,
+    MaxTime:  500 * time.Millisecond,
 })
 
 batchProcessor := batch.New(config)
 ```
-
-**Important Note (v0.2.1+):**  
-When a Source is exhausted, all remaining items will be processed even if there are fewer than MinItems.  
-This ensures no data is lost when the input stream ends.
-
----
-
-## 🔄 Dynamic Configuration (v0.2.1+)
-
-GoBatch supports **dynamic reconfiguration at runtime**.
-
-Before each batch starts, the latest configuration values are retrieved by calling the `Get()` method on the `Config` interface.  
-This allows you to **adapt batching behavior during processing** — without restarting the batch runner.
-
-Possible use cases:
-- Increase batch sizes during high-load periods
-- Decrease batch sizes when latency is critical
-- Dynamically adjust timing windows based on system health
-
-To implement a dynamic configuration:
-
-```go
-type DynamicConfig struct {
-    mu     sync.RWMutex
-    values batch.ConfigValues
-}
-
-func (d *DynamicConfig) Get() batch.ConfigValues {
-    d.mu.RLock()
-    defer d.mu.RUnlock()
-    return d.values
-}
-
-func (d *DynamicConfig) Update(newValues batch.ConfigValues) {
-    d.mu.Lock()
-    defer d.mu.Unlock()
-    d.values = newValues
-}
-```
-
-Then you can update configuration during runtime:
-
-```go
-dynConfig := &DynamicConfig{values: batch.ConfigValues{MinItems: 10, MaxItems: 100}}
-batchProcessor := batch.New(dynConfig)
-
-// Later during runtime...
-dynConfig.Update(batch.ConfigValues{MinItems: 50, MaxItems: 500})
-```
-
-GoBatch will pick up the new settings for the next batch automatically.
-
----
 
 ## Error Handling
 
@@ -300,9 +240,9 @@ go func() {
 		var procErr *batch.ProcessorError
 		switch {
 		case errors.As(err, &srcErr):
-			log.Printf("Source error: %v", srcErr.Err)
+			log.Printf("Source error: %v", srcErr.Unwrap())
 		case errors.As(err, &procErr):
-			log.Printf("Processor error: %v", procErr.Err)
+			log.Printf("Processor error: %v", procErr.Unwrap())
 		default:
 			log.Printf("Error: %v", err)
 		}
@@ -324,8 +264,6 @@ for _, err := range errs {
     // Handle error
 }
 ```
-
----
 
 ## Documentation
 
