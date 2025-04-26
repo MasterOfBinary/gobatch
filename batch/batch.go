@@ -122,8 +122,8 @@ type Source interface {
 	// Example:
 	//
 	//	func (s *MySource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	//		out = make(chan interface{})
-	//		errs = make(chan error)
+	//		out := make(chan interface{})
+	//		errs := make(chan error)
 	//
 	//		go func() {
 	//			defer close(out)
@@ -140,14 +140,14 @@ type Source interface {
 	//			}
 	//		}()
 	//
-	//		return
+	//		return out, errs
 	//	}
 	Read(ctx context.Context) (<-chan interface{}, <-chan error)
 }
 
-// Processor processes items in batches.
-// Implementations apply operations to each batch and may modify items or set per-item errors.
-// Processors can be chained together to form multi-stage pipelines.
+// Processor processes items in batches. Implementations apply operations to each batch
+// and may modify items or set per-item errors. Processors can be chained together to
+// form multi-stage pipelines.
 type Processor interface {
 	// Process applies operations to a batch of items.
 	// It may modify item data or set item.Error on individual items.
@@ -177,6 +177,7 @@ type Processor interface {
 	//
 	//			item.Data = result
 	//		}
+	//
 	//		return items, nil
 	//	}
 	Process(ctx context.Context, items []*Item) ([]*Item, error)
@@ -213,7 +214,6 @@ type Processor interface {
 //   - The Source must close its channels when reading is complete.
 //   - Processors must check for context cancellation and stop early if needed.
 //   - All items that have already been read will be processed even if the context is canceled.
-
 func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -447,7 +447,9 @@ func (b *Batch) waitForItems(_ context.Context, config ConfigValues) []*Item {
 		maxTimer       <-chan time.Time
 	)
 
-	// Start timers if configured
+	// Be careful not to set timers that end right away. Instead, if a
+	// min or max time is not specified, make a timer channel that's never
+	// written to.
 	if config.MinTime > 0 {
 		minTimer = time.After(config.MinTime)
 	} else {
@@ -465,7 +467,7 @@ func (b *Batch) waitForItems(_ context.Context, config ConfigValues) []*Item {
 		select {
 		case item, ok := <-b.items:
 			if !ok {
-				// Source is exhausted; return whatever was collected.
+				// Source is exhausted, return whatever was collected
 				return batch
 			}
 
@@ -483,13 +485,13 @@ func (b *Batch) waitForItems(_ context.Context, config ConfigValues) []*Item {
 			if uint64(len(batch)) >= config.MinItems {
 				return batch
 			}
-			// Keep waiting until MinItems is met.
+			// Keep waiting until MinItems is met
 
 		case <-maxTimer:
 			if len(batch) > 0 {
 				return batch
 			}
-			// If max timer fires with no items, continue waiting.
+			// If max timer fires with no items, continue waiting
 		}
 	}
 }

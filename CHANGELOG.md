@@ -128,5 +128,5 @@ This is the initial release of GoBatch, a flexible and efficient batch processin
 
 ### Notes
 
-- This version supports Go 1.7 currently but that may be increased later.
+- This version originally targeted Go 1.7 (later increased to 1.18).
 - The library is in its early stages and the API may change significantly in future versions.
