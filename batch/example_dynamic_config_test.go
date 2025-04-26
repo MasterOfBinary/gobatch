@@ -3,6 +3,7 @@ package batch_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/MasterOfBinary/gobatch/batch"
@@ -10,15 +11,21 @@ import (
 )
 
 type batchSizeMonitor struct {
+	mu      sync.Mutex
 	name    string
 	batches int
 	items   int
 }
 
 func (p *batchSizeMonitor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+	p.mu.Lock()
 	p.batches++
 	p.items += len(items)
-	fmt.Printf("[%s] Batch size: %d\n", p.name, len(items))
+	batchSize := len(items)
+	name := p.name
+	p.mu.Unlock()
+
+	fmt.Printf("[%s] Batch size: %d\n", name, batchSize)
 	return items, nil
 }
 
