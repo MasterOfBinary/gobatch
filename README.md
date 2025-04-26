@@ -18,10 +18,10 @@ the master branch. If you need a stable release, wait for version 1.
 
 Version 0.2.1 fixes several important bugs and improves usability:
 
-- We fixed a critical bug where items less than MinItems would not be processed when the source was exhausted.
-- We added new helper functions for common batch processing operations.
-- We improved documentation throughout the codebase following Go standards.
-- We enhanced error handling and reporting for better diagnostics.
+- Fixed a critical bug where items less than MinItems would not be processed when the source was exhausted.
+- Added new helper functions for common batch processing operations.
+- Improved documentation throughout the codebase following Go standards.
+- Enhanced error handling and reporting for better diagnostics.
 
 See the [CHANGELOG.md](./CHANGELOG.md) for complete details.
 
@@ -44,7 +44,6 @@ See the [CHANGELOG.md](./CHANGELOG.md) for complete details.
 3. **Processing**:
     - When a batch is ready, `Batch` sends it to the `Processor` implementation(s).
     - Each processor in the chain performs operations on the batch and passes the results to the next processor.
-    - The `Processor` performs user-defined operations on the batch and returns processed items.
     - Individual item errors are tracked within the `Item` struct.
 
 4. **Result Handling**:
@@ -56,12 +55,12 @@ See the [CHANGELOG.md](./CHANGELOG.md) for complete details.
 GoBatch can be applied to a lot of scenarios where processing items in batches is beneficial. Some potential use-cases
 include:
 
-- Database Operations: You can optimize database inserts, updates, or reads by batching operations.
-- Log Processing: You can efficiently process log entries in batches for analysis or storage.
-- File Processing: You can process large files in manageable chunks for better performance.
-- Cache Updates: You can reduce network overhead by batching cache update operations.
-- Message Queue Consumption: You can efficiently process messages from queues in batches.
-- Bulk Data Validation: You can validate large datasets in parallel batches for faster results.
+- Database Operations: Optimize inserts, updates, or reads by batching operations.
+- Log Processing: Efficiently process log entries in batches for analysis or storage.
+- File Processing: Process large files in manageable chunks for better performance.
+- Cache Updates: Reduce network overhead by batching cache updates.
+- Message Queue Consumption: Process messages from queues in batches.
+- Bulk Data Validation: Validate large datasets in parallel batches for faster results.
 
 By batching operations, you can reduce network overhead, optimize resource utilization, and improve overall system
 performance.
@@ -70,75 +69,45 @@ performance.
 
 To download, run:
 
-    go get github.com/MasterOfBinary/gobatch
+```bash
+go get github.com/MasterOfBinary/gobatch
+```
 
 ## Requirements
 
-- Go 1.18 or later is required for all functionality.
+- Go 1.18 or later is required.
 
 ## Key Components
 
-- `Batch`: The main struct that manages the batch processing.
-- `Source`: An interface for providing data to be processed by implementing `Read(ctx) (<-chan interface{}, <-chan error)`.
-- `Processor`: An interface for processing batches of data by implementing `Process(ctx, []*Item) ([]*Item, error)`.
-- `Config`: An interface for providing configuration values.
-- `Item`: A struct representing a single item in the processing pipeline. Each `Item` has a unique ID for traceability and an `Error` field for tracking item-specific errors.
+- `Batch`: The main struct that manages batch processing.
+- `Source`: Provides data by implementing `Read(ctx) (<-chan interface{}, <-chan error)`.
+- `Processor`: Processes batches by implementing `Process(ctx, []*Item) ([]*Item, error)`.
+- `Config`: Provides dynamic configuration values.
+- `Item`: Represents a single data item with a unique ID and an optional error.
 
 ### Built-in Processors
 
-GoBatch includes several built-in processors for common tasks:
-
-1. **Filter**: This processor filters items based on a predicate function.
-   - It is configurable with a custom `Predicate` function.
-   - It supports `InvertMatch` option to remove matching items instead of keeping them.
-
-2. **Transform**: This processor transforms item data using a custom function.
-   - It applies a transformation function to each item's `Data` field.
-   - It provides `ContinueOnError` option to control behavior when transformations fail.
-   - It skips items that already have errors set.
-
-3. **Error**: This processor simulates processor errors with configurable failure rates.
-   - It is useful for testing error handling in your processing pipeline.
-   - It can be configured to fail at specific rates or patterns.
-
-4. **Nil**: This processor is for testing timing behavior without modifying items.
-   - It passes items through without changes.
-   - It is useful for benchmarking and timing tests.
+- **Filter**: Filters items based on a predicate function.
+- **Transform**: Transforms item data with a custom function.
+- **Error**: Simulates processor errors for testing.
+- **Nil**: Passes items through unchanged for benchmarking.
 
 ### Built-in Sources
 
-GoBatch includes several built-in source implementations:
-
-1. **Channel**: This source uses existing Go channels as batch sources.
-   - It supports `BufferSize` configuration for controlling buffering.
-   - It allows easy integration with existing channel-based code.
-
-2. **Error**: This source simulates error-only sources without producing data.
-   - It is useful for testing error handling in your processing pipeline.
-   - It supports `BufferSize` configuration and filters out nil errors.
-
-3. **Nil**: This source is for testing timing behavior without emitting any data.
-   - It properly handles zero/negative durations.
-   - It uses timers correctly for precise timing tests.
+- **Channel**: Uses Go channels as sources.
+- **Error**: Simulates error-only sources for testing.
+- **Nil**: Emits no data for timing tests.
 
 ### Helper Functions
 
-GoBatch provides several helper functions for common operations:
-
-1. **IgnoreErrors**: This function safely drains the error channel without needing to process errors.
-
-2. **CollectErrors**: This function collects all errors from the error channel into a slice for later processing.
-
-3. **RunBatchAndWait**: This function runs a batch and waits for completion, collecting all errors in one step.
-
-4. **ExecuteBatches**: This function runs multiple batches concurrently and collects all errors.
+- `IgnoreErrors`
+- `CollectErrors`
+- `RunBatchAndWait`
+- `ExecuteBatches`
 
 ```go
 // Example using RunBatchAndWait
 errs := batch.RunBatchAndWait(ctx, batchProcessor, source, processor1, processor2)
-if len(errs) > 0 {
-    // Handle errors
-}
 
 // Example using ExecuteBatches
 errs := batch.ExecuteBatches(ctx,
@@ -148,8 +117,6 @@ errs := batch.ExecuteBatches(ctx,
 ```
 
 ## Basic Usage
-
-Here's a simple example of how to use GoBatch:
 
 ```go
 package main
@@ -165,27 +132,20 @@ import (
 	"github.com/MasterOfBinary/gobatch/source"
 )
 
-// MyProcessor is a Processor that prints items in batches.
 type MyProcessor struct{}
 
-// Process prints a batch of items and returns them.
 func (p *MyProcessor) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, error) {
 	for _, item := range items {
 		fmt.Printf("Processing item %d: %v\n", item.ID, item.Data)
-		
-		// Optionally set an error on the item
-		// item.Error = fmt.Errorf("processing error")
 	}
 	return items, nil
 }
 
-// AnotherProcessor demonstrates chaining processors together.
 type AnotherProcessor struct{}
 
 func (p *AnotherProcessor) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, error) {
 	for _, item := range items {
 		if val, ok := item.Data.(int); ok {
-			// Modify the data
 			item.Data = val * 2
 		}
 	}
@@ -202,24 +162,19 @@ func main() {
 
 	batchProcessor := batch.New(config)
 
-	// Use the provided Channel source
 	ch := make(chan interface{})
 	s := &source.Channel{Input: ch}
 
-	// Create multiple processors to chain together
 	processor1 := &MyProcessor{}
 	processor2 := &AnotherProcessor{}
 
 	ctx := context.Background()
-	// Pass multiple processors to create a processing pipeline
 	errs := batchProcessor.Go(ctx, s, processor1, processor2)
 
-	// Handle errors
 	go func() {
 		for err := range errs {
 			var srcErr *batch.SourceError
 			var procErr *batch.ProcessorError
-			
 			switch {
 			case errors.As(err, &srcErr):
 				log.Printf("Source error: %v", srcErr.Err)
@@ -231,7 +186,6 @@ func main() {
 		}
 	}()
 
-	// Simulate data input
 	go func() {
 		for i := 0; i < 1000; i++ {
 			ch <- i
@@ -239,11 +193,9 @@ func main() {
 		close(ch)
 	}()
 
-	// Wait for completion
 	<-batchProcessor.Done()
 	fmt.Println("Batch processing completed")
 }
-
 ```
 
 ## Configuration
@@ -253,15 +205,15 @@ The `Config` interface allows for flexible configuration of the batch processing
 
 Configuration options include:
 
-- `MinItems`: This option sets the minimum number of items to process in a batch.
-- `MaxItems`: This option sets the maximum number of items to process in a batch.
-- `MinTime`: This option sets the minimum time to wait before processing a batch.
-- `MaxTime`: This option sets the maximum time to wait before processing a batch.
+- `MinItems`: Minimum number of items to process in a batch.
+- `MaxItems`: Maximum number of items to process in a batch.
+- `MinTime`: Minimum time to wait before processing a batch.
+- `MaxTime`: Maximum time to wait before processing a batch.
 
 The configuration is automatically adjusted to keep it consistent:
 
-- If `MinItems` is greater than `MaxItems`, `MaxItems` will be set to `MinItems`.
-- If `MinTime` is greater than `MaxTime`, `MaxTime` will be set to `MinTime`.
+- If `MinItems` > `MaxItems`, `MaxItems` will be set to `MinItems`.
+- If `MinTime` > `MaxTime`, `MaxTime` will be set to `MinTime`.
 
 ```go
 config := batch.NewConstantConfig(&batch.ConfigValues{
@@ -274,33 +226,81 @@ config := batch.NewConstantConfig(&batch.ConfigValues{
 batchProcessor := batch.New(config)
 ```
 
-**Important Note (v0.2.1+):** When a Source is exhausted, all remaining items will be processed even if there are fewer than MinItems. This ensures no data is lost when the input stream ends.
+**Important Note (v0.2.1+):**  
+When a Source is exhausted, all remaining items will be processed even if there are fewer than MinItems.  
+This ensures no data is lost when the input stream ends.
+
+---
+
+## 🔄 Dynamic Configuration (v0.2.1+)
+
+GoBatch supports **dynamic reconfiguration at runtime**.
+
+Before each batch starts, the latest configuration values are retrieved by calling the `Get()` method on the `Config` interface.  
+This allows you to **adapt batching behavior during processing** — without restarting the batch runner.
+
+Possible use cases:
+- Increase batch sizes during high-load periods
+- Decrease batch sizes when latency is critical
+- Dynamically adjust timing windows based on system health
+
+To implement a dynamic configuration:
+
+```go
+type DynamicConfig struct {
+    mu     sync.RWMutex
+    values batch.ConfigValues
+}
+
+func (d *DynamicConfig) Get() batch.ConfigValues {
+    d.mu.RLock()
+    defer d.mu.RUnlock()
+    return d.values
+}
+
+func (d *DynamicConfig) Update(newValues batch.ConfigValues) {
+    d.mu.Lock()
+    defer d.mu.Unlock()
+    d.values = newValues
+}
+```
+
+Then you can update configuration during runtime:
+
+```go
+dynConfig := &DynamicConfig{values: batch.ConfigValues{MinItems: 10, MaxItems: 100}}
+batchProcessor := batch.New(dynConfig)
+
+// Later during runtime...
+dynConfig.Update(batch.ConfigValues{MinItems: 50, MaxItems: 500})
+```
+
+GoBatch will pick up the new settings for the next batch automatically.
+
+---
 
 ## Error Handling
 
 Errors can come from three sources:
 
-1. **Source errors**: These errors are returned on the error channel from `Source.Read()`.
-2. **Processor errors**: These errors are returned from `Processor.Process()`.
-3. **Item-specific errors**: These errors are set on individual items via the `Item.Error` field.
+1. **Source errors**: Errors returned from `Source.Read()`.
+2. **Processor errors**: Errors returned from `Processor.Process()`.
+3. **Item-specific errors**: Errors set on individual `Item.Error` fields.
 
-All errors are reported through the error channel returned by the `Go` method. These errors are wrapped in `SourceError` and `ProcessorError` types respectively.
+All errors are reported through the error channel returned by the `Go` method.
 
-Since GoBatch now requires Go 1.18+, it's recommended to use `errors.As` for error type checking:
+Example error handling:
 
 ```go
-// Don't forget to import the "errors" package
 import (
 	"errors"
 	"github.com/MasterOfBinary/gobatch/batch"
 )
 
-// Handle errors
 go func() {
 	for err := range errs {
 		var srcErr *batch.SourceError
 		var procErr *batch.ProcessorError
-		
 		switch {
 		case errors.As(err, &srcErr):
 			log.Printf("Source error: %v", srcErr.Err)
@@ -313,36 +313,39 @@ go func() {
 }()
 ```
 
-Here's a simplified error handling approach using the built-in helper functions (v0.2.1+):
+Or using helper functions:
 
 ```go
 // Collect all errors
 errs := batch.CollectErrors(batchProcessor.Go(ctx, source, processor))
 <-batchProcessor.Done()
 
-// Or use the RunBatchAndWait helper function
+// Or use the RunBatchAndWait helper
 errs := batch.RunBatchAndWait(ctx, batchProcessor, source, processor)
 
-// Process errors after completion
 for _, err := range errs {
     // Handle error
 }
 ```
 
+---
+
 ## Documentation
 
 See the [pkg.go.dev docs](https://pkg.go.dev/github.com/MasterOfBinary/gobatch) for documentation
-and an [example](https://pkg.go.dev/github.com/MasterOfBinary/gobatch/batch#example-package).
+and examples.
 
 ## Testing
 
-The package includes a comprehensive test suite. Run the tests with:
+Run tests with:
 
-    go test github.com/MasterOfBinary/gobatch/...
+```bash
+go test github.com/MasterOfBinary/gobatch/...
+```
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Feel free to submit a Pull Request.
 
 ## License
 
