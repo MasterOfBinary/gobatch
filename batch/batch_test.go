@@ -128,30 +128,6 @@ func (p *filterProcessor) Process(ctx context.Context, items []*Item) ([]*Item, 
 	return result, nil
 }
 
-// Dynamic configuration implementation for testing
-type dynamicConfig struct {
-	mu      sync.RWMutex
-	current ConfigValues
-}
-
-func newDynamicConfig(initial ConfigValues) *dynamicConfig {
-	return &dynamicConfig{
-		current: initial,
-	}
-}
-
-func (c *dynamicConfig) Get() ConfigValues {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.current
-}
-
-func (c *dynamicConfig) Update(newConfig ConfigValues) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.current = newConfig
-}
-
 func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 	t.Run("processor chaining with individual errors", func(t *testing.T) {
 		var count uint32
@@ -667,8 +643,12 @@ func TestBatch_ConcurrentProcessing(t *testing.T) {
 func TestBatch_DynamicConfiguration(t *testing.T) {
 	t.Run("dynamic config updates during processing", func(t *testing.T) {
 		// Start with MinItems: 50 to hold processing
-		initialConfig := ConfigValues{MinItems: 50}
-		dynamicCfg := newDynamicConfig(initialConfig)
+		dynamicCfg := NewDynamicConfig(&ConfigValues{
+			MinItems: 50,
+			MaxItems: 0,
+			MinTime:  0,
+			MaxTime:  0,
+		})
 
 		batch := New(dynamicCfg)
 
@@ -692,8 +672,8 @@ func TestBatch_DynamicConfiguration(t *testing.T) {
 				time.Sleep(10 * time.Millisecond)
 
 				// Check if config has changed and increment appropriate counter
-				minItems := dynamicCfg.Get().MinItems
-				if minItems == initialConfig.MinItems {
+				config := dynamicCfg.Get()
+				if config.MinItems == 50 {
 					atomic.AddUint32(&beforeConfigChange, uint32(len(items)))
 				} else {
 					atomic.AddUint32(&afterConfigChange, uint32(len(items)))
@@ -710,7 +690,7 @@ func TestBatch_DynamicConfiguration(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// Update config to release the items for processing
-		dynamicCfg.Update(ConfigValues{MinItems: 5, MaxItems: 10})
+		dynamicCfg.UpdateBatchSize(5, 10)
 
 		// Wait for completion
 		<-batch.Done()

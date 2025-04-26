@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Note: This project is in early development. The API may change without warning in any 0.x version.
 
+## [Unreleased]
+
+This release introduces `DynamicConfig` and adds a bunch of examples.
+
+### Added
+
+- `DynamicConfig`, a thread-safe, runtime-adjustable configuration for batch processing.
+- Full test coverage for `ConstantConfig` and `DynamicConfig`.
+- Several new examples.
+
+### Fixed
+
+- Fixed data race conditions in `example_dynamic_config_test.go` with proper mutex protection.
+
+### Improved
+
+- Improved a lot of the documentation.
+
+
 ## [0.2.1] - 2025-04-25
 
 This release focuses on robustness, developer experience, and error handling. It introduces new helper functions, improves error handling throughout the codebase, and simplifies the API by moving some functionality to helper functions.
@@ -128,5 +147,5 @@ This is the initial release of GoBatch, a flexible and efficient batch processin
 
 ### Notes
 
-- This version supports Go 1.7 currently but that may be increased later.
+- This version originally targeted Go 1.7 (later increased to 1.18).
 - The library is in its early stages and the API may change significantly in future versions.
