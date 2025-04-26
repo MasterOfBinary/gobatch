@@ -41,8 +41,8 @@ func Example_simpleProcessor() {
 	src := &source.Channel{Input: ch}
 
 	config := batch.NewConstantConfig(&batch.ConfigValues{
-		MinItems: 5,
-		MaxItems: 3,
+		MinItems: 3,
+		MaxItems: 5,
 	})
 
 	p := &simpleProcessor{}
