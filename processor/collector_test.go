@@ -202,7 +202,7 @@ func TestResultCollector_Concurrency(t *testing.T) {
 	}
 }
 
-func TestExtractData(t *testing.T) {
+func TestManualDataExtraction(t *testing.T) {
 	collector := &ResultCollector{}
 	
 	items := []*batch.Item{
@@ -222,32 +222,25 @@ func TestExtractData(t *testing.T) {
 	}
 	
 	// Extract strings without resetting
-	strings := ExtractData[string](collector, false)
+	results := collector.Results(false)
+	
+	// Manual extraction of strings
+	strings := make([]string, 0)
+	for _, item := range results {
+		if item.Error != nil {
+			continue
+		}
+		if s, ok := item.Data.(string); ok {
+			strings = append(strings, s)
+		}
+	}
 	expectedStrings := []string{"string1", "string2"}
 	if !reflect.DeepEqual(strings, expectedStrings) {
-		t.Errorf("ExtractData[string] = %v, want %v", strings, expectedStrings)
+		t.Errorf("Extracted strings = %v, want %v", strings, expectedStrings)
 	}
 	
-	// Extract ints without resetting
-	ints := ExtractData[int](collector, false)
-	expectedInts := []int{42}
-	if !reflect.DeepEqual(ints, expectedInts) {
-		t.Errorf("ExtractData[int] = %v, want %v", ints, expectedInts)
-	}
-	
-	// Extract floats without resetting
-	floats := ExtractData[float64](collector, false)
-	expectedFloats := []float64{3.14}
-	if !reflect.DeepEqual(floats, expectedFloats) {
-		t.Errorf("ExtractData[float64] = %v, want %v", floats, expectedFloats)
-	}
-	
-	// Extract bools and reset
-	bools := ExtractData[bool](collector, true)
-	expectedBools := []bool{true}
-	if !reflect.DeepEqual(bools, expectedBools) {
-		t.Errorf("ExtractData[bool] = %v, want %v", bools, expectedBools)
-	}
+	// Test resetting after collection
+	collector.Results(true)
 	
 	// Verify collector was reset
 	if count := collector.Count(); count != 0 {

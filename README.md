@@ -99,7 +99,7 @@ go get github.com/MasterOfBinary/gobatch
 
 - **Filter**: Filters items based on a predicate function.
 - **Transform**: Transforms item data with a custom function.
-- **ResultCollector**: Collects processed items for retrieval after processing.
+- **ResultCollector**: Collects and provides access to processed items.
 - **Error**: Simulates processor errors for testing.
 - **Nil**: Passes items through unchanged for benchmarking.
 
@@ -303,16 +303,21 @@ collector := &processor.ResultCollector{
 // Add the collector to the processor chain
 errs := batch.RunBatchAndWait(ctx, b, src, transformProc, filterProc, collector)
 
-// Access collected results
-results := collector.Results()
+// Access collected results (get without resetting)
+results := collector.Results(false)
 for _, item := range results {
     fmt.Printf("Item %d: %v\n", item.ID, item.Data)
 }
 
-// Extract typed data with type safety
-strings := processor.ExtractData[string](collector)
-for _, s := range strings {
-    fmt.Println(s)
+// Extract specific data types manually
+// (and reset the collector at the same time)
+strings := []string{}
+for _, item := range collector.Results(true) {
+    if item.Error == nil {
+        if s, ok := item.Data.(string); ok {
+            strings = append(strings, s)
+        }
+    }
 }
 ```
 

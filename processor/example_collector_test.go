@@ -65,10 +65,16 @@ func Example_resultCollector() {
 		fmt.Printf("Item ID %d: %v\n", item.ID, item.Data)
 	}
 
-	// Extract only the integers using the type-safe ExtractData function
-	// and reset the collector at the same time
-	integers := processor.ExtractData[int](collector, true)
+	// Extract and display integers manually while resetting
 	fmt.Println("\nExtracted integers:")
+	integers := []int{}
+	for _, item := range collector.Results(true) { // Get results and reset
+		if item.Error == nil {
+			if val, ok := item.Data.(int); ok {
+				integers = append(integers, val)
+			}
+		}
+	}
 	fmt.Println(integers)
 
 	// Output:

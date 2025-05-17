@@ -152,35 +152,3 @@ func (c *ResultCollector) Count() int {
 	return len(c.results)
 }
 
-// ExtractData extracts typed data from collected results.
-// Only items where the Data field can be type-asserted to T are included.
-// Items with errors are included only if they were collected.
-//
-// The reset parameter determines whether to clear the collection after extracting data.
-//
-// Example:
-//
-//	collector := &processor.ResultCollector{}
-//	batch.RunBatchAndWait(ctx, b, src, processor1, collector)
-//	
-//	// Extract all string values (keep items in collector)
-//	strings := processor.ExtractData[string](collector, false)
-//	
-//	// Extract and clear collection
-//	finalStrings := processor.ExtractData[string](collector, true)
-func ExtractData[T any](collector *ResultCollector, reset bool) []T {
-	items := collector.Results(reset)
-	result := make([]T, 0, len(items))
-
-	for _, item := range items {
-		if item.Error != nil {
-			continue
-		}
-
-		if data, ok := item.Data.(T); ok {
-			result = append(result, data)
-		}
-	}
-
-	return result
-}
