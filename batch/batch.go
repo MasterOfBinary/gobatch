@@ -417,19 +417,19 @@ func (b *Batch) waitForItems(_ context.Context, config ConfigValues) []*Item {
 	)
 
 	// Be careful not to set timers that end right away. Instead, if a
-	// min or max time is not specified, make a timer channel that's never
-	// written to.
+	// min or max time is not specified, use a nil channel so the select
+	// statement ignores it.
 	if config.MinTime > 0 {
 		minTimer = time.After(config.MinTime)
 	} else {
-		minTimer = make(chan time.Time)
+		minTimer = nil
 		reachedMinTime = true
 	}
 
 	if config.MaxTime > 0 {
 		maxTimer = time.After(config.MaxTime)
 	} else {
-		maxTimer = make(chan time.Time)
+		maxTimer = nil
 	}
 
 	for {
