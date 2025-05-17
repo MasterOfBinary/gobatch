@@ -53,14 +53,14 @@ func Example_dynamicConfig() {
 		for i := 0; i < 100; i++ {
 			ch <- i
 
-                       switch i {
-                       case 20:
-                               fmt.Println("*** Updating batch size: min=10, max=20 ***")
-                               cfg.UpdateBatchSize(10, 20)
-                       case 50:
-                               fmt.Println("*** Updating batch size: min=20, max=30 ***")
-                               cfg.UpdateBatchSize(20, 30)
-                       }
+			switch i {
+			case 20:
+				fmt.Println("*** Updating batch size: min=10, max=20 ***")
+				cfg.UpdateBatchSize(10, 20)
+			case 50:
+				fmt.Println("*** Updating batch size: min=20, max=30 ***")
+				cfg.UpdateBatchSize(20, 30)
+			}
 
 			time.Sleep(5 * time.Millisecond)
 		}
