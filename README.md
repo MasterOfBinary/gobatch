@@ -184,6 +184,19 @@ func main() {
 10
 ```
 
+## Examples
+
+GoBatch ships with several runnable examples located in the `batch` directory.
+Each example can be executed with `go test ./batch -run Example`.
+
+- `example_test.go` – basic usage with two processors.
+- `example_simple_processor_test.go` – implementing a custom processor.
+- `example_processor_chain_test.go` – chaining multiple processors together.
+- `example_error_handling_test.go` – capturing and reporting errors.
+- `example_custom_config_test.go` – custom dynamic configuration logic.
+- `example_dynamic_config_test.go` – adjusting configuration at runtime.
+- `example_collect_results_test.go` – using `processor.Collect` to gather results.
+
 ## Configuration
 
 GoBatch supports flexible configuration through the `Config` interface, which defines how batches are formed based on size and timing rules.
