@@ -7,7 +7,9 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 
 ## Important Commands
 - Run tests: `go test ./...`
-- Lint code: `go vet ./...`
+- Lint code: 
+  - Basic: `go vet ./...`
+  - Full: `golangci-lint run` (used in CI workflow)
 
 ## Code Standards
 - Follow Go best practices and idiomatic Go patterns
@@ -25,6 +27,13 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 - Method documentation should explain what the method does, its parameters, return values, and any side effects
 - Follow the format seen in existing files (e.g., batch/batch.go)
 - Include practical examples in documentation
+- Code blocks in comments must use tab indentation after the comment marker:
+  ```go
+  // Example:
+  //
+  //	exampleCode := "Use a tab after //"
+  //	fmt.Println(exampleCode)
+  ```
 
 ## File Structure
 - `/batch`: Core batch processing functionality, includes the main Batch type and configuration

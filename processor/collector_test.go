@@ -123,7 +123,10 @@ func TestResultCollector_Reset(t *testing.T) {
 	collector := &ResultCollector{}
 	
 	// Process items
-	collector.Process(context.Background(), items)
+	_, err := collector.Process(context.Background(), items)
+	if err != nil {
+		t.Fatalf("Process returned unexpected error: %v", err)
+	}
 	
 	// Verify items were collected
 	if count := collector.Count(); count != 2 {
@@ -191,7 +194,10 @@ func TestExtractData(t *testing.T) {
 	
 	// Process with collector that includes errors
 	collector.CollectErrors = true
-	collector.Process(context.Background(), items)
+	_, err := collector.Process(context.Background(), items)
+	if err != nil {
+		t.Fatalf("Process returned unexpected error: %v", err)
+	}
 	
 	// Extract strings
 	strings := ExtractData[string](collector)
@@ -232,7 +238,10 @@ func TestResultCollector_ItemCopying(t *testing.T) {
 	}
 	
 	// Process the items
-	collector.Process(context.Background(), items)
+	_, err := collector.Process(context.Background(), items)
+	if err != nil {
+		t.Fatalf("Process returned unexpected error: %v", err)
+	}
 	
 	// Get the collected results
 	results := collector.Results()
@@ -267,7 +276,10 @@ func TestResultCollector_ItemCopying(t *testing.T) {
 	}
 	
 	collector.Reset()
-	collector.Process(context.Background(), mutableItems)
+	_, err = collector.Process(context.Background(), mutableItems)
+	if err != nil {
+		t.Fatalf("Process returned unexpected error: %v", err)
+	}
 	
 	// Get results and modify the original map
 	mutableResults := collector.Results()
