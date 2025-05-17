@@ -20,17 +20,29 @@ import (
 // isolation, ensure Data contains only immutable types or perform manual deep
 // copying when accessing results.
 //
+// Performance Considerations:
+// For extremely high-throughput workloads with many concurrent batches, using
+// ResultCollector may introduce lock contention since it acquires a lock during
+// each batch processing. In such cases, consider:
+// - Using multiple collector instances (one per group of processors)
+// - Collecting only a subset of items with the Filter option
+// - Limiting collected items with the MaxItems option
+// - Using a custom processor that uses more specialized concurrency patterns
+//
 // Example usage:
 //
 //	collector := &processor.ResultCollector{}
 //	b := batch.New(config)
 //	batch.RunBatchAndWait(ctx, b, source, processor1, processor2, collector)
 //	
-//	// Access results
-//	results := collector.Results()
+//	// Access results without resetting
+//	results := collector.Results(false)
 //	for _, item := range results {
 //	  fmt.Println(item.Data)
 //	}
+//	
+//	// Or get results and reset in one operation
+//	finalResults := collector.Results(true)
 //
 // By default, items with errors are not collected. This behavior can be
 // changed by setting CollectErrors to true.
@@ -50,7 +62,7 @@ type ResultCollector struct {
 	// When true, items with errors will be collected if they pass the Filter.
 	CollectErrors bool
 
-	mu      sync.Mutex
+	mu      sync.RWMutex // Using RWMutex allows concurrent reads while ensuring exclusive writes
 	results []*batch.Item
 }
 
@@ -58,7 +70,7 @@ type ResultCollector struct {
 // based on the filter criteria. All items pass through unchanged,
 // allowing subsequent processors to operate on them.
 func (c *ResultCollector) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, error) {
-	c.mu.Lock()
+	c.mu.Lock() // Exclusive lock for writing
 	defer c.mu.Unlock()
 
 	for _, item := range items {
@@ -89,14 +101,18 @@ func (c *ResultCollector) Process(_ context.Context, items []*batch.Item) ([]*ba
 	return items, nil
 }
 
-// Results returns a copy of the collected items.
+// Results returns a copy of the collected items and optionally resets the collection.
 // This method is thread-safe and can be called while processing is ongoing.
+//
+// The reset parameter determines whether to clear the collection after retrieving results:
+// - If reset is true, all collected items are cleared after being returned (atomic get-and-reset)
+// - If reset is false, items remain in the collection for future retrieval
 //
 // Note: While this method creates new batch.Item structs, it does not deep-copy
 // the Data field contents. If Data contains mutable objects, they will still
 // reference the same underlying data.
-func (c *ResultCollector) Results() []*batch.Item {
-	c.mu.Lock()
+func (c *ResultCollector) Results(reset bool) []*batch.Item {
+	c.mu.Lock() // Need exclusive lock if resetting
 	defer c.mu.Unlock()
 
 	// Create a copy of each item to prevent modifications to the Item structs
@@ -109,6 +125,12 @@ func (c *ResultCollector) Results() []*batch.Item {
 			Error: item.Error,
 		}
 	}
+
+	// Reset the collection if requested
+	if reset {
+		c.results = nil
+	}
+
 	return result
 }
 
@@ -124,8 +146,8 @@ func (c *ResultCollector) Reset() {
 // Count returns the number of items collected so far.
 // This method is thread-safe and can be called while processing is ongoing.
 func (c *ResultCollector) Count() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock() // Use read lock since we're not modifying data
+	defer c.mu.RUnlock()
 
 	return len(c.results)
 }
@@ -134,15 +156,20 @@ func (c *ResultCollector) Count() int {
 // Only items where the Data field can be type-asserted to T are included.
 // Items with errors are included only if they were collected.
 //
+// The reset parameter determines whether to clear the collection after extracting data.
+//
 // Example:
 //
 //	collector := &processor.ResultCollector{}
 //	batch.RunBatchAndWait(ctx, b, src, processor1, collector)
 //	
-//	// Extract all string values
-//	strings := processor.ExtractData[string](collector)
-func ExtractData[T any](collector *ResultCollector) []T {
-	items := collector.Results()
+//	// Extract all string values (keep items in collector)
+//	strings := processor.ExtractData[string](collector, false)
+//	
+//	// Extract and clear collection
+//	finalStrings := processor.ExtractData[string](collector, true)
+func ExtractData[T any](collector *ResultCollector, reset bool) []T {
+	items := collector.Results(reset)
 	result := make([]T, 0, len(items))
 
 	for _, item := range items {

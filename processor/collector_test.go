@@ -92,7 +92,7 @@ func TestResultCollector_Process(t *testing.T) {
 			}
 			
 			// Check the collected items
-			collected := tt.collector.Results()
+			collected := tt.collector.Results(false) // Get results without resetting
 			if len(collected) != tt.expectedCount {
 				t.Errorf("Results() returned %d items, want %d", len(collected), tt.expectedCount)
 			}
@@ -141,8 +141,30 @@ func TestResultCollector_Reset(t *testing.T) {
 		t.Errorf("Count after reset = %d, want 0", count)
 	}
 	
-	if results := collector.Results(); len(results) != 0 {
+	if results := collector.Results(false); len(results) != 0 {
 		t.Errorf("Results after reset = %v, want empty slice", results)
+	}
+	
+	// Test getting results and resetting at the same time
+	_, procErr := collector.Process(context.Background(), items)
+	if procErr != nil {
+		t.Fatalf("Process returned unexpected error: %v", procErr)
+	}
+	
+	// Verify items were collected
+	if count := collector.Count(); count != 2 {
+		t.Errorf("Count before results-with-reset = %d, want 2", count)
+	}
+	
+	// Get results with reset
+	results := collector.Results(true)
+	if len(results) != 2 {
+		t.Errorf("Results(true) returned %d items, want 2", len(results))
+	}
+	
+	// Verify items were cleared
+	if count := collector.Count(); count != 0 {
+		t.Errorf("Count after results-with-reset = %d, want 0", count)
 	}
 }
 
@@ -199,32 +221,37 @@ func TestExtractData(t *testing.T) {
 		t.Fatalf("Process returned unexpected error: %v", err)
 	}
 	
-	// Extract strings
-	strings := ExtractData[string](collector)
+	// Extract strings without resetting
+	strings := ExtractData[string](collector, false)
 	expectedStrings := []string{"string1", "string2"}
 	if !reflect.DeepEqual(strings, expectedStrings) {
 		t.Errorf("ExtractData[string] = %v, want %v", strings, expectedStrings)
 	}
 	
-	// Extract ints
-	ints := ExtractData[int](collector)
+	// Extract ints without resetting
+	ints := ExtractData[int](collector, false)
 	expectedInts := []int{42}
 	if !reflect.DeepEqual(ints, expectedInts) {
 		t.Errorf("ExtractData[int] = %v, want %v", ints, expectedInts)
 	}
 	
-	// Extract floats
-	floats := ExtractData[float64](collector)
+	// Extract floats without resetting
+	floats := ExtractData[float64](collector, false)
 	expectedFloats := []float64{3.14}
 	if !reflect.DeepEqual(floats, expectedFloats) {
 		t.Errorf("ExtractData[float64] = %v, want %v", floats, expectedFloats)
 	}
 	
-	// Extract bools
-	bools := ExtractData[bool](collector)
+	// Extract bools and reset
+	bools := ExtractData[bool](collector, true)
 	expectedBools := []bool{true}
 	if !reflect.DeepEqual(bools, expectedBools) {
 		t.Errorf("ExtractData[bool] = %v, want %v", bools, expectedBools)
+	}
+	
+	// Verify collector was reset
+	if count := collector.Count(); count != 0 {
+		t.Errorf("Count after reset = %d, want 0", count)
 	}
 }
 
@@ -244,7 +271,7 @@ func TestResultCollector_ItemCopying(t *testing.T) {
 	}
 	
 	// Get the collected results
-	results := collector.Results()
+	results := collector.Results(false)
 	
 	// Modify the original items
 	items[0].Data = "modified"
@@ -258,7 +285,7 @@ func TestResultCollector_ItemCopying(t *testing.T) {
 	results[0].Data = "modified result"
 	
 	// Get a fresh copy of the results
-	internalResults := collector.Results()
+	internalResults := collector.Results(false)
 	
 	// Verify that modifying the result doesn't affect the internal collection
 	if internalResults[0].Data != "test1" {
@@ -282,7 +309,7 @@ func TestResultCollector_ItemCopying(t *testing.T) {
 	}
 	
 	// Get results and modify the original map
-	mutableResults := collector.Results()
+	mutableResults := collector.Results(false)
 	origMap := mutableItems[0].Data.(map[string]string)
 	origMap["key"] = "modified"
 	

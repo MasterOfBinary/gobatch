@@ -59,14 +59,15 @@ func Example_resultCollector() {
 	fmt.Println("Starting batch processing...")
 	batch.RunBatchAndWait(ctx, b, src, squareProcessor, evenFilter, collector)
 
-	// Get all the collected results
+	// Get all the collected results (without resetting)
 	fmt.Println("\nAll collected results:")
-	for _, item := range collector.Results() {
+	for _, item := range collector.Results(false) {
 		fmt.Printf("Item ID %d: %v\n", item.ID, item.Data)
 	}
 
 	// Extract only the integers using the type-safe ExtractData function
-	integers := processor.ExtractData[int](collector)
+	// and reset the collector at the same time
+	integers := processor.ExtractData[int](collector, true)
 	fmt.Println("\nExtracted integers:")
 	fmt.Println(integers)
 
@@ -132,9 +133,9 @@ func Example_resultCollectorWithOptions() {
 	fmt.Println("Starting filtered collection...")
 	batch.RunBatchAndWait(ctx, b, src, uppercaseProcessor, collector)
 
-	// Get all the collected results
+	// Get all the collected results (and reset the collector)
 	fmt.Println("\nCollected items (length > 8, max 3 items):")
-	for _, item := range collector.Results() {
+	for _, item := range collector.Results(true) {
 		fmt.Printf("Item ID %d: %v\n", item.ID, item.Data)
 	}
 
