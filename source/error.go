@@ -4,6 +4,8 @@ import (
 	"context"
 )
 
+// defaultErrorBuffer is used when BufferSize is zero to set the capacity of the
+// error channel created by Error.Read.
 const defaultErrorBuffer = 10
 
 // Error is a Source that only emits errors from a channel and provides no data.
