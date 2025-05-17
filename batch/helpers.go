@@ -110,7 +110,7 @@ func ExecuteBatches(ctx context.Context, configs ...*BatchConfig) []error {
 		go func(cfg *BatchConfig) {
 			defer wg.Done()
 
-			if cfg.B == nil || cfg.S == nil {
+			if cfg == nil || cfg.B == nil || cfg.S == nil {
 				return
 			}
 

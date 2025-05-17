@@ -137,6 +137,38 @@ func TestExecuteBatches(t *testing.T) {
 	}
 }
 
+func TestExecuteBatches_NilConfig(t *testing.T) {
+	batch1 := New(NewConstantConfig(&ConfigValues{}))
+	src1 := &testSource{Items: []interface{}{1, 2, 3}}
+	var count1 uint32
+	proc1 := &countProcessor{count: &count1}
+
+	batch2 := New(NewConstantConfig(&ConfigValues{}))
+	src2 := &testSource{Items: []interface{}{4, 5}}
+	var count2 uint32
+	proc2 := &countProcessor{count: &count2}
+
+	configs := []*BatchConfig{
+		{B: batch1, S: src1, P: []Processor{proc1}},
+		nil,
+		{B: batch2, S: src2, P: []Processor{proc2}},
+	}
+
+	errs := ExecuteBatches(context.Background(), configs...)
+
+	if atomic.LoadUint32(&count1) != 3 {
+		t.Errorf("batch1: expected 3 items processed, got %d", count1)
+	}
+
+	if atomic.LoadUint32(&count2) != 2 {
+		t.Errorf("batch2: expected 2 items processed, got %d", count2)
+	}
+
+	if len(errs) != 0 {
+		t.Errorf("expected no errors, got %v", errs)
+	}
+}
+
 // Helper types for testing
 
 type countProcessor struct {
