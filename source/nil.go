@@ -18,7 +18,7 @@ type Nil struct {
 // It never emits any data or errors.
 //
 // The returned channels are always created (never nil) and always closed properly
-// when the source completes waiting or context is cancelled.
+// when the source completes waiting or context is canceled.
 func (s *Nil) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
 	out := make(chan interface{})
 	errs := make(chan error)
@@ -39,7 +39,7 @@ func (s *Nil) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
 		case <-timer.C:
 			// Duration complete
 		case <-ctx.Done():
-			// Context cancelled
+			// Context canceled
 		}
 	}()
 
