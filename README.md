@@ -24,14 +24,16 @@ and processing logic.
 **NOTE:** GoBatch is considered a version 0 release and is in an unstable state. Compatibility may be broken at any time on
 the master branch. If you need a stable release, wait for version 1.
 
-### Latest Release - v0.2.1
+### Latest Release - v0.3.0
 
-Version 0.2.1 fixes several important bugs and improves usability:
+Version 0.3.0 introduces significant enhancements and new features:
 
-- Fixed a critical bug where items less than MinItems would not be processed when the source was exhausted.
-- Added new helper functions for common batch processing operations.
-- Improved documentation throughout the codebase following Go standards.
-- Enhanced error handling and reporting for better diagnostics.
+- New `Channel` processor for forwarding item data to output channels.
+- Added `DynamicConfig` for thread-safe, runtime-adjustable batch configuration.
+- Fixed `Done()` method to always return a non-nil channel.
+- Comprehensive package-level documentation in all packages.
+- Standardized code formatting with gofmt across the entire codebase.
+- Enhanced inline documentation and added detailed usage examples.
 
 See the [CHANGELOG.md](./CHANGELOG.md) for complete details.
 
