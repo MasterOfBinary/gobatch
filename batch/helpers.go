@@ -10,7 +10,6 @@ import (
 // not drained, the batch may block once its buffer fills.
 //
 //      batch.IgnoreErrors(myBatch.Go(ctx, p, s))
-
 func IgnoreErrors(errs <-chan error) {
 	// nil channels always block, so check for nil first to avoid a goroutine
 	// leak
