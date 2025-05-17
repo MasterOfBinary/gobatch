@@ -101,6 +101,7 @@ go get github.com/MasterOfBinary/gobatch
 - **Transform**: Transforms item data with a custom function.
 - **Error**: Simulates processor errors for testing.
 - **Nil**: Passes items through unchanged for benchmarking.
+- **Channel**: Writes item data to an output channel.
 
 ### Built-in Sources
 
