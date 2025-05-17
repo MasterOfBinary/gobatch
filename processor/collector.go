@@ -13,6 +13,13 @@ import (
 // the processor chain, allowing access to the collected items after processing
 // is complete.
 //
+// Important: ResultCollector creates copies of batch.Item structs but does not
+// perform deep copying of the Data field contents. If Data contains mutable
+// reference types (maps, slices, pointers to structs), modifications to those
+// objects after collection may be reflected in the collected results. For complete
+// isolation, ensure Data contains only immutable types or perform manual deep
+// copying when accessing results.
+//
 // Example usage:
 //
 //	collector := &processor.ResultCollector{}
@@ -70,10 +77,10 @@ func (c *ResultCollector) Process(_ context.Context, items []*batch.Item) ([]*ba
 			break
 		}
 
-		// Create a deep copy of the item to avoid issues if later processors modify it
+		// Create a copy of the item struct (note: Data field is not deep-copied)
 		itemCopy := &batch.Item{
 			ID:    item.ID,
-			Data:  item.Data,
+			Data:  item.Data, // Only copies the reference for reference types
 			Error: item.Error,
 		}
 		c.results = append(c.results, itemCopy)
@@ -82,16 +89,20 @@ func (c *ResultCollector) Process(_ context.Context, items []*batch.Item) ([]*ba
 	return items, nil
 }
 
-// Results returns a deep copy of the collected items.
+// Results returns a copy of the collected items.
 // This method is thread-safe and can be called while processing is ongoing.
+//
+// Note: While this method creates new batch.Item structs, it does not deep-copy
+// the Data field contents. If Data contains mutable objects, they will still
+// reference the same underlying data.
 func (c *ResultCollector) Results() []*batch.Item {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Create a deep copy to prevent external modifications from affecting internal state
+	// Create a copy of each item to prevent modifications to the Item structs
 	result := make([]*batch.Item, len(c.results))
 	for i, item := range c.results {
-		// Make a deep copy of each item
+		// Create a new Item (note: Data field is not deep-copied)
 		result[i] = &batch.Item{
 			ID:    item.ID,
 			Data:  item.Data,

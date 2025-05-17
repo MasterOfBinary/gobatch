@@ -226,7 +226,7 @@ func TestResultCollector_ItemCopying(t *testing.T) {
 	// Create a collector
 	collector := &ResultCollector{}
 	
-	// Create test items
+	// Create test items with immutable data
 	items := []*batch.Item{
 		{ID: 1, Data: "test1"},
 	}
@@ -240,7 +240,7 @@ func TestResultCollector_ItemCopying(t *testing.T) {
 	// Modify the original items
 	items[0].Data = "modified"
 	
-	// Verify that the collected items were not affected
+	// Verify that the collected items were not affected by changes to original items
 	if results[0].Data != "test1" {
 		t.Errorf("Collected item was modified, got %v, want %v", results[0].Data, "test1")
 	}
@@ -258,6 +258,25 @@ func TestResultCollector_ItemCopying(t *testing.T) {
 	
 	// Verify that the two result slices are distinct
 	if reflect.ValueOf(results[0]).Pointer() == reflect.ValueOf(internalResults[0]).Pointer() {
-		t.Error("Results() did not return a deep copy of items")
+		t.Error("Results() did not return a copy of items")
+	}
+	
+	// Test with mutable data to demonstrate reference copying
+	mutableItems := []*batch.Item{
+		{ID: 2, Data: map[string]string{"key": "original"}},
+	}
+	
+	collector.Reset()
+	collector.Process(context.Background(), mutableItems)
+	
+	// Get results and modify the original map
+	mutableResults := collector.Results()
+	origMap := mutableItems[0].Data.(map[string]string)
+	origMap["key"] = "modified"
+	
+	// Since maps are reference types, the change should be reflected in the collected item
+	resultMap := mutableResults[0].Data.(map[string]string)
+	if resultMap["key"] != "modified" {
+		t.Errorf("Mutable data was not shared, got %v, want %v", resultMap["key"], "modified")
 	}
 }
