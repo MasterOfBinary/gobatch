@@ -4,6 +4,8 @@ import (
 	"context"
 )
 
+const defaultChannelBuffer = 100
+
 // Channel is a Source that reads from an input channel until it's closed.
 // It simplifies using an existing channel as a data source for batch processing.
 type Channel struct {
@@ -20,7 +22,7 @@ type Channel struct {
 // The returned channels are always created (never nil) and always closed properly
 // when the source is done providing data or context is canceled.
 func (s *Channel) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	bufSize := 100
+	bufSize := defaultChannelBuffer
 	if s.BufferSize > 0 {
 		bufSize = s.BufferSize
 	}

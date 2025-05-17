@@ -4,6 +4,8 @@ import (
 	"context"
 )
 
+const defaultErrorBuffer = 10
+
 // Error is a Source that only emits errors from a channel and provides no data.
 // It is useful for testing error handling in batch processing pipelines and
 // for representing error-only streams.
@@ -24,7 +26,7 @@ type Error struct {
 func (s *Error) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
 	out := make(chan interface{})
 
-	bufSize := 10
+	bufSize := defaultErrorBuffer
 	if s.BufferSize > 0 {
 		bufSize = s.BufferSize
 	}
