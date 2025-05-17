@@ -22,7 +22,7 @@ import (
 //	// Access results
 //	results := collector.Results()
 //	for _, item := range results {
-//		fmt.Println(item.Data)
+//	  fmt.Println(item.Data)
 //	}
 //
 // By default, items with errors are not collected. This behavior can be
