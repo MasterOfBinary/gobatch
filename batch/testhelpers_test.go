@@ -128,4 +128,3 @@ func (p *testProcessor) Process(ctx context.Context, items []*Item) ([]*Item, er
 	}
 	return items, nil
 }
-

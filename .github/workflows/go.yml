@@ -28,6 +28,13 @@ jobs:
         # Install golangci-lint (modern replacement for gometalinter)
         curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.53.3
 
+    - name: Check gofmt
+      run: |
+        files=$(gofmt -l $(git ls-files '*.go'))
+        if [ -n "$files" ]; then
+          echo "The following files need gofmt:" && echo "$files" && exit 1
+        fi
+
     - name: Test with coverage
       run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 
