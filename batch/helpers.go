@@ -6,13 +6,13 @@ import (
 )
 
 // IgnoreErrors starts a goroutine that reads errors from errs but ignores them.
-// It can be used with Batch.Go if errors aren't needed. Since the error channel
-// is unbuffered, one cannot just throw away the error channel like this:
+// It can be used with Batch.Go if errors aren't needed. Ignoring the returned
+// channel without reading from it can block once the buffer fills. For example:
 //
 //	// NOTE: bad - this can cause a deadlock!
 //	_ = batch.Go(ctx, p, s)
 //
-// Instead, IgnoreErrors can be used to safely throw away all errors:
+// Instead, IgnoreErrors can be used to safely discard all errors:
 //
 //	batch.IgnoreErrors(myBatch.Go(ctx, p, s))
 func IgnoreErrors(errs <-chan error) {
