@@ -26,6 +26,15 @@
 // from the previous processor:
 //
 //	b.Go(ctx, source, processor1, processor2, processor3)
+
+// Basic usage:
+//
+//	cfg := NewConstantConfig(&ConfigValues{MinItems: 1})
+//	b := New(cfg)
+//	src := &source.Nil{}
+//	proc := &processor.Nil{}
+//	IgnoreErrors(b.Go(ctx, src, proc))
+//	<-b.Done()
 //
 // The configuration is reloaded before each batch is collected. This allows
 // dynamic Config implementations to update batch behavior during processing.

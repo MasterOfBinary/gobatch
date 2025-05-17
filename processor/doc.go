@@ -9,4 +9,21 @@
 //
 // Each processor implementation follows a consistent error handling pattern and
 // respects context cancellation.
+//
+// Basic usage of the Transform processor:
+//
+//	p := &Transform{Func: func(v interface{}) (interface{}, error) {
+//	    if n, ok := v.(int); ok {
+//	        return n * 2, nil
+//	    }
+//	    return v, nil
+//	}}
+//
+//	items := []*batch.Item{{Data: 1}, {Data: 2}}
+//	res, _ := p.Process(context.Background(), items)
+//	fmt.Println(res[0].Data, res[1].Data)
+//
+// Output:
+//
+//	2 4
 package processor
