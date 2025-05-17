@@ -13,6 +13,26 @@ import (
 // the processor chain, allowing access to the collected items after processing
 // is complete.
 //
+// Thread-Safety Guarantees:
+//
+// - All methods are thread-safe and can be called concurrently from multiple goroutines.
+// - The Process method uses an exclusive write lock when adding items to the collection.
+// - The Results method uses a read lock when reset=false, allowing concurrent reads.
+// - The Results method uses an exclusive write lock when reset=true.
+// - The Count method uses a read lock, allowing concurrent counting with other read operations.
+// - The Reset method uses an exclusive write lock to clear the collection.
+//
+// Appropriate Usage Patterns:
+//
+// - In most cases, use Results(false) to read results without clearing.
+// - Use Results(true) to retrieve items and clear the collection in one atomic operation.
+// - When multiple goroutines need to read results concurrently, all can call Results(false)
+//   simultaneously without blocking each other.
+// - When writing a custom function to extract typed data, use Results(false) to get the items,
+//   then manually filter them based on type and error state.
+//
+// Data Handling Considerations:
+//
 // Important: ResultCollector creates copies of batch.Item structs but does not
 // perform deep copying of the Data field contents. If Data contains mutable
 // reference types (maps, slices, pointers to structs), modifications to those
@@ -21,6 +41,7 @@ import (
 // copying when accessing results.
 //
 // Performance Considerations:
+//
 // For extremely high-throughput workloads with many concurrent batches, using
 // ResultCollector may introduce lock contention since it acquires a lock during
 // each batch processing. In such cases, consider:
@@ -69,6 +90,10 @@ type ResultCollector struct {
 // Process implements the Processor interface by collecting items
 // based on the filter criteria. All items pass through unchanged,
 // allowing subsequent processors to operate on them.
+//
+// This method acquires an exclusive write lock while collecting items to ensure
+// thread safety. Since it's part of the batch processing pipeline, this lock is
+// typically not contended unless results are being accessed concurrently.
 func (c *ResultCollector) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, error) {
 	c.mu.Lock() // Exclusive lock for writing
 	defer c.mu.Unlock()
@@ -108,6 +133,12 @@ func (c *ResultCollector) Process(_ context.Context, items []*batch.Item) ([]*ba
 // - If reset is true, all collected items are cleared after being returned (atomic get-and-reset)
 // - If reset is false, items remain in the collection for future retrieval
 //
+// Thread safety:
+// - When reset=false, a read lock is acquired, allowing multiple concurrent readers
+// - When reset=true, an exclusive write lock is acquired to clear the collection
+// - Multiple goroutines can call Results(false) concurrently without blocking each other
+// - Calls to Results(true) will block until no other readers or writers are active
+//
 // Note: While this method creates new batch.Item structs, it does not deep-copy
 // the Data field contents. If Data contains mutable objects, they will still
 // reference the same underlying data.
@@ -142,6 +173,10 @@ func (c *ResultCollector) Results(reset bool) []*batch.Item {
 
 // Reset clears all collected results.
 // This method is thread-safe and can be used to reuse the collector.
+//
+// This method acquires an exclusive write lock to safely clear the collection.
+// If you need to get the results and clear the collection in a single operation,
+// prefer using Results(true) for better efficiency.
 func (c *ResultCollector) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -151,6 +186,9 @@ func (c *ResultCollector) Reset() {
 
 // Count returns the number of items collected so far.
 // This method is thread-safe and can be called while processing is ongoing.
+//
+// This method acquires a read lock, allowing multiple concurrent Count calls
+// and concurrent calls to Results(false) without blocking each other.
 func (c *ResultCollector) Count() int {
 	c.mu.RLock() // Use read lock since we're not modifying data
 	defer c.mu.RUnlock()
