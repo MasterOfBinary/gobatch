@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/MasterOfBinary/gobatch/batch"
@@ -75,28 +76,28 @@ func TestResultCollector_Process(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Process the items
 			result, err := tt.collector.Process(context.Background(), items)
-			
+
 			// Check that the returned error is nil
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 			}
-			
+
 			// Check that the returned items are the same as the input
 			if !reflect.DeepEqual(result, items) {
 				t.Errorf("Process() items = %v, want %v", result, items)
 			}
-			
+
 			// Check the number of collected items
 			if count := tt.collector.Count(); count != tt.expectedCount {
 				t.Errorf("Count() = %v, want %v", count, tt.expectedCount)
 			}
-			
+
 			// Check the collected items
 			collected := tt.collector.Results(false) // Get results without resetting
 			if len(collected) != tt.expectedCount {
 				t.Errorf("Results() returned %d items, want %d", len(collected), tt.expectedCount)
 			}
-			
+
 			// Check the content of collected items
 			dataList := make([]interface{}, 0, len(collected))
 			for _, item := range collected {
@@ -106,7 +107,7 @@ func TestResultCollector_Process(t *testing.T) {
 					dataList = append(dataList, n)
 				}
 			}
-			
+
 			if !reflect.DeepEqual(dataList, tt.expectedData) {
 				t.Errorf("Results data = %v, want %v", dataList, tt.expectedData)
 			}
@@ -119,49 +120,49 @@ func TestResultCollector_Reset(t *testing.T) {
 		{ID: 1, Data: "test1"},
 		{ID: 2, Data: "test2"},
 	}
-	
+
 	collector := &ResultCollector{}
-	
+
 	// Process items
 	_, err := collector.Process(context.Background(), items)
 	if err != nil {
 		t.Fatalf("Process returned unexpected error: %v", err)
 	}
-	
+
 	// Verify items were collected
 	if count := collector.Count(); count != 2 {
 		t.Errorf("Initial count = %d, want 2", count)
 	}
-	
+
 	// Reset the collector
 	collector.Reset()
-	
+
 	// Verify no items remain
 	if count := collector.Count(); count != 0 {
 		t.Errorf("Count after reset = %d, want 0", count)
 	}
-	
+
 	if results := collector.Results(false); len(results) != 0 {
 		t.Errorf("Results after reset = %v, want empty slice", results)
 	}
-	
+
 	// Test getting results and resetting at the same time
 	_, procErr := collector.Process(context.Background(), items)
 	if procErr != nil {
 		t.Fatalf("Process returned unexpected error: %v", procErr)
 	}
-	
+
 	// Verify items were collected
 	if count := collector.Count(); count != 2 {
 		t.Errorf("Count before results-with-reset = %d, want 2", count)
 	}
-	
+
 	// Get results with reset
 	results := collector.Results(true)
 	if len(results) != 2 {
 		t.Errorf("Results(true) returned %d items, want 2", len(results))
 	}
-	
+
 	// Verify items were cleared
 	if count := collector.Count(); count != 0 {
 		t.Errorf("Count after results-with-reset = %d, want 0", count)
@@ -171,16 +172,16 @@ func TestResultCollector_Reset(t *testing.T) {
 func TestResultCollector_Concurrency(t *testing.T) {
 	collector := &ResultCollector{}
 	var wg sync.WaitGroup
-	
+
 	// Number of concurrent goroutines and items per goroutine
 	goroutines := 10
 	itemsPerGoroutine := 100
-	
+
 	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
-			
+
 			items := make([]*batch.Item, itemsPerGoroutine)
 			for j := 0; j < itemsPerGoroutine; j++ {
 				items[j] = &batch.Item{
@@ -188,13 +189,13 @@ func TestResultCollector_Concurrency(t *testing.T) {
 					Data: routineID*itemsPerGoroutine + j,
 				}
 			}
-			
+
 			_, _ = collector.Process(context.Background(), items)
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify all items were collected
 	expectedCount := goroutines * itemsPerGoroutine
 	if count := collector.Count(); count != expectedCount {
@@ -204,7 +205,7 @@ func TestResultCollector_Concurrency(t *testing.T) {
 
 func TestManualDataExtraction(t *testing.T) {
 	collector := &ResultCollector{}
-	
+
 	items := []*batch.Item{
 		{ID: 1, Data: "string1"},
 		{ID: 2, Data: 42},
@@ -213,17 +214,17 @@ func TestManualDataExtraction(t *testing.T) {
 		{ID: 5, Data: "string3", Error: errors.New("error")},
 		{ID: 6, Data: true},
 	}
-	
+
 	// Process with collector that includes errors
 	collector.CollectErrors = true
 	_, err := collector.Process(context.Background(), items)
 	if err != nil {
 		t.Fatalf("Process returned unexpected error: %v", err)
 	}
-	
+
 	// Extract strings without resetting
 	results := collector.Results(false)
-	
+
 	// Manual extraction of strings
 	strings := make([]string, 0)
 	for _, item := range results {
@@ -238,10 +239,10 @@ func TestManualDataExtraction(t *testing.T) {
 	if !reflect.DeepEqual(strings, expectedStrings) {
 		t.Errorf("Extracted strings = %v, want %v", strings, expectedStrings)
 	}
-	
+
 	// Test resetting after collection
 	collector.Results(true)
-	
+
 	// Verify collector was reset
 	if count := collector.Count(); count != 0 {
 		t.Errorf("Count after reset = %d, want 0", count)
@@ -251,64 +252,133 @@ func TestManualDataExtraction(t *testing.T) {
 func TestResultCollector_ItemCopying(t *testing.T) {
 	// Create a collector
 	collector := &ResultCollector{}
-	
+
 	// Create test items with immutable data
 	items := []*batch.Item{
 		{ID: 1, Data: "test1"},
 	}
-	
+
 	// Process the items
 	_, err := collector.Process(context.Background(), items)
 	if err != nil {
 		t.Fatalf("Process returned unexpected error: %v", err)
 	}
-	
+
 	// Get the collected results
 	results := collector.Results(false)
-	
+
 	// Modify the original items
 	items[0].Data = "modified"
-	
+
 	// Verify that the collected items were not affected by changes to original items
 	if results[0].Data != "test1" {
 		t.Errorf("Collected item was modified, got %v, want %v", results[0].Data, "test1")
 	}
-	
+
 	// Modify the results
 	results[0].Data = "modified result"
-	
+
 	// Get a fresh copy of the results
 	internalResults := collector.Results(false)
-	
+
 	// Verify that modifying the result doesn't affect the internal collection
 	if internalResults[0].Data != "test1" {
 		t.Errorf("Internal collection was modified, got %v, want %v", internalResults[0].Data, "test1")
 	}
-	
+
 	// Verify that the two result slices are distinct
 	if reflect.ValueOf(results[0]).Pointer() == reflect.ValueOf(internalResults[0]).Pointer() {
 		t.Error("Results() did not return a copy of items")
 	}
-	
+
 	// Test with mutable data to demonstrate reference copying
 	mutableItems := []*batch.Item{
 		{ID: 2, Data: map[string]string{"key": "original"}},
 	}
-	
+
 	collector.Reset()
 	_, err = collector.Process(context.Background(), mutableItems)
 	if err != nil {
 		t.Fatalf("Process returned unexpected error: %v", err)
 	}
-	
+
 	// Get results and modify the original map
 	mutableResults := collector.Results(false)
 	origMap := mutableItems[0].Data.(map[string]string)
 	origMap["key"] = "modified"
-	
+
 	// Since maps are reference types, the change should be reflected in the collected item
 	resultMap := mutableResults[0].Data.(map[string]string)
 	if resultMap["key"] != "modified" {
 		t.Errorf("Mutable data was not shared, got %v, want %v", resultMap["key"], "modified")
+	}
+}
+
+func TestResultCollector_ConcurrentResultsAccess(t *testing.T) {
+	collector := &ResultCollector{}
+
+	const (
+		goroutines        = 5
+		itemsPerGoroutine = 100
+	)
+
+	var processWG sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		processWG.Add(1)
+		go func(id int) {
+			defer processWG.Done()
+
+			items := make([]*batch.Item, itemsPerGoroutine)
+			for j := 0; j < itemsPerGoroutine; j++ {
+				items[j] = &batch.Item{ID: uint64(id*itemsPerGoroutine + j)}
+			}
+
+			_, err := collector.Process(context.Background(), items)
+			if err != nil {
+				t.Errorf("Process returned error: %v", err)
+			}
+		}(i)
+	}
+
+	done := make(chan struct{})
+	var resultsWG sync.WaitGroup
+	var resetCount int64
+
+	resultsWG.Add(1)
+	go func() {
+		defer resultsWG.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			count := len(collector.Results(true))
+			atomic.AddInt64(&resetCount, int64(count))
+		}
+	}()
+
+	resultsWG.Add(1)
+	go func() {
+		defer resultsWG.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_ = collector.Results(false)
+		}
+	}()
+
+	processWG.Wait()
+	close(done)
+	resultsWG.Wait()
+
+	totalProcessed := goroutines * itemsPerGoroutine
+	remaining := collector.Count()
+	processedViaReset := int(atomic.LoadInt64(&resetCount))
+	if remaining+processedViaReset != totalProcessed {
+		t.Errorf("Total collected items %d (remaining %d, reset %d) != %d", remaining+processedViaReset, remaining, processedViaReset, totalProcessed)
 	}
 }
