@@ -692,3 +692,42 @@ func TestBatch_NoProcessors(t *testing.T) {
 		}
 	})
 }
+
+func TestBatch_NoTimersWithMinItems(t *testing.T) {
+	t.Run("min items without timers", func(t *testing.T) {
+		batch := New(NewConstantConfig(&ConfigValues{MinItems: 2}))
+
+		items := []interface{}{"a", "b", "c", "d", "e"}
+		src := &testSource{Items: items, Delay: 10 * time.Millisecond}
+
+		var (
+			mu      sync.Mutex
+			batches [][]int
+		)
+
+		proc := &testProcessor{
+			processFn: func(ctx context.Context, it []*Item) ([]*Item, error) {
+				mu.Lock()
+				defer mu.Unlock()
+
+				batchSizes := len(it)
+				batches = append(batches, []int{batchSizes})
+				return it, nil
+			},
+		}
+
+		errs := batch.Go(context.Background(), src, proc)
+		<-batch.Done()
+		for range errs {
+			// Drain errors
+		}
+
+		if len(batches) != 3 {
+			t.Fatalf("expected 3 batches, got %d", len(batches))
+		}
+
+		if batches[0][0] != 2 || batches[1][0] != 2 || batches[2][0] != 1 {
+			t.Errorf("unexpected batch sizes: %v", batches)
+		}
+	})
+}
