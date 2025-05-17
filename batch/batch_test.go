@@ -18,9 +18,9 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 		batch := New(NewConstantConfig(&ConfigValues{
 			MinItems: 5,
 		}))
-		src := &testSource{Items: []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9}}
-		errProc := &errorPerItemProcessor{FailEvery: 3}
-		countProc := &countProcessor{count: &count}
+		src := &TestSource{Items: []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9}}
+		errProc := &ErrorPerItemProcessor{FailEvery: 3}
+		countProc := &CountProcessor{Count: &count}
 
 		errs := batch.Go(context.Background(), src, errProc, countProc)
 
@@ -49,8 +49,8 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 	t.Run("source error forwarding", func(t *testing.T) {
 		srcErr := errors.New("source failed")
 		batch := New(NewConstantConfig(&ConfigValues{}))
-		src := &testSource{Items: []interface{}{1, 2}, WithErr: srcErr}
-		countProc := &countProcessor{count: new(uint32)}
+		src := &TestSource{Items: []interface{}{1, 2}, WithErr: srcErr}
+		countProc := &CountProcessor{Count: new(uint32)}
 
 		errs := batch.Go(context.Background(), src, countProc)
 		<-batch.Done()
@@ -72,8 +72,8 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 	t.Run("processor error handling", func(t *testing.T) {
 		procErr := errors.New("processor failed")
 		batch := New(NewConstantConfig(&ConfigValues{}))
-		src := &testSource{Items: []interface{}{1, 2, 3}}
-		proc := &countProcessor{count: new(uint32), processorErr: procErr}
+		src := &TestSource{Items: []interface{}{1, 2, 3}}
+		proc := &CountProcessor{Count: new(uint32), ProcessorErr: procErr}
 
 		errs := batch.Go(context.Background(), src, proc)
 
@@ -113,8 +113,8 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 			items[i] = i
 		}
 
-		src := &testSource{Items: items, Delay: 5 * time.Millisecond}
-		proc := &countProcessor{count: &count, delay: 5 * time.Millisecond}
+		src := &TestSource{Items: items, Delay: 5 * time.Millisecond}
+		proc := &CountProcessor{Count: &count, Delay: 5 * time.Millisecond}
 
 		// Create a context that we'll cancel manually
 		ctx, cancel := context.WithCancel(context.Background())
@@ -273,14 +273,14 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 				}
 
 				batch := New(NewConstantConfig(tt.config))
-				src := &testSource{Items: items, Delay: tt.duration}
+				src := &TestSource{Items: items, Delay: tt.duration}
 
 				// Collect batch sizes
 				var batchSizes []int
 				var batchMu sync.Mutex
 
-				proc := &testProcessor{
-					processFn: func(ctx context.Context, items []*Item) ([]*Item, error) {
+				proc := &TestProcessor{
+					ProcessFn: func(ctx context.Context, items []*Item) ([]*Item, error) {
 						batchMu.Lock()
 						batchSizes = append(batchSizes, len(items))
 						batchMu.Unlock()
@@ -345,7 +345,7 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 			items := []interface{}{"item1", "item2", "item3", "item4", "item5"}
 
 			// Use a test source with delay to make batching more predictable
-			s := &testSource{
+			s := &TestSource{
 				Items: items,
 				Delay: 20 * time.Millisecond,
 			}
@@ -356,8 +356,8 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 			var mu sync.Mutex
 
 			// Create a processor that records processed items and batch sizes
-			p := &testProcessor{
-				processFn: func(ctx context.Context, items []*Item) ([]*Item, error) {
+			p := &TestProcessor{
+				ProcessFn: func(ctx context.Context, items []*Item) ([]*Item, error) {
 					mu.Lock()
 					defer mu.Unlock()
 
@@ -440,25 +440,25 @@ func TestBatch_ComplexProcessingPipeline(t *testing.T) {
 			items[i] = i + 1
 		}
 
-		src := &testSource{Items: items}
+		src := &TestSource{Items: items}
 
 		// Double each number
-		transformer := &transformProcessor{
-			transformFn: func(val interface{}) interface{} {
+		transformer := &TransformProcessor{
+			TransformFn: func(val interface{}) interface{} {
 				return val.(int) * 2
 			},
 		}
 
 		// Keep only even numbers (which will be all of them after doubling)
-		filter := &filterProcessor{
-			filterFn: func(val interface{}) bool {
+		filter := &FilterProcessor{
+			FilterFn: func(val interface{}) bool {
 				return val.(int)%2 == 0
 			},
 		}
 
 		// Count processed items
 		var count uint32
-		counter := &countProcessor{count: &count}
+		counter := &CountProcessor{Count: &count}
 
 		errs := batch.Go(context.Background(), src, transformer, filter, counter)
 
@@ -503,8 +503,8 @@ func TestBatch_ConcurrentProcessing(t *testing.T) {
 				}
 
 				batch := New(NewConstantConfig(&ConfigValues{MaxItems: 10}))
-				src := &testSource{Items: items}
-				proc := &countProcessor{count: counters[i]}
+				src := &TestSource{Items: items}
+				proc := &CountProcessor{Count: counters[i]}
 
 				_ = batch.Go(context.Background(), src, proc)
 				<-batch.Done()
@@ -539,9 +539,9 @@ func TestBatch_RobustnessAndEdgeCases(t *testing.T) {
 			items[i] = i
 		}
 
-		src := &testSource{Items: items}
+		src := &TestSource{Items: items}
 		var count uint32
-		proc := &countProcessor{count: &count}
+		proc := &CountProcessor{Count: &count}
 
 		// Process large batch
 		errs := batch.Go(context.Background(), src, proc)
@@ -563,9 +563,9 @@ func TestBatch_RobustnessAndEdgeCases(t *testing.T) {
 
 	t.Run("empty items slice", func(t *testing.T) {
 		batch := New(NewConstantConfig(&ConfigValues{}))
-		src := &testSource{Items: []interface{}{}} // Empty but not nil
+		src := &TestSource{Items: []interface{}{}} // Empty but not nil
 		var count uint32
-		proc := &countProcessor{count: &count}
+		proc := &CountProcessor{Count: &count}
 
 		errs := batch.Go(context.Background(), src, proc)
 		<-batch.Done()
@@ -591,9 +591,9 @@ func TestBatch_RobustnessAndEdgeCases(t *testing.T) {
 		}))
 
 		items := []interface{}{1, 2, 3, 4, 5}
-		src := &testSource{Items: items}
+		src := &TestSource{Items: items}
 		var count uint32
-		proc := &countProcessor{count: &count}
+		proc := &CountProcessor{Count: &count}
 
 		errs := batch.Go(context.Background(), src, proc)
 		<-batch.Done()
@@ -619,9 +619,9 @@ func TestBatch_RobustnessAndEdgeCases(t *testing.T) {
 		}))
 
 		items := []interface{}{1, 2, 3, 4, 5}
-		src := &testSource{Items: items}
+		src := &TestSource{Items: items}
 		var count uint32
-		proc := &countProcessor{count: &count}
+		proc := &CountProcessor{Count: &count}
 
 		errs := batch.Go(context.Background(), src, proc)
 		<-batch.Done()
@@ -644,7 +644,7 @@ func TestBatch_NoProcessors(t *testing.T) {
 
 		// Create source with data
 		items := []interface{}{1, 2, 3, 4, 5}
-		src := &testSource{Items: items}
+		src := &TestSource{Items: items}
 
 		// Call Go with source but no processors
 		errs := batch.Go(context.Background(), src)
@@ -669,7 +669,7 @@ func TestBatch_NoProcessors(t *testing.T) {
 
 		// Create source with data
 		items := []interface{}{1, 2, 3, 4, 5}
-		src := &testSource{Items: items}
+		src := &TestSource{Items: items}
 
 		// Create an empty slice of processors
 		emptyProcessors := make([]Processor, 0)

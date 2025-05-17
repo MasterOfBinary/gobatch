@@ -1,22 +1,20 @@
-package batch_test
+package batch
 
 import (
 	"context"
 	"fmt"
 	"sync/atomic"
 	"time"
-
-	. "github.com/MasterOfBinary/gobatch/batch"
 )
 
-// testSource emits predefined items with optional delay and final error.
-type testSource struct {
+// TestSource emits predefined items with optional delay and final error.
+type TestSource struct {
 	Items   []interface{}
 	Delay   time.Duration
 	WithErr error
 }
 
-func (s *testSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
+func (s *TestSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
 	out := make(chan interface{})
 	errs := make(chan error, 1)
 	go func() {
@@ -39,32 +37,32 @@ func (s *testSource) Read(ctx context.Context) (<-chan interface{}, <-chan error
 	return out, errs
 }
 
-// countProcessor counts processed items and can inject delays or errors.
-type countProcessor struct {
-	count        *uint32
-	delay        time.Duration
-	processorErr error
+// CountProcessor counts processed items and can inject delays or errors.
+type CountProcessor struct {
+	Count        *uint32
+	Delay        time.Duration
+	ProcessorErr error
 }
 
-func (p *countProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
-	if p.delay > 0 {
-		time.Sleep(p.delay)
+func (p *CountProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+	if p.Delay > 0 {
+		time.Sleep(p.Delay)
 	}
-	if p.count != nil {
-		atomic.AddUint32(p.count, uint32(len(items)))
+	if p.Count != nil {
+		atomic.AddUint32(p.Count, uint32(len(items)))
 	}
-	if p.processorErr != nil {
-		return items, p.processorErr
+	if p.ProcessorErr != nil {
+		return items, p.ProcessorErr
 	}
 	return items, nil
 }
 
-// errorPerItemProcessor marks every n-th item as failed.
-type errorPerItemProcessor struct {
+// ErrorPerItemProcessor marks every n-th item as failed.
+type ErrorPerItemProcessor struct {
 	FailEvery int
 }
 
-func (p *errorPerItemProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+func (p *ErrorPerItemProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
 	for i, item := range items {
 		if p.FailEvery > 0 && (i%p.FailEvery) == 0 {
 			item.Error = fmt.Errorf("fail item %d", item.ID)
@@ -73,12 +71,12 @@ func (p *errorPerItemProcessor) Process(ctx context.Context, items []*Item) ([]*
 	return items, nil
 }
 
-// transformProcessor modifies item data with transformFn.
-type transformProcessor struct {
-	transformFn func(interface{}) interface{}
+// TransformProcessor modifies item data with transformFn.
+type TransformProcessor struct {
+	TransformFn func(interface{}) interface{}
 }
 
-func (p *transformProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+func (p *TransformProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
 	select {
 	case <-ctx.Done():
 		return items, ctx.Err()
@@ -88,17 +86,17 @@ func (p *transformProcessor) Process(ctx context.Context, items []*Item) ([]*Ite
 		if item.Error != nil {
 			continue
 		}
-		item.Data = p.transformFn(item.Data)
+		item.Data = p.TransformFn(item.Data)
 	}
 	return items, nil
 }
 
-// filterProcessor only keeps items for which filterFn returns true.
-type filterProcessor struct {
-	filterFn func(interface{}) bool
+// FilterProcessor only keeps items for which filterFn returns true.
+type FilterProcessor struct {
+	FilterFn func(interface{}) bool
 }
 
-func (p *filterProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+func (p *FilterProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
 	var result []*Item
 	for _, item := range items {
 		select {
@@ -110,22 +108,21 @@ func (p *filterProcessor) Process(ctx context.Context, items []*Item) ([]*Item, 
 			result = append(result, item)
 			continue
 		}
-		if p.filterFn(item.Data) {
+		if p.FilterFn(item.Data) {
 			result = append(result, item)
 		}
 	}
 	return result, nil
 }
 
-// testProcessor calls processFn for processing items.
-type testProcessor struct {
-	processFn func(context.Context, []*Item) ([]*Item, error)
+// TestProcessor calls processFn for processing items.
+type TestProcessor struct {
+	ProcessFn func(context.Context, []*Item) ([]*Item, error)
 }
 
-func (p *testProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
-	if p.processFn != nil {
-		return p.processFn(ctx, items)
+func (p *TestProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+	if p.ProcessFn != nil {
+		return p.ProcessFn(ctx, items)
 	}
 	return items, nil
 }
-

@@ -28,15 +28,15 @@ func TestBatch_DynamicConfiguration(t *testing.T) {
 			items[i] = i
 		}
 
-		src := &testSource{Items: items, Delay: 5 * time.Millisecond}
+		src := &TestSource{Items: items, Delay: 5 * time.Millisecond}
 
 		// Use separate atomic counters instead of changing the pointer
 		var beforeConfigChange uint32
 		var afterConfigChange uint32
 
 		// Use a new processor type that's safe for this test
-		proc := &testProcessor{
-			processFn: func(ctx context.Context, items []*Item) ([]*Item, error) {
+		proc := &TestProcessor{
+			ProcessFn: func(ctx context.Context, items []*Item) ([]*Item, error) {
 				// Add a delay to ensure the processing happens over time
 				time.Sleep(10 * time.Millisecond)
 

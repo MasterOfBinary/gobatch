@@ -13,12 +13,12 @@ import (
 func TestBatch_ErrorHandling(t *testing.T) {
 	t.Run("processor with error", func(t *testing.T) {
 		batch := New(NewConstantConfig(&ConfigValues{}))
-		src := &testSource{Items: []interface{}{1, 2, 3, 4, 5}}
+		src := &TestSource{Items: []interface{}{1, 2, 3, 4, 5}}
 
 		procErr := errors.New("processor error")
-		proc := &countProcessor{
-			count:        new(uint32),
-			processorErr: procErr,
+		proc := &CountProcessor{
+			Count:        new(uint32),
+			ProcessorErr: procErr,
 		}
 
 		errs := batch.Go(context.Background(), src, proc)
@@ -42,12 +42,12 @@ func TestBatch_ErrorHandling(t *testing.T) {
 		batch := New(NewConstantConfig(&ConfigValues{}))
 
 		srcErr := errors.New("source error")
-		src := &testSource{
+		src := &TestSource{
 			Items:   []interface{}{1, 2, 3},
 			WithErr: srcErr,
 		}
 
-		proc := &countProcessor{count: new(uint32)}
+		proc := &CountProcessor{Count: new(uint32)}
 
 		errs := batch.Go(context.Background(), src, proc)
 
@@ -95,11 +95,11 @@ func TestBatch_ErrorHandling(t *testing.T) {
 
 	t.Run("nil processor filtering", func(t *testing.T) {
 		batch := New(NewConstantConfig(&ConfigValues{}))
-		src := &testSource{Items: []interface{}{1, 2, 3}}
+		src := &TestSource{Items: []interface{}{1, 2, 3}}
 
 		// Include a nil processor among valid ones
 		var count uint32
-		validProc := &countProcessor{count: &count}
+		validProc := &CountProcessor{Count: &count}
 
 		// Pass a mix of nil and valid processors
 		errs := batch.Go(context.Background(), src, nil, validProc, nil)

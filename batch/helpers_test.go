@@ -76,13 +76,13 @@ func TestCollectErrors(t *testing.T) {
 func TestRunBatchAndWait(t *testing.T) {
 	// Create test data
 	batch := New(NewConstantConfig(&ConfigValues{}))
-	src := &testSource{
+	src := &TestSource{
 		Items:   []interface{}{1, 2, 3},
 		WithErr: errors.New("source error"),
 	}
 
 	var count uint32
-	proc := &countProcessor{count: &count}
+	proc := &CountProcessor{Count: &count}
 
 	// Run the batch and collect errors
 	errs := RunBatchAndWait(context.Background(), batch, src, proc)
@@ -102,17 +102,17 @@ func TestExecuteBatches(t *testing.T) {
 	t.Run("all valid configs", func(t *testing.T) {
 		// Create multiple batches with sources and processors
 		batch1 := New(NewConstantConfig(&ConfigValues{}))
-		src1 := &testSource{Items: []interface{}{1, 2, 3}}
+		src1 := &TestSource{Items: []interface{}{1, 2, 3}}
 		var count1 uint32
-		proc1 := &countProcessor{count: &count1}
+		proc1 := &CountProcessor{Count: &count1}
 
 		batch2 := New(NewConstantConfig(&ConfigValues{}))
-		src2 := &testSource{
+		src2 := &TestSource{
 			Items:   []interface{}{4, 5},
 			WithErr: errors.New("source 2 error"),
 		}
 		var count2 uint32
-		proc2 := &countProcessor{count: &count2}
+		proc2 := &CountProcessor{Count: &count2}
 
 		// Configure the batches
 		configs := []*BatchConfig{
@@ -140,14 +140,14 @@ func TestExecuteBatches(t *testing.T) {
 
 	t.Run("nil config element", func(t *testing.T) {
 		batch1 := New(NewConstantConfig(&ConfigValues{}))
-		src1 := &testSource{Items: []interface{}{1, 2, 3}}
+		src1 := &TestSource{Items: []interface{}{1, 2, 3}}
 		var count1 uint32
-		proc1 := &countProcessor{count: &count1}
+		proc1 := &CountProcessor{Count: &count1}
 
 		batch2 := New(NewConstantConfig(&ConfigValues{}))
-		src2 := &testSource{Items: []interface{}{4}}
+		src2 := &TestSource{Items: []interface{}{4}}
 		var count2 uint32
-		proc2 := &countProcessor{count: &count2}
+		proc2 := &CountProcessor{Count: &count2}
 
 		configs := []*BatchConfig{
 			{B: batch1, S: src1, P: []Processor{proc1}},
@@ -173,14 +173,14 @@ func TestExecuteBatches(t *testing.T) {
 
 func TestExecuteBatches_NilConfig(t *testing.T) {
 	batch1 := New(NewConstantConfig(&ConfigValues{}))
-	src1 := &testSource{Items: []interface{}{1, 2, 3}}
+	src1 := &TestSource{Items: []interface{}{1, 2, 3}}
 	var count1 uint32
-	proc1 := &countProcessor{count: &count1}
+	proc1 := &CountProcessor{Count: &count1}
 
 	batch2 := New(NewConstantConfig(&ConfigValues{}))
-	src2 := &testSource{Items: []interface{}{4, 5}}
+	src2 := &TestSource{Items: []interface{}{4, 5}}
 	var count2 uint32
-	proc2 := &countProcessor{count: &count2}
+	proc2 := &CountProcessor{Count: &count2}
 
 	configs := []*BatchConfig{
 		{B: batch1, S: src1, P: []Processor{proc1}},
@@ -201,40 +201,4 @@ func TestExecuteBatches_NilConfig(t *testing.T) {
 	if len(errs) != 0 {
 		t.Errorf("expected no errors, got %v", errs)
 	}
-}
-
-// Helper types for testing
-
-type countProcessor struct {
-	count *uint32
-}
-
-func (p *countProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
-	atomic.AddUint32(p.count, uint32(len(items)))
-	return items, nil
-}
-
-type testSource struct {
-	Items   []interface{}
-	WithErr error
-}
-
-func (s *testSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{})
-	errs := make(chan error, 1)
-	go func() {
-		defer close(out)
-		defer close(errs)
-		for _, item := range s.Items {
-			select {
-			case <-ctx.Done():
-				return
-			case out <- item:
-			}
-		}
-		if s.WithErr != nil {
-			errs <- s.WithErr
-		}
-	}()
-	return out, errs
 }
