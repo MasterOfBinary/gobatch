@@ -5,6 +5,16 @@
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/MasterOfBinary/gobatch)](https://pkg.go.dev/github.com/MasterOfBinary/gobatch)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+## Contents
+
+- [Installation](#installation)
+- [Basic Usage](#basic-usage)
+- [Configuration](#configuration)
+- [Error Handling](#error-handling)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## How GoBatch Works
 
 GoBatch is a flexible and efficient batch processing library for Go, designed to streamline the processing of large
