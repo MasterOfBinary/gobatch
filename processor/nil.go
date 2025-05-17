@@ -16,13 +16,13 @@ type Nil struct {
 	Duration time.Duration
 
 	// MarkCancelled controls whether items should be marked with ctx.Err()
-	// when the context is cancelled during processing.
+	// when the context is canceled during processing.
 	// If false, items are returned unchanged on cancellation.
 	MarkCancelled bool
 }
 
 // Process implements the Processor interface by waiting for the specified duration
-// and returning the items unchanged, unless cancelled.
+// and returning the items unchanged, unless canceled.
 func (p *Nil) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
 	if len(items) == 0 || p.Duration <= 0 {
 		return items, nil
@@ -35,7 +35,7 @@ func (p *Nil) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, 
 	case <-timer.C:
 		// Duration complete, return items unchanged
 	case <-ctx.Done():
-		// Context cancelled
+		// Context canceled
 		if p.MarkCancelled {
 			for _, item := range items {
 				item.Error = ctx.Err()

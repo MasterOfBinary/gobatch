@@ -6,24 +6,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## How GoBatch Works
+GoBatch is a small library for processing items in batches. You provide a `Source` that produces items and one or more `Processors` that operate on each batch.
 
-GoBatch is a flexible and efficient batch processing library for Go, designed to streamline the processing of large
-volumes of data. It provides a framework for batch processing while allowing users to define their own data sources
-and processing logic.
+**Note:** The API is still unstable and may change until version 1.0.
 
-**NOTE:** GoBatch is considered a version 0 release and is in an unstable state. Compatibility may be broken at any time on
-the master branch. If you need a stable release, wait for version 1.
+### Latest Release
 
-### Latest Release - v0.2.1
-
-Version 0.2.1 fixes several important bugs and improves usability:
-
-- Fixed a critical bug where items less than MinItems would not be processed when the source was exhausted.
-- Added new helper functions for common batch processing operations.
-- Improved documentation throughout the codebase following Go standards.
-- Enhanced error handling and reporting for better diagnostics.
-
-See the [CHANGELOG.md](./CHANGELOG.md) for complete details.
+v0.2.1 includes bug fixes, new helpers and better error reporting. See the [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ### Core Components
 
@@ -52,18 +41,8 @@ See the [CHANGELOG.md](./CHANGELOG.md) for complete details.
 
 ### Typical Use Cases
 
-GoBatch can be applied to a lot of scenarios where processing items in batches is beneficial. Some potential use-cases
-include:
+Batching reduces overhead in many scenarios such as database operations, log processing, file handling, cache updates, message queues and bulk validation.
 
-- Database Operations: Optimize inserts, updates, or reads by batching operations.
-- Log Processing: Efficiently process log entries in batches for analysis or storage.
-- File Processing: Process large files in manageable chunks for better performance.
-- Cache Updates: Reduce network overhead by batching cache updates.
-- Message Queue Consumption: Process messages from queues in batches.
-- Bulk Data Validation: Validate large datasets in parallel batches for faster results.
-
-By batching operations, you can reduce network overhead, optimize resource utilization, and improve overall system
-performance.
 
 ## Installation
 

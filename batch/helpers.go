@@ -5,16 +5,12 @@ import (
 	"sync"
 )
 
-// IgnoreErrors starts a goroutine that reads errors from errs but ignores them.
-// It can be used with Batch.Go if errors aren't needed. Since the error channel
-// is unbuffered, one cannot just throw away the error channel like this:
+// IgnoreErrors starts a goroutine that drains errs and discards the errors.
+// Use it with Batch.Go when you do not need to handle them. If the channel is
+// not drained, the batch may block once its buffer fills.
 //
-//	// NOTE: bad - this can cause a deadlock!
-//	_ = batch.Go(ctx, p, s)
-//
-// Instead, IgnoreErrors can be used to safely throw away all errors:
-//
-//	batch.IgnoreErrors(myBatch.Go(ctx, p, s))
+//      batch.IgnoreErrors(myBatch.Go(ctx, p, s))
+
 func IgnoreErrors(errs <-chan error) {
 	// nil channels always block, so check for nil first to avoid a goroutine
 	// leak
@@ -110,7 +106,7 @@ func ExecuteBatches(ctx context.Context, configs ...*BatchConfig) []error {
 		go func(cfg *BatchConfig) {
 			defer wg.Done()
 
-			if cfg.B == nil || cfg.S == nil {
+			if cfg == nil || cfg.B == nil || cfg.S == nil {
 				return
 			}
 
