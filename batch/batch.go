@@ -7,6 +7,14 @@ import (
 	"time"
 )
 
+// closedDone is a pre-closed channel returned by Done when Go has not been
+// called yet. This prevents callers from blocking on a nil channel.
+var closedDone = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
 // Batch provides batch processing given a Source and one or more Processors.
 // Data is read from the Source and processed through each Processor in sequence.
 // Any errors are wrapped in either a SourceError or a ProcessorError, so the caller
@@ -254,6 +262,9 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 //		fmt.Println("Timed out waiting for processing to finish")
 //	}
 func (b *Batch) Done() <-chan struct{} {
+	if b.done == nil {
+		return closedDone
+	}
 	return b.done
 }
 
