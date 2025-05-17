@@ -202,6 +202,37 @@ func TestResultCollector_Concurrency(t *testing.T) {
 	}
 }
 
+func TestResultCollector_ResultsWhileProcessing(t *testing.T) {
+       collector := &ResultCollector{}
+
+       var procWG sync.WaitGroup
+       procWG.Add(1)
+       go func() {
+               defer procWG.Done()
+               for i := 0; i < 100; i++ {
+                       item := &batch.Item{ID: uint64(i), Data: i}
+                       _, _ = collector.Process(context.Background(), []*batch.Item{item})
+               }
+       }()
+
+       var resultsWG sync.WaitGroup
+       calls := 20
+       resultsWG.Add(calls)
+       for i := 0; i < calls; i++ {
+               go func() {
+                       defer resultsWG.Done()
+                       _ = collector.Results(false)
+               }()
+       }
+
+       procWG.Wait()
+       resultsWG.Wait()
+
+       if count := collector.Count(); count != 100 {
+               t.Errorf("Count after processing = %d, want %d", count, 100)
+       }
+}
+
 func TestManualDataExtraction(t *testing.T) {
 	collector := &ResultCollector{}
 	

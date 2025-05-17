@@ -105,15 +105,22 @@ func (c *ResultCollector) Process(_ context.Context, items []*batch.Item) ([]*ba
 // This method is thread-safe and can be called while processing is ongoing.
 //
 // The reset parameter determines whether to clear the collection after retrieving results:
-// - If reset is true, all collected items are cleared after being returned (atomic get-and-reset)
-// - If reset is false, items remain in the collection for future retrieval
+//   - If reset is true, all collected items are cleared after being returned (atomic get-and-reset)
+//     and the method acquires an exclusive lock.
+//   - If reset is false, items remain in the collection and the method acquires a read lock so
+//     multiple goroutines may call Results concurrently.
 //
 // Note: While this method creates new batch.Item structs, it does not deep-copy
 // the Data field contents. If Data contains mutable objects, they will still
 // reference the same underlying data.
 func (c *ResultCollector) Results(reset bool) []*batch.Item {
-	c.mu.Lock() // Need exclusive lock if resetting
-	defer c.mu.Unlock()
+        if reset {
+                c.mu.Lock()
+                defer c.mu.Unlock()
+        } else {
+                c.mu.RLock()
+                defer c.mu.RUnlock()
+        }
 
 	// Create a copy of each item to prevent modifications to the Item structs
 	result := make([]*batch.Item, len(c.results))
