@@ -731,3 +731,31 @@ func TestBatch_NoTimersWithMinItems(t *testing.T) {
 		}
 	})
 }
+
+func TestBatch_GoConcurrentPanic(t *testing.T) {
+	t.Run("second call panics", func(t *testing.T) {
+		b := New(NewConstantConfig(&ConfigValues{}))
+
+		// Use a source and processor with small delays to ensure the batch stays running
+		src := &testSource{
+			Items: []interface{}{1, 2, 3, 4, 5},
+			Delay: 10 * time.Millisecond,
+		}
+		proc := &countProcessor{count: new(uint32), delay: 10 * time.Millisecond}
+
+		// Start the first batch run
+		IgnoreErrors(b.Go(context.Background(), src, proc))
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Fatal("expected panic when calling Go concurrently")
+			} else if r != "Concurrent calls to Batch.Go are not allowed" {
+				t.Fatalf("unexpected panic: %v", r)
+			}
+			<-b.Done()
+		}()
+
+		// Invoke Go a second time while the first run is active
+		b.Go(context.Background(), src, proc)
+	})
+}
