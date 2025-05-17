@@ -5,6 +5,7 @@
 // - Filter: For filtering items based on custom predicates
 // - Nil: For testing timing behavior without modifying items
 // - Transform: For transforming item data values
+// - Channel: For writing item data to an output channel
 //
 // Each processor implementation follows a consistent error handling pattern and
 // respects context cancellation.
