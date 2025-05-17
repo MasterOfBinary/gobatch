@@ -99,6 +99,7 @@ go get github.com/MasterOfBinary/gobatch
 
 - **Filter**: Filters items based on a predicate function.
 - **Transform**: Transforms item data with a custom function.
+- **ResultCollector**: Collects processed items for retrieval after processing.
 - **Error**: Simulates processor errors for testing.
 - **Nil**: Passes items through unchanged for benchmarking.
 
@@ -114,6 +115,7 @@ go get github.com/MasterOfBinary/gobatch
 - `CollectErrors`: Collects all errors into a slice after batch processing finishes.
 - `RunBatchAndWait`: Starts a batch, waits for completion, and returns all collected errors.
 - `ExecuteBatches`: Runs multiple batches concurrently and collects all errors into a single slice.
+- `ExtractData`: Extracts typed data from a ResultCollector's collected items.
 
 ## Basic Usage
 
@@ -272,6 +274,46 @@ errs := batch.RunBatchAndWait(ctx, batchProcessor, source, processor)
 
 for _, err := range errs {
     // Handle error
+}
+```
+
+### Example: Collecting Processing Results
+
+Use the ResultCollector processor to collect and access batch processing results:
+
+```go
+import (
+    "github.com/MasterOfBinary/gobatch/batch"
+    "github.com/MasterOfBinary/gobatch/processor"
+    "github.com/MasterOfBinary/gobatch/source"
+)
+
+// Create a result collector
+collector := &processor.ResultCollector{
+    // Optional: filter which items to collect
+    Filter: func(item *batch.Item) bool {
+        // Only collect items with even IDs
+        return item.ID%2 == 0
+    },
+    // Optional: limit number of collected items
+    MaxItems: 100,
+    // Optional: include items with errors (default: false)
+    CollectErrors: false,
+}
+
+// Add the collector to the processor chain
+errs := batch.RunBatchAndWait(ctx, b, src, transformProc, filterProc, collector)
+
+// Access collected results
+results := collector.Results()
+for _, item := range results {
+    fmt.Printf("Item %d: %v\n", item.ID, item.Data)
+}
+
+// Extract typed data with type safety
+strings := processor.ExtractData[string](collector)
+for _, s := range strings {
+    fmt.Println(s)
 }
 ```
 
