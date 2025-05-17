@@ -117,3 +117,58 @@ func TestDynamicConfig_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestFixConfigClampNegativeDurations(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  ConfigValues
+		expect ConfigValues
+	}{
+		{
+			name: "negative min time",
+			input: ConfigValues{
+				MinItems: 1,
+				MinTime:  -5 * time.Second,
+			},
+			expect: ConfigValues{
+				MinItems: 1,
+				MinTime:  0,
+			},
+		},
+		{
+			name: "negative max time",
+			input: ConfigValues{
+				MinItems: 1,
+				MinTime:  2 * time.Second,
+				MaxTime:  -3 * time.Second,
+			},
+			expect: ConfigValues{
+				MinItems: 1,
+				MinTime:  2 * time.Second,
+				MaxTime:  0,
+			},
+		},
+		{
+			name: "both negative",
+			input: ConfigValues{
+				MinItems: 1,
+				MinTime:  -1 * time.Second,
+				MaxTime:  -2 * time.Second,
+			},
+			expect: ConfigValues{
+				MinItems: 1,
+				MinTime:  0,
+				MaxTime:  0,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fixConfig(tt.input)
+			if got != tt.expect {
+				t.Errorf("expected %+v, got %+v", tt.expect, got)
+			}
+		})
+	}
+}

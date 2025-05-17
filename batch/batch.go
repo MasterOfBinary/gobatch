@@ -376,12 +376,19 @@ func (b *Batch) doProcessors(ctx context.Context) {
 // fixConfig corrects invalid ConfigValues to ensure consistent batch behavior.
 //
 // It applies the following adjustments:
+//   - Negative MinTime or MaxTime values are clamped to 0.
 //   - If MinItems is zero, it sets it to 1 (at least one item must be processed).
 //   - If MaxTime is set and smaller than MinTime, MinTime is reduced to MaxTime.
 //   - If MaxItems is set and smaller than MinItems, MinItems is reduced to MaxItems.
 //
 // These adjustments guarantee that batching rules do not conflict at runtime.
 func fixConfig(c ConfigValues) ConfigValues {
+	if c.MinTime < 0 {
+		c.MinTime = 0
+	}
+	if c.MaxTime < 0 {
+		c.MaxTime = 0
+	}
 	if c.MinItems == 0 {
 		c.MinItems = 1
 	}
