@@ -156,7 +156,7 @@ func TestNil_Process(t *testing.T) {
 	})
 
 	t.Run("respects MarkCancelled=false setting", func(t *testing.T) {
-		// Setup - this time don't mark items as cancelled
+		// Setup - this time don't mark items as canceled
 		processor := &Nil{
 			Duration:      1 * time.Second,
 			MarkCancelled: false,
@@ -166,7 +166,7 @@ func TestNil_Process(t *testing.T) {
 			{ID: 1, Data: "test"},
 		}
 
-		// Execute with cancelled context
+		// Execute with canceled context
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 

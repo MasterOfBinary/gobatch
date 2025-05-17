@@ -19,7 +19,7 @@ type Error struct {
 // to the error channel until Errs is closed or context is canceled.
 //
 // The returned channels are always created (never nil) and always closed properly
-// when the source is done providing errors or context is cancelled.
+// when the source is done providing errors or context is canceled.
 // The output channel is always empty, as this source produces only errors.
 func (s *Error) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
 	out := make(chan interface{})

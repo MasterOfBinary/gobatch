@@ -18,7 +18,7 @@ type Channel struct {
 // to the output channel until Input is closed or context is canceled.
 //
 // The returned channels are always created (never nil) and always closed properly
-// when the source is done providing data or context is cancelled.
+// when the source is done providing data or context is canceled.
 func (s *Channel) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
 	bufSize := 100
 	if s.BufferSize > 0 {
