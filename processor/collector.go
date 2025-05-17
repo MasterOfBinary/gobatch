@@ -112,8 +112,14 @@ func (c *ResultCollector) Process(_ context.Context, items []*batch.Item) ([]*ba
 // the Data field contents. If Data contains mutable objects, they will still
 // reference the same underlying data.
 func (c *ResultCollector) Results(reset bool) []*batch.Item {
-	c.mu.Lock() // Need exclusive lock if resetting
-	defer c.mu.Unlock()
+	// Use appropriate lock based on whether we're resetting
+	if reset {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+	} else {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+	}
 
 	// Create a copy of each item to prevent modifications to the Item structs
 	result := make([]*batch.Item, len(c.results))
@@ -126,7 +132,7 @@ func (c *ResultCollector) Results(reset bool) []*batch.Item {
 		}
 	}
 
-	// Reset the collection if requested
+	// Reset the collection if requested (we already have exclusive lock if reset is true)
 	if reset {
 		c.results = nil
 	}
