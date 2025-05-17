@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/MasterOfBinary/gobatch/batch"
@@ -71,14 +72,14 @@ func (p *validationProcessor) Process(ctx context.Context, items []*batch.Item) 
 
 type errorProneProcessor struct {
 	failOnBatch int
-	batchCount  int
+	batchCount  int32
 }
 
 func (p *errorProneProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
-	p.batchCount++
+	batchNum := atomic.AddInt32(&p.batchCount, 1)
 
-	if p.batchCount == p.failOnBatch {
-		return items, fmt.Errorf("processor failed on batch %d", p.batchCount)
+	if int(batchNum) == p.failOnBatch {
+		return items, fmt.Errorf("processor failed on batch %d", batchNum)
 	}
 
 	for _, item := range items {
