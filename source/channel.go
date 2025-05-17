@@ -4,6 +4,8 @@ import (
 	"context"
 )
 
+// defaultChannelBuffer is used when BufferSize is zero, controlling the
+// capacity of the output channel created by Channel.Read.
 const defaultChannelBuffer = 100
 
 // Channel is a Source that reads from an input channel until it's closed.
