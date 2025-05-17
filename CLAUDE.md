@@ -6,8 +6,10 @@ This file contains instructions and guidelines for Claude when working with this
 GoBatch is a Go library for batch data processing. It provides infrastructure for processing batches of data with configurable sources, processors, and pipelines. The library allows for flexible batch processing with configurable timing and item count parameters.
 
 ## Important Commands
-- Run tests: `go test ./...`
-- Lint code: `go vet ./...`
+- Format code with `gofmt` and ensure no unformatted files remain.
+- Run tests with race detection and coverage: `go test -race -coverprofile=coverage.txt -covermode=atomic ./...`
+- Lint code with `go vet ./...`
+- Run `golangci-lint run` for additional lint checks.
 
 ## Code Standards
 - Follow Go best practices and idiomatic Go patterns
