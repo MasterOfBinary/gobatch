@@ -731,3 +731,31 @@ func TestBatch_NoTimersWithMinItems(t *testing.T) {
 		}
 	})
 }
+
+func TestBatch_DoneNonBlocking(t *testing.T) {
+	t.Run("before Go", func(t *testing.T) {
+		b := New(NewConstantConfig(nil))
+		select {
+		case <-b.Done():
+		// channel should already be closed
+		case <-time.After(10 * time.Millisecond):
+			t.Fatal("Done blocked before Go")
+		}
+	})
+
+	t.Run("after Go", func(t *testing.T) {
+		b := New(NewConstantConfig(nil))
+		src := &testSource{Items: []interface{}{}}
+		errs := b.Go(context.Background(), src)
+		<-b.Done()
+		for range errs {
+		}
+
+		select {
+		case <-b.Done():
+		// should not block after completion
+		case <-time.After(10 * time.Millisecond):
+			t.Fatal("Done blocked after Go")
+		}
+	})
+}
