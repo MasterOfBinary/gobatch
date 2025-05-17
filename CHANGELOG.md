@@ -8,21 +8,34 @@ Note: This project is in early development. The API may change without warning i
 
 ## [Unreleased]
 
-This release introduces `DynamicConfig` and adds a bunch of examples.
+## [0.3.0] - 2025-05-17
+
+This release introduces new processors, dynamic configuration support, and significant documentation improvements. It also standardizes code formatting and enhances error handling.
 
 ### Added
 
+- New `Channel` processor for forwarding item data to output channels.
 - `DynamicConfig`, a thread-safe, runtime-adjustable configuration for batch processing.
 - Full test coverage for `ConstantConfig` and `DynamicConfig`.
-- Several new examples.
+- Comprehensive package-level documentation in all packages.
+- Detailed usage examples for core components.
+- Pre-closed channel for `Done()` method to prevent blocking on nil channels.
+- CI enforcement of standard code formatting with gofmt.
 
 ### Fixed
 
 - Fixed data race conditions in `example_dynamic_config_test.go` with proper mutex protection.
+- Fixed `Done()` method to always return a non-nil channel.
+- Fixed various linter warnings throughout the codebase.
+- Ensured proper error handling in example code.
 
 ### Improved
 
-- Improved a lot of the documentation.
+- Standardized code formatting with gofmt across the entire codebase.
+- Enhanced inline documentation for all packages and key types.
+- Modernized CI pipeline with improved testing.
+- Better test coverage for edge cases and error scenarios.
+- Renamed gobatch.go to doc.go to follow Go conventions.
 
 
 ## [0.2.1] - 2025-04-25
