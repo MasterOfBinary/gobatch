@@ -115,7 +115,6 @@ go get github.com/MasterOfBinary/gobatch
 - `CollectErrors`: Collects all errors into a slice after batch processing finishes.
 - `RunBatchAndWait`: Starts a batch, waits for completion, and returns all collected errors.
 - `ExecuteBatches`: Runs multiple batches concurrently and collects all errors into a single slice.
-- `ExtractData`: Extracts typed data from a ResultCollector's collected items.
 
 ## Basic Usage
 
