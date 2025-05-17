@@ -22,15 +22,15 @@ import (
 //
 // Example usage:
 //
-//	collector := &processor.ResultCollector{}
-//	b := batch.New(config)
-//	batch.RunBatchAndWait(ctx, b, source, processor1, processor2, collector)
-//	
-//	// Access results
-//	results := collector.Results()
-//	for _, item := range results {
-//	  fmt.Println(item.Data)
-//	}
+// collector := &processor.ResultCollector{}
+// b := batch.New(config)
+// batch.RunBatchAndWait(ctx, b, source, processor1, processor2, collector)
+// 
+// // Access results
+// results := collector.Results()
+// for _, item := range results {
+//   fmt.Println(item.Data)
+// }
 //
 // By default, items with errors are not collected. This behavior can be
 // changed by setting CollectErrors to true.
@@ -136,11 +136,11 @@ func (c *ResultCollector) Count() int {
 //
 // Example:
 //
-//	collector := &processor.ResultCollector{}
-//	batch.RunBatchAndWait(ctx, b, src, processor1, collector)
-//	
-//	// Extract all string values
-//	strings := processor.ExtractData[string](collector)
+// collector := &processor.ResultCollector{}
+// batch.RunBatchAndWait(ctx, b, src, processor1, collector)
+// 
+// // Extract all string values
+// strings := processor.ExtractData[string](collector)
 func ExtractData[T any](collector *ResultCollector) []T {
 	items := collector.Results()
 	result := make([]T, 0, len(items))
