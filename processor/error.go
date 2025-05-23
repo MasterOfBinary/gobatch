@@ -10,6 +10,8 @@ import (
 // Error is a Processor that marks all incoming items with the given error.
 // It's useful for testing error handling in batch processing pipelines and
 // for simulating scenarios where items fail processing.
+//
+// Deprecated: Use NewError() to create an Error processor.
 type Error struct {
 	// Err is the error to apply to each item.
 	// If nil, a default "processor error" will be used.

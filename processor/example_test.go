@@ -9,12 +9,14 @@ import (
 )
 
 func ExampleTransform() {
-	p := &processor.Transform{Func: func(v interface{}) (interface{}, error) {
-		if n, ok := v.(int); ok {
-			return n * 2, nil
-		}
-		return v, nil
-	}}
+	p, _ := processor.NewTransform(processor.TransformConfig{
+		Func: func(v interface{}) (interface{}, error) {
+			if n, ok := v.(int); ok {
+				return n * 2, nil
+			}
+			return v, nil
+		},
+	})
 
 	items := []*batch.Item{{Data: 1}, {Data: 2}}
 	res, _ := p.Process(context.Background(), items)
