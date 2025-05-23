@@ -19,15 +19,15 @@ var closedDone = func() chan struct{} {
 // If not specified, default values are used.
 type BufferConfig struct {
 	// ItemBufferSize is the buffer size for the items channel.
-	// Default: DefaultItemBufferSize (100)
+	// Default: DefaultItemBufferSize
 	ItemBufferSize int
 
 	// IDBufferSize is the buffer size for the ID generator channel.
-	// Default: DefaultIDBufferSize (100)
+	// Default: DefaultIDBufferSize
 	IDBufferSize int
 
 	// ErrorBufferSize is the buffer size for the error channel.
-	// Default: DefaultErrorBufferSize (100)
+	// Default: DefaultErrorBufferSize
 	ErrorBufferSize int
 }
 
