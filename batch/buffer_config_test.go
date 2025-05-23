@@ -19,9 +19,9 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 			IDBufferSize:    600,
 			ErrorBufferSize: 200,
 		}
-		
+
 		b := New(nil).WithBufferConfig(customConfig)
-		
+
 		// Verify the config was set
 		if b.bufferConfig.ItemBufferSize != 500 {
 			t.Errorf("expected ItemBufferSize=500, got %d", b.bufferConfig.ItemBufferSize)
@@ -33,11 +33,11 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 			t.Errorf("expected ErrorBufferSize=200, got %d", b.bufferConfig.ErrorBufferSize)
 		}
 	})
-	
+
 	t.Run("zero values use defaults", func(t *testing.T) {
 		// Create batch with zero buffer config
 		b := New(nil)
-		
+
 		// Create a simple source
 		src := testSourceFunc(func(ctx context.Context) (<-chan interface{}, <-chan error) {
 			out := make(chan interface{})
@@ -49,24 +49,24 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 			}()
 			return out, errs
 		})
-		
+
 		// Start processing to trigger channel creation
 		errs := b.Go(context.Background(), src)
 		IgnoreErrors(errs)
 		<-b.Done()
-		
+
 		// Can't directly test channel buffer sizes, but test should not panic
 	})
-	
+
 	t.Run("negative values use defaults", func(t *testing.T) {
 		customConfig := BufferConfig{
 			ItemBufferSize:  -1,
 			IDBufferSize:    -1,
 			ErrorBufferSize: -1,
 		}
-		
+
 		b := New(nil).WithBufferConfig(customConfig)
-		
+
 		// Create a simple source
 		src := testSourceFunc(func(ctx context.Context) (<-chan interface{}, <-chan error) {
 			out := make(chan interface{})
@@ -78,12 +78,12 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 			}()
 			return out, errs
 		})
-		
+
 		// Start processing - should use default buffer sizes
 		errs := b.Go(context.Background(), src)
 		IgnoreErrors(errs)
 		<-b.Done()
-		
+
 		// Test should not panic
 	})
 }
@@ -99,7 +99,7 @@ func TestDefaultConstants(t *testing.T) {
 	if DefaultErrorBufferSize < 1 {
 		t.Errorf("DefaultErrorBufferSize should be positive, got %d", DefaultErrorBufferSize)
 	}
-	
+
 	// Verify defaults are consistent
 	if DefaultItemBufferSize != 100 {
 		t.Errorf("DefaultItemBufferSize changed from expected 100 to %d", DefaultItemBufferSize)
