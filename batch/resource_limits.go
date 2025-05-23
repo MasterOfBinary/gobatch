@@ -38,14 +38,14 @@ func DefaultResourceLimits() ResourceLimits {
 	numCPU := runtime.NumCPU()
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	
+
 	// Use 80% of system memory as total limit
 	totalMem := int64(float64(memStats.Sys) * 0.8)
-	
+
 	return ResourceLimits{
-		MaxConcurrentBatches: numCPU * 2,           // 2 batches per CPU
+		MaxConcurrentBatches: numCPU * 2,                 // 2 batches per CPU
 		MaxMemoryPerBatch:    totalMem / int64(numCPU*4), // Divide available memory
-		MaxProcessingTime:    5 * time.Minute,       // 5 minutes max per batch
+		MaxProcessingTime:    5 * time.Minute,            // 5 minutes max per batch
 		MaxTotalMemory:       totalMem,
 	}
 }
@@ -55,32 +55,32 @@ func (r ResourceLimits) Validate() error {
 	if r.MaxConcurrentBatches < 0 {
 		return errors.New("MaxConcurrentBatches cannot be negative")
 	}
-	
+
 	if r.MaxMemoryPerBatch < 0 {
 		return errors.New("MaxMemoryPerBatch cannot be negative")
 	}
-	
+
 	if r.MaxProcessingTime < 0 {
 		return errors.New("MaxProcessingTime cannot be negative")
 	}
-	
+
 	if r.MaxTotalMemory < 0 {
 		return errors.New("MaxTotalMemory cannot be negative")
 	}
-	
+
 	if r.MaxTotalMemory > 0 && r.MaxMemoryPerBatch > 0 && r.MaxMemoryPerBatch > r.MaxTotalMemory {
 		return fmt.Errorf("MaxMemoryPerBatch (%d) cannot be greater than MaxTotalMemory (%d)",
 			r.MaxMemoryPerBatch, r.MaxTotalMemory)
 	}
-	
+
 	return nil
 }
 
 // resourceTracker tracks resource usage for enforcing limits.
 type resourceTracker struct {
-	activeBatches    int32
-	estimatedMemory  int64
-	limits           ResourceLimits
+	activeBatches   int32
+	estimatedMemory int64
+	limits          ResourceLimits
 }
 
 // newResourceTracker creates a new resource tracker with the given limits.
@@ -98,7 +98,7 @@ func (rt *resourceTracker) canStartBatch(estimatedSize int64) error {
 			return fmt.Errorf("maximum concurrent batches limit reached (%d)", rt.limits.MaxConcurrentBatches)
 		}
 	}
-	
+
 	if rt.limits.MaxTotalMemory > 0 {
 		currentMem := atomic.LoadInt64(&rt.estimatedMemory)
 		if currentMem+estimatedSize > rt.limits.MaxTotalMemory {
@@ -106,12 +106,12 @@ func (rt *resourceTracker) canStartBatch(estimatedSize int64) error {
 				currentMem, estimatedSize, rt.limits.MaxTotalMemory)
 		}
 	}
-	
+
 	if rt.limits.MaxMemoryPerBatch > 0 && estimatedSize > rt.limits.MaxMemoryPerBatch {
 		return fmt.Errorf("batch size %d exceeds per-batch memory limit %d",
 			estimatedSize, rt.limits.MaxMemoryPerBatch)
 	}
-	
+
 	return nil
 }
 

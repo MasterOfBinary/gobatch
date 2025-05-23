@@ -76,19 +76,19 @@ func (c ConfigValues) Validate() error {
 	if c.MaxItems > 0 && c.MinItems > c.MaxItems {
 		return fmt.Errorf("MinItems (%d) cannot be greater than MaxItems (%d)", c.MinItems, c.MaxItems)
 	}
-	
+
 	if c.MinTime < 0 {
 		return errors.New("MinTime cannot be negative")
 	}
-	
+
 	if c.MaxTime < 0 {
 		return errors.New("MaxTime cannot be negative")
 	}
-	
+
 	if c.MaxTime > 0 && c.MinTime > 0 && c.MinTime > c.MaxTime {
 		return fmt.Errorf("MinTime (%v) cannot be greater than MaxTime (%v)", c.MinTime, c.MaxTime)
 	}
-	
+
 	return nil
 }
 

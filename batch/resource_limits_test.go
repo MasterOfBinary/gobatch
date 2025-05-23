@@ -219,16 +219,16 @@ func TestBatchWithResourceLimits(t *testing.T) {
 			}()
 			return out, errs
 		})
-		
+
 		errs := b.Go(context.Background(), src, proc)
-		
+
 		var errorCount int
 		for err := range errs {
 			if err != nil {
 				errorCount++
 			}
 		}
-		
+
 		// With limit of 1 concurrent batch, processing should succeed
 		// but may have resource limit errors if batches tried to run concurrently
 		<-b.Done()
@@ -271,20 +271,20 @@ func TestBatchWithResourceLimits(t *testing.T) {
 			}()
 			return out, errs
 		})
-		
+
 		errs := b.Go(context.Background(), src, proc)
-		
+
 		hadTimeout := false
 		for err := range errs {
 			if err != nil && (err == context.DeadlineExceeded || strings.Contains(err.Error(), "deadline")) {
 				hadTimeout = true
 			}
 		}
-		
+
 		if !hadTimeout {
 			t.Error("expected timeout error due to processing time limit")
 		}
-		
+
 		<-b.Done()
 	})
 }

@@ -143,17 +143,17 @@ func TestBatch_GoWithInvalidConfig(t *testing.T) {
 	})
 
 	errs := b.Go(context.Background(), src, proc)
-	
+
 	// Should get configuration error immediately
 	err := <-errs
 	if err == nil {
 		t.Fatal("expected configuration error")
 	}
-	
+
 	if !strings.Contains(err.Error(), "invalid configuration") {
 		t.Errorf("expected invalid configuration error, got: %v", err)
 	}
-	
+
 	// Ensure batch is marked as not running
 	b.mu.Lock()
 	if b.running {

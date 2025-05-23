@@ -17,11 +17,11 @@ func (o *Options) WithDefaults() *Options {
 	if o == nil {
 		o = &Options{}
 	}
-	
+
 	if o.Config == nil {
 		o.Config = NewConstantConfig(nil)
 	}
-	
+
 	return o
 }
 
@@ -41,14 +41,14 @@ func (o *Options) WithDefaults() *Options {
 //	b := batch.NewWithOptions(opts)
 func NewWithOptions(opts *Options) *Batch {
 	opts = opts.WithDefaults()
-	
+
 	b := &Batch{
 		config: opts.Config,
 	}
-	
+
 	if opts.ResourceLimits != nil {
 		b.resourceTracker = newResourceTracker(*opts.ResourceLimits)
 	}
-	
+
 	return b
 }
