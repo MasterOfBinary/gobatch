@@ -108,11 +108,11 @@ func New(config Config) *Batch {
 func (b *Batch) WithBufferConfig(config BufferConfig) *Batch {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	if b.running {
 		panic("batch: WithBufferConfig cannot be called after Go() has started")
 	}
-	
+
 	b.bufferConfig = config
 	return b
 }
