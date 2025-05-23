@@ -12,6 +12,8 @@ type TransformFunc func(data interface{}) (interface{}, error)
 
 // Transform is a processor that applies a transformation function to each item's Data field.
 // It can be used to convert, modify, or restructure data during batch processing.
+//
+// Deprecated: Use NewTransform() to create a Transform processor with validation.
 type Transform struct {
 	// Func is the transformation function to apply to each item's Data field.
 	// If nil, items pass through unchanged.

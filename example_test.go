@@ -17,11 +17,13 @@ func Example() {
 	ch <- "hello"
 	close(ch)
 
-	src := &source.Channel{Input: ch}
-	proc := &processor.Transform{Func: func(v interface{}) (interface{}, error) {
-		fmt.Println(v)
-		return v, nil
-	}}
+	src, _ := source.NewChannel(source.ChannelConfig{Input: ch})
+	proc, _ := processor.NewTransform(processor.TransformConfig{
+		Func: func(v interface{}) (interface{}, error) {
+			fmt.Println(v)
+			return v, nil
+		},
+	})
 
 	batch.IgnoreErrors(b.Go(context.Background(), src, proc))
 	<-b.Done()
