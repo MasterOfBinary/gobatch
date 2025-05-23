@@ -76,6 +76,14 @@ func New(config Config) *Batch {
 	}
 }
 
+// setRunning sets the running state of the batch.
+// This method is safe for concurrent access.
+func (b *Batch) setRunning(running bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.running = running
+}
+
 // Item represents a single data item flowing through the batch pipeline.
 type Item struct {
 	// ID is a unique identifier for the item. It must not be modified by processors.
@@ -209,10 +217,12 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 	if s == nil {
 		b.errs = make(chan error, 1)
 		b.done = make(chan struct{})
-		b.errs <- errors.New("source cannot be nil")
-		close(b.errs)
-		close(b.done)
 		b.running = false
+		go func() {
+			b.errs <- errors.New("source cannot be nil")
+			close(b.errs)
+			close(b.done)
+		}()
 		return b.errs
 	}
 
@@ -262,6 +272,9 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 //		fmt.Println("Timed out waiting for processing to finish")
 //	}
 func (b *Batch) Done() <-chan struct{} {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if b.done == nil {
 		return closedDone
 	}
@@ -379,9 +392,7 @@ func (b *Batch) doProcessors(ctx context.Context) {
 	wg.Wait()
 	close(b.errs)
 	close(b.done)
-	b.mu.Lock()
-	b.running = false
-	b.mu.Unlock()
+	b.setRunning(false)
 }
 
 // fixConfig corrects invalid ConfigValues to ensure consistent batch behavior.
