@@ -2,6 +2,7 @@ package batch
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -85,6 +86,84 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		<-b.Done()
 
 		// Test should not panic
+	})
+	
+	t.Run("panic if called after Go", func(t *testing.T) {
+		b := New(nil)
+		
+		// Create a simple source
+		src := testSourceFunc(func(ctx context.Context) (<-chan interface{}, <-chan error) {
+			out := make(chan interface{})
+			errs := make(chan error)
+			go func() {
+				defer close(out)
+				defer close(errs)
+				out <- "test"
+			}()
+			return out, errs
+		})
+		
+		// Start batch processing
+		errs := b.Go(context.Background(), src)
+		
+		// Should panic when trying to set buffer config after Go
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("expected panic when calling WithBufferConfig after Go")
+			} else if msg, ok := r.(string); ok {
+				if !strings.Contains(msg, "WithBufferConfig cannot be called after Go() has started") {
+					t.Errorf("unexpected panic message: %s", msg)
+				}
+			}
+		}()
+		
+		b.WithBufferConfig(BufferConfig{
+			ItemBufferSize: 500,
+		})
+		
+		// Clean up
+		IgnoreErrors(errs)
+		<-b.Done()
+	})
+	
+	t.Run("thread safe with Go", func(t *testing.T) {
+		b := New(nil)
+		
+		// Try to call WithBufferConfig and Go concurrently
+		// One should succeed, one should panic
+		done := make(chan bool, 2)
+		
+		go func() {
+			defer func() {
+				recover() // Ignore panic
+				done <- true
+			}()
+			b.WithBufferConfig(BufferConfig{
+				ItemBufferSize: 500,
+			})
+		}()
+		
+		go func() {
+			defer func() {
+				done <- true
+			}()
+			src := testSourceFunc(func(ctx context.Context) (<-chan interface{}, <-chan error) {
+				out := make(chan interface{})
+				errs := make(chan error)
+				close(out)
+				close(errs)
+				return out, errs
+			})
+			errs := b.Go(context.Background(), src)
+			IgnoreErrors(errs)
+		}()
+		
+		// Wait for both goroutines
+		<-done
+		<-done
+		
+		// Wait for batch to complete
+		<-b.Done()
 	})
 }
 
