@@ -2,6 +2,8 @@
 package batch
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -65,6 +67,29 @@ type ConfigValues struct {
 	// in a single batch, which could lead to memory pressure or processing
 	// spikes.
 	MaxItems uint64 `json:"maxItems"`
+}
+
+// Validate checks if the configuration values are valid.
+// It returns an error if any validation rules are violated.
+// Note: MinItems of 0 is valid and means process items immediately.
+func (c ConfigValues) Validate() error {
+	if c.MaxItems > 0 && c.MinItems > c.MaxItems {
+		return fmt.Errorf("MinItems (%d) cannot be greater than MaxItems (%d)", c.MinItems, c.MaxItems)
+	}
+
+	if c.MinTime < 0 {
+		return errors.New("MinTime cannot be negative")
+	}
+
+	if c.MaxTime < 0 {
+		return errors.New("MaxTime cannot be negative")
+	}
+
+	if c.MaxTime > 0 && c.MinTime > 0 && c.MinTime > c.MaxTime {
+		return fmt.Errorf("MinTime (%v) cannot be greater than MaxTime (%v)", c.MinTime, c.MaxTime)
+	}
+
+	return nil
 }
 
 // NewConstantConfig returns a Config with constant values. If values

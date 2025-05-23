@@ -3,6 +3,7 @@ package batch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -52,12 +53,13 @@ var closedDone = func() chan struct{} {
 // of type SourceError, processor errors will be of type ProcessorError, and
 // Batch errors (internal errors) will be plain.
 type Batch struct {
-	config     Config
-	src        Source
-	processors []Processor
-	items      chan *Item
-	ids        chan uint64
-	done       chan struct{}
+	config          Config
+	src             Source
+	processors      []Processor
+	items           chan *Item
+	ids             chan uint64
+	done            chan struct{}
+	resourceTracker *resourceTracker
 
 	mu      sync.Mutex
 	running bool
@@ -201,6 +203,18 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 
 	if b.config == nil {
 		b.config = NewConstantConfig(nil)
+	}
+
+	// Validate configuration
+	configValues := b.config.Get()
+	if err := configValues.Validate(); err != nil {
+		b.errs = make(chan error, 1)
+		b.done = make(chan struct{})
+		b.errs <- fmt.Errorf("invalid configuration: %w", err)
+		close(b.errs)
+		close(b.done)
+		b.running = false
+		return b.errs
 	}
 
 	b.running = true
@@ -352,9 +366,38 @@ func (b *Batch) doProcessors(ctx context.Context) {
 			break
 		}
 
+		// Check resource limits if tracker is configured
+		var estimatedSize int64
+		if b.resourceTracker != nil {
+			// Estimate batch size (rough estimate: 1KB per item)
+			estimatedSize = int64(len(batch)) * 1024
+			if err := b.resourceTracker.canStartBatch(estimatedSize); err != nil {
+				b.errs <- fmt.Errorf("resource limit exceeded: %w", err)
+				// Drop the batch - we can't process it due to resource limits
+				for _, item := range batch {
+					item.Error = fmt.Errorf("dropped due to resource limits: %w", err)
+					b.errs <- &ProcessorError{Err: item.Error}
+				}
+				continue
+			}
+			b.resourceTracker.startBatch(estimatedSize)
+		}
+
 		wg.Add(1)
-		go func(items []*Item) {
+		go func(items []*Item, size int64) {
 			defer wg.Done()
+			if b.resourceTracker != nil {
+				defer b.resourceTracker.finishBatch(size)
+			}
+
+			// Apply processing time limit if configured
+			processCtx := ctx
+			var cancel context.CancelFunc
+			if b.resourceTracker != nil && b.resourceTracker.limits.MaxProcessingTime > 0 {
+				processCtx, cancel = context.WithTimeout(ctx, b.resourceTracker.limits.MaxProcessingTime)
+				defer cancel()
+			}
+
 			for _, proc := range b.processors {
 				// Skip nil processors (although they should have been filtered out in Go)
 				if proc == nil {
@@ -362,7 +405,7 @@ func (b *Batch) doProcessors(ctx context.Context) {
 				}
 
 				var err error
-				items, err = proc.Process(ctx, items)
+				items, err = proc.Process(processCtx, items)
 				if err != nil {
 					b.errs <- &ProcessorError{Err: err}
 				}
@@ -373,7 +416,7 @@ func (b *Batch) doProcessors(ctx context.Context) {
 					b.errs <- &ProcessorError{Err: item.Error}
 				}
 			}
-		}(batch)
+		}(batch, estimatedSize)
 	}
 
 	wg.Wait()
