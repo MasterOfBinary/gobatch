@@ -15,6 +15,22 @@ var closedDone = func() chan struct{} {
 	return ch
 }()
 
+// BufferConfig configures the internal buffer sizes used by Batch.
+// If not specified, default values are used.
+type BufferConfig struct {
+	// ItemBufferSize is the buffer size for the items channel.
+	// Default: DefaultItemBufferSize (100)
+	ItemBufferSize int
+
+	// IDBufferSize is the buffer size for the ID generator channel.
+	// Default: DefaultIDBufferSize (100)
+	IDBufferSize int
+
+	// ErrorBufferSize is the buffer size for the error channel.
+	// Default: DefaultErrorBufferSize (100)
+	ErrorBufferSize int
+}
+
 // Batch provides batch processing given a Source and one or more Processors.
 // Data is read from the Source and processed through each Processor in sequence.
 // Any errors are wrapped in either a SourceError or a ProcessorError, so the caller
@@ -52,12 +68,13 @@ var closedDone = func() chan struct{} {
 // of type SourceError, processor errors will be of type ProcessorError, and
 // Batch errors (internal errors) will be plain.
 type Batch struct {
-	config     Config
-	src        Source
-	processors []Processor
-	items      chan *Item
-	ids        chan uint64
-	done       chan struct{}
+	config       Config
+	bufferConfig BufferConfig
+	src          Source
+	processors   []Processor
+	items        chan *Item
+	ids          chan uint64
+	done         chan struct{}
 
 	mu      sync.Mutex
 	running bool
@@ -74,6 +91,21 @@ func New(config Config) *Batch {
 	return &Batch{
 		config: config,
 	}
+}
+
+// WithBufferConfig sets custom buffer sizes for the Batch.
+// This must be called before Go() is called.
+//
+// Example:
+//
+//	b := batch.New(config).WithBufferConfig(batch.BufferConfig{
+//		ItemBufferSize:  1000,
+//		IDBufferSize:    1000,
+//		ErrorBufferSize: 500,
+//	})
+func (b *Batch) WithBufferConfig(config BufferConfig) *Batch {
+	b.bufferConfig = config
+	return b
 }
 
 // Item represents a single data item flowing through the batch pipeline.
@@ -226,9 +258,23 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 		}
 	}
 
-	b.items = make(chan *Item, 100)
-	b.ids = make(chan uint64, 100)
-	b.errs = make(chan error, 100)
+	// Use custom buffer sizes if specified, otherwise use defaults
+	itemBuf := b.bufferConfig.ItemBufferSize
+	if itemBuf <= 0 {
+		itemBuf = DefaultItemBufferSize
+	}
+	idBuf := b.bufferConfig.IDBufferSize
+	if idBuf <= 0 {
+		idBuf = DefaultIDBufferSize
+	}
+	errBuf := b.bufferConfig.ErrorBufferSize
+	if errBuf <= 0 {
+		errBuf = DefaultErrorBufferSize
+	}
+
+	b.items = make(chan *Item, itemBuf)
+	b.ids = make(chan uint64, idBuf)
+	b.errs = make(chan error, errBuf)
 	b.done = make(chan struct{})
 
 	go b.doIDGenerator()
