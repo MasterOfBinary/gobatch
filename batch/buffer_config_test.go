@@ -135,7 +135,7 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 
 		go func() {
 			defer func() {
-				recover() // Ignore panic
+				_ = recover() // Ignore panic
 				done <- true
 			}()
 			b.WithBufferConfig(BufferConfig{
