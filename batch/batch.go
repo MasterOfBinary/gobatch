@@ -70,6 +70,8 @@ type BufferConfig struct {
 type Batch struct {
 	config       Config
 	bufferConfig BufferConfig
+	logger       Logger
+	stats        StatsCollector
 	src          Source
 	processors   []Processor
 	items        chan *Item
@@ -114,6 +116,52 @@ func (b *Batch) WithBufferConfig(config BufferConfig) *Batch {
 	}
 
 	b.bufferConfig = config
+	return b
+}
+
+// WithLogger sets a custom logger for the Batch.
+// This must be called before Go() is called.
+// If not set, no logging occurs (uses NoOpLogger internally).
+//
+// Example:
+//
+//	b := batch.New(config).WithLogger(batch.NewSimpleLogger(batch.LogLevelInfo))
+//
+// Panics if called after Go() has started to prevent data races and confusion.
+func (b *Batch) WithLogger(logger Logger) *Batch {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.running {
+		panic("batch: WithLogger cannot be called after Go() has started")
+	}
+
+	b.logger = logger
+	return b
+}
+
+// WithStats sets a custom stats collector for the Batch.
+// This must be called before Go() is called.
+// If not set, no statistics are collected (uses NoOpStatsCollector internally).
+//
+// Example:
+//
+//	stats := batch.NewBasicStatsCollector()
+//	b := batch.New(config).WithStats(stats)
+//
+//	// Later, retrieve statistics
+//	currentStats := stats.GetStats()
+//
+// Panics if called after Go() has started to prevent data races and confusion.
+func (b *Batch) WithStats(stats StatsCollector) *Batch {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.running {
+		panic("batch: WithStats cannot be called after Go() has started")
+	}
+
+	b.stats = stats
 	return b
 }
 
@@ -244,6 +292,14 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 		b.config = NewConstantConfig(nil)
 	}
 
+	// Initialize logger and stats if not provided
+	if b.logger == nil {
+		b.logger = &NoOpLogger{}
+	}
+	if b.stats == nil {
+		b.stats = &NoOpStatsCollector{}
+	}
+
 	b.running = true
 
 	// Check if source is nil and return error if it is
@@ -285,6 +341,9 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 	b.ids = make(chan uint64, idBuf)
 	b.errs = make(chan error, errBuf)
 	b.done = make(chan struct{})
+
+	// Log batch processing start
+	b.logger.Info("Starting batch processing with %d processor(s)", len(b.processors))
 
 	go b.doIDGenerator()
 	go b.doReader(ctx)
@@ -349,16 +408,19 @@ func (b *Batch) doIDGenerator() {
 // to signal that no more data will be produced.
 func (b *Batch) doReader(ctx context.Context) {
 	// Get channels from source
+	b.logger.Debug("Starting source reader")
 	out, errs := b.src.Read(ctx)
 
 	// Handle nil channels from source - just report an error and finish
 	if out == nil || errs == nil {
+		b.logger.Error("Invalid source implementation: returned nil channel(s)")
 		b.errs <- errors.New("invalid source implementation: returned nil channel(s)")
 		close(b.items)
 		return
 	}
 
 	var outClosed, errsClosed bool
+	var itemCount uint64
 	for !outClosed || !errsClosed {
 		select {
 		case data, ok := <-out:
@@ -371,16 +433,21 @@ func (b *Batch) doReader(ctx context.Context) {
 				ID:   id,
 				Data: data,
 			}
+			itemCount++
+			b.logger.Debug("Read item %d from source", id)
 
 		case err, ok := <-errs:
 			if !ok {
 				errsClosed = true
 				continue
 			}
+			b.logger.Error("Source error: %v", err)
+			b.stats.RecordSourceError()
 			b.errs <- &SourceError{Err: err}
 		}
 	}
 
+	b.logger.Info("Source reading complete. Total items read: %d", itemCount)
 	close(b.items)
 }
 
@@ -397,6 +464,9 @@ func (b *Batch) doReader(ctx context.Context) {
 // of Processors. Each Processor receives the output from the previous one.
 func (b *Batch) doProcessors(ctx context.Context) {
 	var wg sync.WaitGroup
+	var batchCount uint64
+
+	b.logger.Debug("Starting batch processor")
 
 	for {
 		config := fixConfig(b.config.Get())
@@ -407,31 +477,54 @@ func (b *Batch) doProcessors(ctx context.Context) {
 			break
 		}
 
+		batchCount++
+		batchSize := len(batch)
+		b.logger.Debug("Processing batch %d with %d items", batchCount, batchSize)
+		b.stats.RecordBatchStart(batchSize)
+
 		wg.Add(1)
-		go func(items []*Item) {
+		go func(items []*Item, batchNum uint64) {
 			defer wg.Done()
-			for _, proc := range b.processors {
+			startTime := time.Now()
+
+			for i, proc := range b.processors {
 				// Skip nil processors (although they should have been filtered out in Go)
 				if proc == nil {
 					continue
 				}
 
+				b.logger.Debug("Batch %d: running processor %d", batchNum, i+1)
 				var err error
 				items, err = proc.Process(ctx, items)
 				if err != nil {
+					b.logger.Error("Batch %d: processor %d error: %v", batchNum, i+1, err)
+					b.stats.RecordProcessorError()
 					b.errs <- &ProcessorError{Err: err}
 				}
 			}
 
+			var successCount, errorCount int
 			for _, item := range items {
 				if item.Error != nil {
+					errorCount++
+					b.logger.Debug("Batch %d: item %d error: %v", batchNum, item.ID, item.Error)
+					b.stats.RecordItemError()
 					b.errs <- &ProcessorError{Err: item.Error}
+				} else {
+					successCount++
+					b.stats.RecordItemProcessed()
 				}
 			}
-		}(batch)
+
+			duration := time.Since(startTime)
+			b.stats.RecordBatchComplete(len(items), duration)
+			b.logger.Info("Batch %d complete: %d successful, %d errors, duration: %v",
+				batchNum, successCount, errorCount, duration)
+		}(batch, batchCount)
 	}
 
 	wg.Wait()
+	b.logger.Info("Batch processing complete. Total batches: %d", batchCount)
 	close(b.errs)
 	close(b.done)
 	b.mu.Lock()
