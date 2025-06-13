@@ -228,6 +228,10 @@ type Processor interface {
 //
 //	<-b.Done()
 //
+// If `procs` is empty or contains only `nil` processors, items will be read
+// from the `Source` and discarded. The batch operation will complete normally,
+// and this can be a valid way to drain a source without processing items.
+//
 // Important:
 //   - The Source must close its channels when reading is complete.
 //   - Processors must check for context cancellation and stop early if needed.
@@ -474,7 +478,7 @@ func fixConfig(c ConfigValues) ConfigValues {
 //   - MinItems: If reached, waits until MinTime is also satisfied.
 //
 // The method returns the collected batch of items.
-func (b *Batch) waitForItems(_ context.Context, config ConfigValues) []*Item {
+func (b *Batch) waitForItems(ctx context.Context, config ConfigValues) []*Item {
 	var (
 		reachedMinTime bool
 		batch          = make([]*Item, 0, config.MinItems)
@@ -527,6 +531,8 @@ func (b *Batch) waitForItems(_ context.Context, config ConfigValues) []*Item {
 				return batch
 			}
 			// If max timer fires with no items, continue waiting
+		case <-ctx.Done(): // New case
+			return batch // Return current batch
 		}
 	}
 }

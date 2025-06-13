@@ -430,6 +430,120 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 	})
 }
 
+// cancellationTestSource is a helper source for testing context cancellation
+// in waitForItems. It sends items from an input channel and keeps its
+// output channel open as long as its input channel is open and its own
+// context is not cancelled.
+type cancellationTestSource struct {
+	input chan interface{}
+	mu    sync.Mutex
+	// closed tracks if the input channel was closed by test logic.
+	// Not strictly necessary for this source's operation but can be useful for debugging.
+	closed bool
+}
+
+func (s *cancellationTestSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
+	out := make(chan interface{})
+	errs := make(chan error, 1) // Buffer to prevent error sender from blocking if receiver isn't ready
+
+	go func() {
+		defer close(out)
+		defer close(errs)
+		for {
+			select {
+			case <-ctx.Done():
+				// This context is the one passed to Batch.Go().
+				// If it's cancelled, the source stops producing.
+				return
+			case item, ok := <-s.input:
+				if !ok { // Input channel closed by test logic
+					s.mu.Lock()
+					s.closed = true
+					s.mu.Unlock()
+					return
+				}
+				// Try to send the item, but also respect context cancellation here.
+				select {
+				case out <- item:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	return out, errs
+}
+
+func TestBatch_WaitForItemsContextCancellation(t *testing.T) {
+	t.Run("waitForItems respects context cancellation", func(t *testing.T) {
+		config := NewConstantConfig(&ConfigValues{
+			MinItems: 10,             // High MinItems to force waiting if context isn't cancelled
+			MaxItems: 20,             // Standard MaxItems
+			MinTime:  15 * time.Second, // Long MinTime, context cancellation should preempt this
+			MaxTime:  30 * time.Second, // Long MaxTime
+		})
+		b := New(config)
+
+		var processedCount uint32
+		// Use existing countProcessor helper
+		countingProc := &countProcessor{count: &processedCount}
+
+		sourceChan := make(chan interface{}, 5) // Buffered channel for source items
+		src := &cancellationTestSource{input: sourceChan}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		errsChan := b.Go(ctx, src, countingProc)
+
+		// Send fewer items than MinItems
+		sourceChan <- 1
+		sourceChan <- 2
+		sourceChan <- 3
+
+		// Give a moment for items to be read by doReader and then for waitForItems to pick them up
+		// and start waiting based on MinItems/MinTime.
+		time.Sleep(200 * time.Millisecond) // Increased slightly to allow items to enter waitForItems
+
+		startTime := time.Now()
+		cancel() // Cancel the context passed to Batch.Go
+
+		// This timeout should be significantly shorter than MinTime/MaxTime.
+		// If waitForItems doesn't respect ctx.Done(), this will time out.
+		doneTimeout := 1 * time.Second // Generous timeout for CI
+		select {
+		case <-b.Done():
+			// Expected path: batch processing finished quickly after cancellation.
+		case <-time.After(doneTimeout):
+			t.Fatalf("b.Done() did not close within %v after context cancellation. waitForItems might not have been preempted.", doneTimeout)
+		}
+
+		elapsed := time.Since(startTime)
+		// This is a soft check. The primary check is b.Done() closing within doneTimeout.
+		if elapsed >= config.Get().MinTime {
+			t.Logf("Warning: Test completed in %v, which is not significantly faster than MinTime %v. Context cancellation in waitForItems might not have been the primary reason for completion.", elapsed, config.Get().MinTime)
+		}
+
+		// Drain errors to prevent goroutine leaks from b.Go
+		go func() {
+			for range errsChan {
+				// Do nothing with errors, just ensure the channel is drained.
+			}
+		}()
+
+		finalProcessedCount := atomic.LoadUint32(&processedCount)
+		if finalProcessedCount != 3 {
+			t.Errorf("expected 3 items to be processed, got %d", finalProcessedCount)
+		}
+
+		// Clean up: close the source's input channel to allow its goroutine to exit.
+		// This is important for test hygiene.
+		close(sourceChan)
+
+		// Wait a tiny bit for the source goroutine to fully exit and close its `out` channel,
+		// which in turn allows `doReader` to exit if it hasn't already due to context cancellation.
+		time.Sleep(50 * time.Millisecond)
+	})
+}
+
 func TestBatch_ComplexProcessingPipeline(t *testing.T) {
 	t.Run("transform and filter pipeline", func(t *testing.T) {
 		batch := New(NewConstantConfig(&ConfigValues{MinItems: 2}))

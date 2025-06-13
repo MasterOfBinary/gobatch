@@ -28,6 +28,13 @@ type Config interface {
 // These values control the timing and sizing behavior of batches in the pipeline.
 // The batch system uses these parameters to determine when to process a batch
 // based on time elapsed and number of items collected.
+//
+// Note: When these values are used by the batch processor, they may be
+// automatically adjusted for consistency. For example, if `MinItems` is 0,
+// it will be treated as 1. If `MinTime > MaxTime`, `MinTime` will be
+// adjusted to `MaxTime`. Similarly, if `MinItems > MaxItems`, `MinItems`
+// will be adjusted to `MaxItems`. Refer to the `fixConfig` function or
+// the `Config.Get()` interface comment for the precise normalization rules.
 type ConfigValues struct {
 	// MinTime specifies that a minimum amount of time that should pass
 	// before processing items. The exception to this is if a max number
