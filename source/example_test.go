@@ -13,7 +13,7 @@ func ExampleChannel() {
 	input <- "b"
 	close(input)
 
-	src := &source.Channel{Input: input}
+	src, _ := source.NewChannel(source.ChannelConfig{Input: input})
 	out, errs := src.Read(context.Background())
 	for item := range out {
 		fmt.Println(item)

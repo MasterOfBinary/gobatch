@@ -11,6 +11,8 @@ const defaultErrorBuffer = 10
 // Error is a Source that only emits errors from a channel and provides no data.
 // It is useful for testing error handling in batch processing pipelines and
 // for representing error-only streams.
+//
+// Deprecated: Use NewError() to create an Error source with validation.
 type Error struct {
 	// Errs is the channel from which this source will read errors.
 	// The Error source will not close this channel.

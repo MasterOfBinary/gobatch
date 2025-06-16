@@ -12,6 +12,8 @@ type FilterFunc func(item *batch.Item) bool
 
 // Filter is a processor that filters items based on a predicate function.
 // It can be used to remove items from the pipeline that don't meet certain criteria.
+//
+// Deprecated: Use NewFilter() to create a Filter processor with validation.
 type Filter struct {
 	// Predicate is a function that returns true for items that should be kept
 	// and false for items that should be filtered out.
