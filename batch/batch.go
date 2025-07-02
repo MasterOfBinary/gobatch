@@ -161,7 +161,9 @@ func (b *Batch) sendErr(err error) {
 
 	// Best-effort logging. We purposefully ignore any panic caused by a nil
 	// logger because b.logger is always initialised to &noopLogger{}.
-	b.logger.Printf("gobatch: %v", err)
+	if b.logger != nil {
+		b.logger.Printf("gobatch: %v", err)
+	}
 }
 
 // Item represents a single data item flowing through the batch pipeline.
@@ -280,6 +282,14 @@ type Processor interface {
 //   - Processors must check for context cancellation and stop early if needed.
 //   - All items that have already been read will be processed even if the context is canceled.
 func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan error {
+	// Ensure a logger is always available even if the Batch was instantiated
+	// directly via &batch.Batch{} instead of using batch.New(). Doing this at the
+	// very top avoids any risk of a nil pointer dereference in subsequent helper
+	// functions like sendErr.
+	if b.logger == nil {
+		b.logger = &noopLogger{}
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
