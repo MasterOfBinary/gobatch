@@ -79,6 +79,7 @@ type Batch struct {
 	mu      sync.Mutex
 	running bool
 	errs    chan error
+	logger  Logger
 }
 
 // New creates a new Batch using the provided config. If config is nil,
@@ -90,6 +91,7 @@ type Batch struct {
 func New(config Config) *Batch {
 	return &Batch{
 		config: config,
+		logger: &noopLogger{},
 	}
 }
 
@@ -115,6 +117,51 @@ func (b *Batch) WithBufferConfig(config BufferConfig) *Batch {
 
 	b.bufferConfig = config
 	return b
+}
+
+// WithLogger sets a custom logger for the Batch. It must be called before
+// Go() starts; calling it afterwards will panic to avoid data races.
+//
+// The provided logger only needs to satisfy the Logger interface (i.e. a
+// Printf method). Using the standard library's log.Logger works out of the
+// box:
+//
+//   b := batch.New(cfg).WithLogger(log.Default())
+//
+// If l is nil the logger is reset to a silent no-op implementation.
+func (b *Batch) WithLogger(l Logger) *Batch {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.running {
+		panic("batch: WithLogger cannot be called after Go() has started")
+	}
+
+	if l == nil {
+		b.logger = &noopLogger{}
+	} else {
+		b.logger = l
+	}
+
+	return b
+}
+
+// sendErr forwards err to the public error channel and logs it via the
+// configured logger. It is safe for concurrent use and should be preferred
+// over writing to b.errs directly.
+func (b *Batch) sendErr(err error) {
+	if err == nil {
+		return
+	}
+
+	// Attempt to send the error without blocking indefinitely. The buffer sizes
+	// are user-configurable; if the channel is full we will block until there is
+	// space. This preserves the original behaviour of the library.
+	b.errs <- err
+
+	// Best-effort logging. We purposefully ignore any panic caused by a nil
+	// logger because b.logger is always initialised to &noopLogger{}.
+	b.logger.Printf("gobatch: %v", err)
 }
 
 // Item represents a single data item flowing through the batch pipeline.
@@ -250,7 +297,7 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 	if s == nil {
 		b.errs = make(chan error, 1)
 		b.done = make(chan struct{})
-		b.errs <- errors.New("source cannot be nil")
+		b.sendErr(errors.New("source cannot be nil"))
 		close(b.errs)
 		close(b.done)
 		b.running = false
@@ -353,7 +400,7 @@ func (b *Batch) doReader(ctx context.Context) {
 
 	// Handle nil channels from source - just report an error and finish
 	if out == nil || errs == nil {
-		b.errs <- errors.New("invalid source implementation: returned nil channel(s)")
+		b.sendErr(errors.New("invalid source implementation: returned nil channel(s)"))
 		close(b.items)
 		return
 	}
@@ -377,7 +424,7 @@ func (b *Batch) doReader(ctx context.Context) {
 				errsClosed = true
 				continue
 			}
-			b.errs <- &SourceError{Err: err}
+			b.sendErr(&SourceError{Err: err})
 		}
 	}
 
@@ -419,13 +466,13 @@ func (b *Batch) doProcessors(ctx context.Context) {
 				var err error
 				items, err = proc.Process(ctx, items)
 				if err != nil {
-					b.errs <- &ProcessorError{Err: err}
+					b.sendErr(&ProcessorError{Err: err})
 				}
 			}
 
 			for _, item := range items {
 				if item.Error != nil {
-					b.errs <- &ProcessorError{Err: item.Error}
+					b.sendErr(&ProcessorError{Err: item.Error})
 				}
 			}
 		}(batch)
