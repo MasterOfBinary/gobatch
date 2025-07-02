@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/MasterOfBinary/gobatch/batch"
 )
@@ -22,6 +23,16 @@ func (p *Channel) Process(ctx context.Context, items []*batch.Item) ([]*batch.It
 		return items, nil
 	}
 
+	// Protect against a panic if the consumer has already closed the output
+	// channel. Sending to a closed channel would otherwise crash the entire
+	// pipeline.
+	var sendErr error
+	defer func() {
+		if r := recover(); r != nil {
+			sendErr = fmt.Errorf("processor channel: output channel closed")
+		}
+	}()
+
 	for _, item := range items {
 		if item.Error != nil {
 			continue
@@ -34,5 +45,5 @@ func (p *Channel) Process(ctx context.Context, items []*batch.Item) ([]*batch.It
 		}
 	}
 
-	return items, nil
+	return items, sendErr
 }

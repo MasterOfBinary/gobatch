@@ -36,27 +36,34 @@ func (p *Error) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, 
 	}
 
 	failFraction := p.FailFraction
+
+	// Fast-path: no failures requested.
 	if failFraction <= 0 {
-		// If fraction <= 0, no items fail, just pass-through
 		return items, nil
 	}
 
+	// Fast-path: all items fail.
 	if failFraction >= 1.0 {
-		// Apply error to all items
 		for _, item := range items {
 			item.Error = err
 		}
-	} else {
-		// Apply error to a fraction of items
-		failEvery := int(1.0 / failFraction)
-		if failEvery < 1 {
-			failEvery = 1
-		}
+		return items, nil
+	}
 
-		for i, item := range items {
-			if i%failEvery == 0 {
-				item.Error = err
-			}
+	// Deterministically approximate the requested failure fraction using an
+	// accumulator. This avoids the previous logic that produced 100 % failures
+	// for any FailFraction > 0.5.
+	//
+	// The algorithm adds the fraction to an accumulator on every item. When the
+	// accumulator crosses 1.0 we mark the item as failed and decrement the
+	// accumulator. This evenly distributes failures across the slice while
+	// honouring the requested ratio.
+	acc := 0.0
+	for _, item := range items {
+		acc += failFraction
+		if acc >= 1.0 {
+			item.Error = err
+			acc -= 1.0
 		}
 	}
 

@@ -274,7 +274,16 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 	}
 	idBuf := b.bufferConfig.IDBufferSize
 	if idBuf <= 0 {
-		idBuf = DefaultIDBufferSize
+		// If no explicit ID buffer size was provided, default to the item
+		// buffer size so the ID generator can keep up with the reader without
+		// unnecessary blocking.
+		idBuf = itemBuf
+	} else if idBuf < itemBuf {
+		// If the caller provided an ID buffer that is smaller than the item
+		// buffer we silently promote it to the same size. Having fewer ID
+		// slots than items can cause the ID generator goroutine to block which
+		// in turn stalls the entire pipeline.
+		idBuf = itemBuf
 	}
 	errBuf := b.bufferConfig.ErrorBufferSize
 	if errBuf <= 0 {
