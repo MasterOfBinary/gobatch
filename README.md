@@ -26,8 +26,9 @@ the master branch. If you need a stable release, wait for version 1.
 
 ### Latest Release - v0.4.0
 
-Version 0.4.0 addresses critical stability issues and clarifies configuration usage:
+Version 0.4.0 addresses critical stability issues, clarifies configuration usage, and adds performance tuning options:
 
+- **Performance:** Added `WithBufferConfig` option and `BufferConfig` struct to allow customizing internal channel buffer sizes (Items, IDs, Errors). This allows for fine-tuning performance based on specific workload requirements.
 - Fixed a busy loop in `doReader` when dealing with closed channels.
 - Fixed `MaxTime` timer logic to correctly handle idle periods (restarts timer if empty).
 - Renamed `ContinueOnError` to `StopOnError` in `Transform` processor to align with default behavior (BREAKING CHANGE).
