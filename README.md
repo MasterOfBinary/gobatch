@@ -24,16 +24,13 @@ and processing logic.
 **NOTE:** GoBatch is considered a version 0 release and is in an unstable state. Compatibility may be broken at any time on
 the master branch. If you need a stable release, wait for version 1.
 
-### Latest Release - v0.3.0
+### Latest Release - v0.4.0
 
-Version 0.3.0 introduces significant enhancements and new features:
+Version 0.4.0 addresses critical stability issues and clarifies configuration usage:
 
-- New `Channel` processor for forwarding item data to output channels.
-- Added `DynamicConfig` for thread-safe, runtime-adjustable batch configuration.
-- Fixed `Done()` method to always return a non-nil channel.
-- Comprehensive package-level documentation in all packages.
-- Standardized code formatting with gofmt across the entire codebase.
-- Enhanced inline documentation and added detailed usage examples.
+- Fixed a busy loop in `doReader` when dealing with closed channels.
+- Fixed `MaxTime` timer logic to correctly handle idle periods (restarts timer if empty).
+- Renamed `ContinueOnError` to `StopOnError` in `Transform` processor to align with default behavior (BREAKING CHANGE).
 
 See the [CHANGELOG.md](./CHANGELOG.md) for complete details.
 

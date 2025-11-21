@@ -8,6 +8,19 @@ Note: This project is in early development. The API may change without warning i
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-05-18
+
+This release addresses critical bugs affecting stability and timing, and aligns configuration defaults with documentation.
+
+### Fixed
+
+- **Critical:** Fixed a busy loop in `doReader` that consumed 100% CPU when one channel closed before the other.
+- **Critical:** Fixed `MaxTime` timer logic in `waitForItems` to properly restart the timer if it expired on an empty batch, ensuring latency guarantees are respected after idle periods.
+
+### Changed
+
+- **BREAKING:** Renamed `ContinueOnError` to `StopOnError` in `Transform` processor. The default zero-value (`false`) now correctly implies "Continue Processing", matching the intended behavior.
+
 ## [0.3.0] - 2025-05-17
 
 This release introduces new processors, dynamic configuration support, and significant documentation improvements. It also standardizes code formatting and enhances error handling.
