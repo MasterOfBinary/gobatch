@@ -8,7 +8,7 @@ Note: This project is in early development. The API may change without warning i
 
 ## [Unreleased]
 
-## [0.4.0] - 2025-05-18
+## [0.4.0] - 2025-11-21
 
 This release addresses critical bugs affecting stability and timing, aligns configuration defaults with documentation, and introduces configurable buffer sizes for performance tuning.
 
