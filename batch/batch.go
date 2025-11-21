@@ -364,6 +364,7 @@ func (b *Batch) doReader(ctx context.Context) {
 		case data, ok := <-out:
 			if !ok {
 				outClosed = true
+				out = nil
 				continue
 			}
 			id := <-b.ids
@@ -375,6 +376,7 @@ func (b *Batch) doReader(ctx context.Context) {
 		case err, ok := <-errs:
 			if !ok {
 				errsClosed = true
+				errs = nil
 				continue
 			}
 			b.errs <- &SourceError{Err: err}
@@ -526,7 +528,10 @@ func (b *Batch) waitForItems(_ context.Context, config ConfigValues) []*Item {
 			if len(batch) > 0 {
 				return batch
 			}
-			// If max timer fires with no items, continue waiting
+			// If max timer fires with no items, restart it so we don't wait indefinitely
+			if config.MaxTime > 0 {
+				maxTimer = time.After(config.MaxTime)
+			}
 		}
 	}
 }

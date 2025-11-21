@@ -17,11 +17,11 @@ type Transform struct {
 	// If nil, items pass through unchanged.
 	Func TransformFunc
 
-	// ContinueOnError determines whether to continue processing items after a transformation error.
-	// If true, items with transformation errors will have their Error field set but processing continues.
-	// If false, the processor will return an error and stop after the first transformation failure.
-	// Default is true (continue processing).
-	ContinueOnError bool
+	// StopOnError determines whether to stop processing items after a transformation error.
+	// If true, the processor will return an error and stop after the first transformation failure.
+	// If false, items with transformation errors will have their Error field set but processing continues.
+	// Default is false (continue processing).
+	StopOnError bool
 }
 
 // Process implements the Processor interface by applying the transformation function
@@ -41,7 +41,7 @@ func (p *Transform) Process(_ context.Context, items []*batch.Item) ([]*batch.It
 		if err != nil {
 			item.Error = err
 
-			if !p.ContinueOnError {
+			if p.StopOnError {
 				return items, err
 			}
 		} else {

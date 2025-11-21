@@ -55,7 +55,7 @@ func TestTransform_Process(t *testing.T) {
 		}
 	})
 
-	t.Run("handles transformation errors with ContinueOnError=true", func(t *testing.T) {
+	t.Run("handles transformation errors with StopOnError=false", func(t *testing.T) {
 		// Setup - convert to int but fail on non-integers
 		processor := &Transform{
 			Func: func(data interface{}) (interface{}, error) {
@@ -68,7 +68,7 @@ func TestTransform_Process(t *testing.T) {
 				}
 				return data, nil
 			},
-			ContinueOnError: true, // Continue after errors
+			StopOnError: false, // Continue after errors
 		}
 
 		items := []*batch.Item{
@@ -105,7 +105,7 @@ func TestTransform_Process(t *testing.T) {
 		}
 	})
 
-	t.Run("stops on first error with ContinueOnError=false", func(t *testing.T) {
+	t.Run("stops on first error with StopOnError=true", func(t *testing.T) {
 		// Setup
 		testErr := errors.New("transformation failed")
 		processor := &Transform{
@@ -118,7 +118,7 @@ func TestTransform_Process(t *testing.T) {
 				}
 				return data, nil
 			},
-			ContinueOnError: false, // Stop on first error
+			StopOnError: true, // Stop on first error
 		}
 
 		items := []*batch.Item{
