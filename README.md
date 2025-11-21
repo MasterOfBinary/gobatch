@@ -227,6 +227,41 @@ config := batch.NewConstantConfig(&batch.ConfigValues{
 batchProcessor := batch.New(config)
 ```
 
+### Example: Dynamic Configuration
+
+`DynamicConfig` allows you to adjust batch parameters at runtime, for example, based on system load.
+
+```go
+// Create dynamic configuration
+dynConfig := batch.NewDynamicConfig(&batch.ConfigValues{
+    MinItems: 10,
+    MaxItems: 100,
+    MinTime:  50 * time.Millisecond,
+    MaxTime:  500 * time.Millisecond,
+})
+
+batchProcessor := batch.New(dynConfig)
+
+// ... start processing ...
+
+// Later, update the configuration based on new requirements
+dynConfig.UpdateBatchSize(20, 200)
+dynConfig.UpdateTiming(100 * time.Millisecond, 1 * time.Second)
+```
+
+### Buffer Configuration
+
+You can fine-tune the performance by customizing the internal channel buffer sizes using `WithBufferConfig`. This is useful for high-throughput scenarios or when dealing with bursty traffic.
+
+```go
+// Configure custom buffer sizes
+batchProcessor := batch.New(config).WithBufferConfig(batch.BufferConfig{
+    ItemBufferSize:  1000, // Buffer for incoming items
+    IDBufferSize:    1000, // Buffer for ID generation
+    ErrorBufferSize: 500,  // Buffer for error reporting
+})
+```
+
 ## Error Handling
 
 Errors can come from three sources:
@@ -288,6 +323,10 @@ Run tests with:
 ```bash
 go test github.com/MasterOfBinary/gobatch/...
 ```
+
+## Future Roadmap
+
+- **Sync-like Batching**: Support for request-reply patterns where batched operations appear synchronous to the caller.
 
 ## Contributing
 

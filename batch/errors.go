@@ -6,6 +6,7 @@ import "fmt"
 // error from the processor to maintain the error chain while providing
 // context about the source of the error.
 type ProcessorError struct {
+	// Err is the underlying error that occurred in the processor.
 	Err error
 }
 
@@ -24,6 +25,7 @@ func (e ProcessorError) Unwrap() error {
 // error from the source to maintain the error chain while providing
 // context about the source of the error.
 type SourceError struct {
+	// Err is the underlying error that occurred in the source.
 	Err error
 }
 

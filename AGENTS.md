@@ -31,7 +31,7 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 
 ## File Structure
 - `/batch`: Core batch processing functionality, includes the main Batch type and configuration
-- `/processor`: Different processors for data manipulation (Transform, Filter, Error, Nil)
+- `/processor`: Different processors for data manipulation (Transform, Filter, Error, Nil, Channel)
 - `/source`: Data sources for batch processing (Channel, Error, Nil)
 
 ## Key Concepts
