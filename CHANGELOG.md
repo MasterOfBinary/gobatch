@@ -10,7 +10,11 @@ Note: This project is in early development. The API may change without warning i
 
 ## [0.4.0] - 2025-05-18
 
-This release addresses critical bugs affecting stability and timing, and aligns configuration defaults with documentation.
+This release addresses critical bugs affecting stability and timing, aligns configuration defaults with documentation, and introduces configurable buffer sizes for performance tuning.
+
+### Added
+
+- **Performance:** Added `WithBufferConfig` option and `BufferConfig` struct to allow customizing internal channel buffer sizes (Items, IDs, Errors). This allows for fine-tuning performance based on specific workload requirements.
 
 ### Fixed
 
