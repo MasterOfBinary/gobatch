@@ -10,6 +10,8 @@ const defaultChannelBuffer = 100
 
 // Channel is a Source that reads from an input channel until it's closed.
 // It simplifies using an existing channel as a data source for batch processing.
+//
+// Deprecated: Use NewChannel() to create a Channel source with validation.
 type Channel struct {
 	// Input is the channel from which this source will read data.
 	// The Channel source will not close this channel.
