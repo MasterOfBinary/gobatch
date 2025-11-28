@@ -5,11 +5,15 @@ This file contains instructions and guidelines for Claude when working with this
 ## Project Overview
 GoBatch is a Go library for batch data processing. It provides infrastructure for processing batches of data with configurable sources, processors, and pipelines. The library allows for flexible batch processing with configurable timing and item count parameters.
 
+**Requirements:** Go 1.18 or later.
+
+**Note:** GoBatch is a version 0 release and is in an unstable state. Compatibility may be broken at any time on the master branch.
+
 ## Important Commands
-- Format code with `gofmt` and ensure no unformatted files remain.
+- Format code: `gofmt -w .` (ensure no unformatted files remain)
 - Run tests with race detection and coverage: `go test -race -coverprofile=coverage.txt -covermode=atomic ./...`
-- Lint code with `go vet ./...`
-- Run `golangci-lint run --timeout=3m` for additional lint checks.
+- Basic lint: `go vet ./...`
+- Full lint: `golangci-lint run --timeout=3m`
 
 ## Code Standards
 - Follow Go best practices and idiomatic Go patterns
@@ -29,19 +33,45 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 - Include practical examples in documentation
 
 ## File Structure
-- `/batch`: Core batch processing functionality, includes the main Batch type and configuration
-- `/processor`: Different processors for data manipulation (Transform, Filter, Error, Nil)
+- `/batch`: Core batch processing functionality, includes the main Batch type, configuration, errors, and helper functions
+- `/processor`: Different processors for data manipulation (Transform, Filter, Channel, Error, Nil)
 - `/source`: Data sources for batch processing (Channel, Error, Nil)
+- `/doc.go`: Package-level documentation
+- `/example_test.go`: Top-level usage examples
 
 ## Key Concepts
 - **Batch**: Main type that orchestrates the batch processing pipeline
 - **Source**: Interface for data providers that read from various origins
 - **Processor**: Interface for components that process batches of items
-- **Item**: Represents a single data item flowing through the pipeline
+- **Item**: Represents a single data item flowing through the pipeline with unique ID and optional error
 - **Config**: Interface for controlling batch timing and item count parameters
+  - **ConstantConfig**: Static, unchanging configuration
+  - **DynamicConfig**: Runtime-adjustable configuration that can be updated while processing
+- **BufferConfig**: Controls internal channel buffer sizes for performance tuning
+
+## Built-in Components
+
+### Processors
+- **Transform**: Transforms item data with a custom function
+- **Filter**: Filters items based on a predicate function
+- **Channel**: Writes item data to an output channel
+- **Error**: Simulates processor errors (for testing)
+- **Nil**: Passes items through unchanged (for benchmarking)
+
+### Sources
+- **Channel**: Uses Go channels as data sources
+- **Error**: Simulates error-only sources (for testing)
+- **Nil**: Emits no data (for timing tests)
+
+## Helper Functions
+- `IgnoreErrors`: Drains the error channel in the background
+- `CollectErrors`: Collects all errors into a slice after batch processing finishes
+- `RunBatchAndWait`: Starts a batch, waits for completion, and returns all collected errors
+- `ExecuteBatches`: Runs multiple batches concurrently and collects all errors
 
 ## Error Handling
 - Errors are wrapped to indicate their origin (SourceError, ProcessorError)
 - Processors should respect context cancellation
 - Items with errors are tracked individually through the Error field
 - Batch processing continues despite individual item errors
+- Use `errors.As` to check error types (SourceError, ProcessorError)
