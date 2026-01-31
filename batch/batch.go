@@ -75,6 +75,8 @@ type Batch struct {
 	items        chan *Item
 	ids          chan uint64
 	done         chan struct{}
+	stopIDGen    chan struct{} // signals ID generator to stop
+	idGenDone    chan struct{} // closed when ID generator has exited
 
 	mu      sync.Mutex
 	running bool
@@ -285,6 +287,8 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 	b.ids = make(chan uint64, idBuf)
 	b.errs = make(chan error, errBuf)
 	b.done = make(chan struct{})
+	b.stopIDGen = make(chan struct{})
+	b.idGenDone = make(chan struct{})
 
 	go b.doIDGenerator()
 	go b.doReader(ctx)
@@ -326,14 +330,16 @@ func (b *Batch) Done() <-chan struct{} {
 // doIDGenerator generates unique IDs for items in the pipeline.
 //
 // It runs as a background goroutine, incrementing a counter starting from zero
-// and sending each ID on the ids channel. It exits when the done channel is closed.
+// and sending each ID on the ids channel. It exits when the stopIDGen channel is closed,
+// and signals its exit by closing the idGenDone channel.
 func (b *Batch) doIDGenerator() {
+	defer close(b.idGenDone)
 	var id uint64
 	for {
 		select {
 		case b.ids <- id:
 			id++
-		case <-b.done:
+		case <-b.stopIDGen:
 			return
 		}
 	}
@@ -398,6 +404,17 @@ func (b *Batch) doReader(ctx context.Context) {
 // Batches are processed concurrently, but each batch is processed sequentially through the chain
 // of Processors. Each Processor receives the output from the previous one.
 func (b *Batch) doProcessors(ctx context.Context) {
+	// Capture channel references to avoid races with subsequent Go() calls.
+	// After this goroutine signals completion (by closing errs/done), a new
+	// Go() call may create new channels. Using local copies ensures we
+	// close the correct channels.
+	b.mu.Lock()
+	stopIDGen := b.stopIDGen
+	idGenDone := b.idGenDone
+	errs := b.errs
+	done := b.done
+	b.mu.Unlock()
+
 	var wg sync.WaitGroup
 
 	for {
@@ -421,24 +438,34 @@ func (b *Batch) doProcessors(ctx context.Context) {
 				var err error
 				items, err = proc.Process(ctx, items)
 				if err != nil {
-					b.errs <- &ProcessorError{Err: err}
+					errs <- &ProcessorError{Err: err}
 				}
 			}
 
 			for _, item := range items {
 				if item.Error != nil {
-					b.errs <- &ProcessorError{Err: item.Error}
+					errs <- &ProcessorError{Err: item.Error}
 				}
 			}
 		}(batch)
 	}
 
 	wg.Wait()
-	close(b.errs)
-	close(b.done)
+
+	// Stop the ID generator and wait for it to exit before signaling completion.
+	// This ensures all goroutines have exited before Go() can be called again.
+	close(stopIDGen)
+	<-idGenDone
+
+	// Set running to false BEFORE closing the public-facing channels.
+	// This ensures that when Done() or errs channel signals completion,
+	// Go() can be safely called again without a race condition.
 	b.mu.Lock()
 	b.running = false
 	b.mu.Unlock()
+
+	close(errs)
+	close(done)
 }
 
 // fixConfig corrects invalid ConfigValues to ensure consistent batch behavior.

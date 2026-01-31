@@ -759,3 +759,68 @@ func TestBatch_DoneNonBlocking(t *testing.T) {
 		}
 	})
 }
+
+func TestBatch_ReuseAfterCompletion(t *testing.T) {
+	t.Run("Go can be called again after Done returns", func(t *testing.T) {
+		b := New(NewConstantConfig(&ConfigValues{MinItems: 1}))
+
+		// First run
+		src1 := &testSource{Items: []interface{}{1, 2, 3}}
+		var count1 uint32
+		proc1 := &countProcessor{count: &count1}
+
+		errs1 := b.Go(context.Background(), src1, proc1)
+		<-b.Done()
+		for range errs1 {
+		}
+
+		if atomic.LoadUint32(&count1) != 3 {
+			t.Fatalf("first run: expected 3 items processed, got %d", count1)
+		}
+
+		// Second run - this should NOT panic
+		// Before the fix, this would panic because running was still true
+		src2 := &testSource{Items: []interface{}{4, 5, 6, 7}}
+		var count2 uint32
+		proc2 := &countProcessor{count: &count2}
+
+		errs2 := b.Go(context.Background(), src2, proc2)
+		<-b.Done()
+		for range errs2 {
+		}
+
+		if atomic.LoadUint32(&count2) != 4 {
+			t.Fatalf("second run: expected 4 items processed, got %d", count2)
+		}
+	})
+
+	t.Run("Go can be called again after error channel drained", func(t *testing.T) {
+		b := New(NewConstantConfig(&ConfigValues{MinItems: 1}))
+
+		// First run - drain error channel instead of waiting on Done
+		src1 := &testSource{Items: []interface{}{1, 2}}
+		var count1 uint32
+		proc1 := &countProcessor{count: &count1}
+
+		errs1 := b.Go(context.Background(), src1, proc1)
+		for range errs1 {
+		}
+
+		if atomic.LoadUint32(&count1) != 2 {
+			t.Fatalf("first run: expected 2 items processed, got %d", count1)
+		}
+
+		// Second run
+		src2 := &testSource{Items: []interface{}{3, 4, 5}}
+		var count2 uint32
+		proc2 := &countProcessor{count: &count2}
+
+		errs2 := b.Go(context.Background(), src2, proc2)
+		for range errs2 {
+		}
+
+		if atomic.LoadUint32(&count2) != 3 {
+			t.Fatalf("second run: expected 3 items processed, got %d", count2)
+		}
+	})
+}
