@@ -18,7 +18,7 @@ This release introduces a hard switch to generics across the public API.
 - **BREAKING:** `Source.Read` now uses typed output channels: `Read(ctx) (<-chan T, <-chan error)`.
 - **BREAKING:** `Processor.Process` now uses typed items: `Process(ctx, []*Item[T]) ([]*Item[T], error)`.
 - **BREAKING:** Built-in sources and processors now require explicit type parameters (for example, `source.Channel[int]` and `processor.Transform[string]`).
-- CI now runs against the latest Go majors (`1.25.x` and `1.26.x`) and uses current GitHub Actions setup-go/checkout versions.
+- CI: Test against Go 1.25.x and 1.26.x and use `actions/checkout@v4` and `actions/setup-go@v5`.
 - Updated helper APIs to generics:
   - `RunBatchAndWait[T]`
   - `BatchConfig[T]`
