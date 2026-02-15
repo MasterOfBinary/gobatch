@@ -17,7 +17,7 @@
 //
 // - MinTime = 2s. After 1s the input channel is closed. The items are processed right away.
 // - MinItems = 10, MinTime = 2s. After 1s, 10 items have been read. They are not processed until 2s has passed.
-// - MaxItems = 10, MinTime = 2s. After 1s, 10 items have been read. They are not processed until 2s has passed.
+// - MaxItems = 10, MinTime = 2s. After 1s, 10 items have been read. They are processed right away.
 //
 // Timers and counters are relative to when the previous batch finished processing.
 // Each batch starts a new MinTime/MaxTime window and counts new items from zero.
