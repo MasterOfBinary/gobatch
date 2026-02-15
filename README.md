@@ -212,8 +212,9 @@ Configuration options include:
 
 The configuration is automatically adjusted to keep it consistent:
 
-- If `MinItems` > `MaxItems`, `MaxItems` will be set to `MinItems`.
-- If `MinTime` > `MaxTime`, `MaxTime` will be set to `MinTime`.
+- If `MinItems` > `MaxItems`, `MinItems` will be set to `MaxItems`.
+- If `MinTime` > `MaxTime`, `MinTime` will be set to `MaxTime`.
+- If `MinItems` is `0`, it will be set to `1`.
 ### Example: Constant Configuration
 
 ```go
