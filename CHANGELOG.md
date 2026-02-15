@@ -30,7 +30,7 @@ This release introduces a hard switch to generics across the public API.
   - `&source.Channel[int]{Input: ch}`
   - `&processor.Transform[int]{Func: ...}`
 - `ExecuteBatches[T]` now requires all configs in a single call to share the same `T`.
-  - If you previously mixed different payload types in one `ExecuteBatches` call, use `BatchConfig[any]` or split calls by type.
+  - If you previously mixed different payload types in one `ExecuteBatches` call, use `BatchConfig[any]`, split calls by type, or orchestrate separate typed batches manually (for example, with `sync.WaitGroup`).
 - Pipelines that change data types between processor stages must use `Batch[any]` with explicit type assertions/conversions.
 - Update custom source implementations to return `<-chan T` instead of `<-chan interface{}`.
 - Update custom processor implementations to accept and return `[]*batch.Item[T]`.
