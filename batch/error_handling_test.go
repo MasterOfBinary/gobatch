@@ -12,8 +12,8 @@ import (
 
 func TestBatch_ErrorHandling(t *testing.T) {
 	t.Run("processor with error", func(t *testing.T) {
-		batch := New(NewConstantConfig(&ConfigValues{}))
-		src := &testSource{Items: []interface{}{1, 2, 3, 4, 5}}
+		batch := New[any](NewConstantConfig(&ConfigValues{}))
+		src := &testSource{Items: []any{1, 2, 3, 4, 5}}
 
 		procErr := errors.New("processor error")
 		proc := &countProcessor{
@@ -39,11 +39,11 @@ func TestBatch_ErrorHandling(t *testing.T) {
 	})
 
 	t.Run("source with error", func(t *testing.T) {
-		batch := New(NewConstantConfig(&ConfigValues{}))
+		batch := New[any](NewConstantConfig(&ConfigValues{}))
 
 		srcErr := errors.New("source error")
 		src := &testSource{
-			Items:   []interface{}{1, 2, 3},
+			Items:   []any{1, 2, 3},
 			WithErr: srcErr,
 		}
 
@@ -67,7 +67,7 @@ func TestBatch_ErrorHandling(t *testing.T) {
 	})
 
 	t.Run("nil source handling", func(t *testing.T) {
-		batch := New(NewConstantConfig(&ConfigValues{}))
+		batch := New[any](NewConstantConfig(&ConfigValues{}))
 
 		// Pass nil source
 		errs := batch.Go(context.Background(), nil)
@@ -94,8 +94,8 @@ func TestBatch_ErrorHandling(t *testing.T) {
 	})
 
 	t.Run("nil processor filtering", func(t *testing.T) {
-		batch := New(NewConstantConfig(&ConfigValues{}))
-		src := &testSource{Items: []interface{}{1, 2, 3}}
+		batch := New[any](NewConstantConfig(&ConfigValues{}))
+		src := &testSource{Items: []any{1, 2, 3}}
 
 		// Include a nil processor among valid ones
 		var count uint32
@@ -126,7 +126,7 @@ func TestBatch_ErrorHandling(t *testing.T) {
 
 func TestBatch_NilChannelHandling(t *testing.T) {
 	t.Run("source returning nil output channel", func(t *testing.T) {
-		batch := New(NewConstantConfig(&ConfigValues{}))
+		batch := New[any](NewConstantConfig(&ConfigValues{}))
 
 		// Create a source that returns a nil output channel
 		nilChannelSource := &nilOutputChannelSource{}
@@ -155,7 +155,7 @@ func TestBatch_NilChannelHandling(t *testing.T) {
 	})
 
 	t.Run("source returning nil error channel", func(t *testing.T) {
-		batch := New(NewConstantConfig(&ConfigValues{}))
+		batch := New[any](NewConstantConfig(&ConfigValues{}))
 
 		// Create a source that returns a nil error channel
 		nilChannelSource := &nilErrorChannelSource{}
@@ -187,7 +187,7 @@ func TestBatch_NilChannelHandling(t *testing.T) {
 // Source that returns a nil output channel and a valid error channel
 type nilOutputChannelSource struct{}
 
-func (s *nilOutputChannelSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
+func (s *nilOutputChannelSource) Read(ctx context.Context) (<-chan any, <-chan error) {
 	errs := make(chan error)
 	close(errs)
 	return nil, errs
@@ -196,8 +196,8 @@ func (s *nilOutputChannelSource) Read(ctx context.Context) (<-chan interface{}, 
 // Source that returns a valid output channel and a nil error channel
 type nilErrorChannelSource struct{}
 
-func (s *nilErrorChannelSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{})
+func (s *nilErrorChannelSource) Read(ctx context.Context) (<-chan any, <-chan error) {
+	out := make(chan any)
 	close(out)
 	return out, nil
 }

@@ -8,6 +8,33 @@ Note: This project is in early development. The API may change without warning i
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-02-15
+
+This release introduces a hard switch to generics across the public API.
+
+### Changed
+
+- **BREAKING:** `Batch`, `Item`, `Source`, and `Processor` are now generic types (`Batch[T]`, `Item[T]`, `Source[T]`, `Processor[T]`).
+- **BREAKING:** `Source.Read` now uses typed output channels: `Read(ctx) (<-chan T, <-chan error)`.
+- **BREAKING:** `Processor.Process` now uses typed items: `Process(ctx, []*Item[T]) ([]*Item[T], error)`.
+- **BREAKING:** Built-in sources and processors now require explicit type parameters (for example, `source.Channel[int]` and `processor.Transform[string]`).
+- Updated helper APIs to generics:
+  - `RunBatchAndWait[T]`
+  - `BatchConfig[T]`
+  - `ExecuteBatches[T]`
+
+### Migration
+
+- Instantiate typed batches: `batch.New[int](config)` instead of `batch.New(config)`.
+- Instantiate typed sources/processors:
+  - `&source.Channel[int]{Input: ch}`
+  - `&processor.Transform[int]{Func: ...}`
+- `ExecuteBatches[T]` now requires all configs in a single call to share the same `T`.
+  - If you previously mixed different payload types in one `ExecuteBatches` call, use `BatchConfig[any]` or split calls by type.
+- Pipelines that change data types between processor stages must use `Batch[any]` with explicit type assertions/conversions.
+- Update custom source implementations to return `<-chan T` instead of `<-chan interface{}`.
+- Update custom processor implementations to accept and return `[]*batch.Item[T]`.
+
 ## [0.4.0] - 2025-11-21
 
 This release addresses critical bugs affecting stability and timing, aligns configuration defaults with documentation, and introduces configurable buffer sizes for performance tuning.

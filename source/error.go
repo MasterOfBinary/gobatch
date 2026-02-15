@@ -11,7 +11,10 @@ const defaultErrorBuffer = 10
 // Error is a Source that only emits errors from a channel and provides no data.
 // It is useful for testing error handling in batch processing pipelines and
 // for representing error-only streams.
-type Error struct {
+//
+// The type parameter T exists to satisfy the Source[T] interface. Since this
+// source never emits data items, T is never used in produced values.
+type Error[T any] struct {
 	// Errs is the channel from which this source will read errors.
 	// The Error source will not close this channel.
 	Errs <-chan error
@@ -25,8 +28,8 @@ type Error struct {
 // The returned channels are always created (never nil) and always closed properly
 // when the source is done providing errors or context is canceled.
 // The output channel is always empty, as this source produces only errors.
-func (s *Error) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{})
+func (s *Error[T]) Read(ctx context.Context) (<-chan T, <-chan error) {
+	out := make(chan T)
 
 	bufSize := defaultErrorBuffer
 	if s.BufferSize > 0 {

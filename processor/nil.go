@@ -10,7 +10,7 @@ import (
 // Nil is a Processor that sleeps for the configured duration and does nothing else.
 // It's useful for testing timing behavior and simulating time-consuming operations
 // without actually modifying items.
-type Nil struct {
+type Nil[T any] struct {
 	// Duration specifies how long the processor should sleep before returning.
 	// If zero or negative, the processor will return immediately.
 	Duration time.Duration
@@ -23,7 +23,7 @@ type Nil struct {
 
 // Process implements the Processor interface by waiting for the specified duration
 // and returning the items unchanged, unless canceled.
-func (p *Nil) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *Nil[T]) Process(ctx context.Context, items []*batch.Item[T]) ([]*batch.Item[T], error) {
 	if len(items) == 0 || p.Duration <= 0 {
 		return items, nil
 	}

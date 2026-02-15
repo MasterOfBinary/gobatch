@@ -7,7 +7,7 @@ import (
 
 // Nil is a Source that does nothing but sleeps for a given duration before closing.
 // It is useful for testing shutdown sequences and empty pipeline behavior.
-type Nil struct {
+type Nil[T any] struct {
 	// Duration specifies how long the source will wait before closing its channels.
 	// If zero, it will close immediately.
 	Duration time.Duration
@@ -19,8 +19,8 @@ type Nil struct {
 //
 // The returned channels are always created (never nil) and always closed properly
 // when the source completes waiting or context is canceled.
-func (s *Nil) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{})
+func (s *Nil[T]) Read(ctx context.Context) (<-chan T, <-chan error) {
+	out := make(chan T)
 	errs := make(chan error)
 
 	go func() {

@@ -12,8 +12,8 @@ import (
 
 type simpleProcessor struct{}
 
-func (p *simpleProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
-	var values []interface{}
+func (p *simpleProcessor) Process(ctx context.Context, items []*batch.Item[any]) ([]*batch.Item[any], error) {
+	var values []any
 
 	for _, item := range items {
 		if val, ok := item.Data.(int); ok && val == 5 {
@@ -28,17 +28,17 @@ func (p *simpleProcessor) Process(ctx context.Context, items []*batch.Item) ([]*
 }
 
 func Example_simpleProcessor() {
-	ch := make(chan interface{})
+	ch := make(chan any)
 
 	go func() {
-		for _, v := range []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10} {
+		for _, v := range []any{1, 2, 3, 4, 5, 6, 7, 8, 9, 10} {
 			ch <- v
 			time.Sleep(10 * time.Millisecond)
 		}
 		close(ch)
 	}()
 
-	src := &source.Channel{Input: ch}
+	src := &source.Channel[any]{Input: ch}
 
 	config := batch.NewConstantConfig(&batch.ConfigValues{
 		MinItems: 3,
@@ -46,12 +46,12 @@ func Example_simpleProcessor() {
 	})
 
 	p := &simpleProcessor{}
-	b := batch.New(config)
+	b := batch.New[any](config)
 
 	ctx := context.Background()
 	fmt.Println("Starting...")
 
-	errs := batch.RunBatchAndWait(ctx, b, src, p)
+	errs := batch.RunBatchAndWait[any](ctx, b, src, p)
 
 	if len(errs) > 0 {
 		fmt.Printf("Errors: %d\n", len(errs))

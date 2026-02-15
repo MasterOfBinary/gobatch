@@ -13,8 +13,8 @@ import (
 func TestTransform_Process(t *testing.T) {
 	t.Run("transforms data successfully", func(t *testing.T) {
 		// Setup - double all integer values
-		processor := &Transform{
-			Func: func(data interface{}) (interface{}, error) {
+		processor := &Transform[any]{
+			Func: func(data any) (any, error) {
 				if val, ok := data.(int); ok {
 					return val * 2, nil
 				}
@@ -22,7 +22,7 @@ func TestTransform_Process(t *testing.T) {
 			},
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: 5},
 			{ID: 2, Data: 10},
 			{ID: 3, Data: "not an int"},
@@ -57,8 +57,8 @@ func TestTransform_Process(t *testing.T) {
 
 	t.Run("handles transformation errors with StopOnError=false", func(t *testing.T) {
 		// Setup - convert to int but fail on non-integers
-		processor := &Transform{
-			Func: func(data interface{}) (interface{}, error) {
+		processor := &Transform[any]{
+			Func: func(data any) (any, error) {
 				if str, ok := data.(string); ok {
 					val, err := strconv.Atoi(str)
 					if err != nil {
@@ -71,7 +71,7 @@ func TestTransform_Process(t *testing.T) {
 			StopOnError: false, // Continue after errors
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "123"},       // Should convert to 123
 			{ID: 2, Data: "not a num"}, // Should error
 			{ID: 3, Data: "456"},       // Should convert to 456
@@ -108,8 +108,8 @@ func TestTransform_Process(t *testing.T) {
 	t.Run("stops on first error with StopOnError=true", func(t *testing.T) {
 		// Setup
 		testErr := errors.New("transformation failed")
-		processor := &Transform{
-			Func: func(data interface{}) (interface{}, error) {
+		processor := &Transform[any]{
+			Func: func(data any) (any, error) {
 				if val, ok := data.(int); ok {
 					if val == 2 {
 						return nil, testErr
@@ -121,7 +121,7 @@ func TestTransform_Process(t *testing.T) {
 			StopOnError: true, // Stop on first error
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: 1}, // Should be doubled to 2
 			{ID: 2, Data: 2}, // Should cause error
 			{ID: 3, Data: 3}, // Should not be processed
@@ -154,8 +154,8 @@ func TestTransform_Process(t *testing.T) {
 
 	t.Run("skips items with existing errors", func(t *testing.T) {
 		// Setup
-		processor := &Transform{
-			Func: func(data interface{}) (interface{}, error) {
+		processor := &Transform[any]{
+			Func: func(data any) (any, error) {
 				if val, ok := data.(int); ok {
 					return val * 2, nil
 				}
@@ -164,7 +164,7 @@ func TestTransform_Process(t *testing.T) {
 		}
 
 		existingErr := errors.New("existing error")
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: 10, Error: existingErr}, // Already has error, should be skipped
 			{ID: 2, Data: 20},                     // Should be doubled
 		}
@@ -186,11 +186,11 @@ func TestTransform_Process(t *testing.T) {
 
 	t.Run("handles nil transform function", func(t *testing.T) {
 		// Setup - nil function should pass through
-		processor := &Transform{
+		processor := &Transform[any]{
 			Func: nil,
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "test"},
 		}
 
@@ -210,15 +210,15 @@ func TestTransform_Process(t *testing.T) {
 
 	t.Run("handles empty items slice", func(t *testing.T) {
 		// Setup
-		processor := &Transform{
-			Func: func(data interface{}) (interface{}, error) {
+		processor := &Transform[any]{
+			Func: func(data any) (any, error) {
 				return "transformed", nil
 			},
 		}
 
 		// Execute
 		ctx := context.Background()
-		result, err := processor.Process(ctx, []*batch.Item{})
+		result, err := processor.Process(ctx, []*batch.Item[any]{})
 
 		// Verify
 		if err != nil {

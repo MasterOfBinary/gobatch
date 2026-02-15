@@ -22,14 +22,14 @@ func TestError_Read(t *testing.T) {
 		}
 		close(errCh)
 
-		source := &Error{Errs: errCh}
+		source := &Error[any]{Errs: errCh}
 		ctx := context.Background()
 
 		// Execute
 		out, errs := source.Read(ctx)
 
 		// Collect results
-		var data []interface{}
+		var data []any
 		var collectedErrors []error
 
 		// Create a timeout to prevent hanging if channels don't close
@@ -90,7 +90,7 @@ func TestError_Read(t *testing.T) {
 		errCh <- errors.New("another error")
 		close(errCh)
 
-		source := &Error{Errs: errCh}
+		source := &Error[any]{Errs: errCh}
 		ctx := context.Background()
 
 		// Execute
@@ -113,7 +113,7 @@ func TestError_Read(t *testing.T) {
 		errCh := make(chan error)
 		defer close(errCh)
 
-		source := &Error{Errs: errCh}
+		source := &Error[any]{Errs: errCh}
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// Execute
@@ -150,7 +150,7 @@ func TestError_Read(t *testing.T) {
 
 	t.Run("handles nil error channel", func(t *testing.T) {
 		// Setup
-		source := &Error{Errs: nil}
+		source := &Error[any]{Errs: nil}
 		ctx := context.Background()
 
 		// Execute
@@ -182,7 +182,7 @@ func TestError_Read(t *testing.T) {
 
 	t.Run("respects buffer size", func(t *testing.T) {
 		bufSize := 5
-		source := &Error{
+		source := &Error[any]{
 			Errs:       make(chan error),
 			BufferSize: bufSize,
 		}

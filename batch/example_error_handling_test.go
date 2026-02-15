@@ -16,8 +16,8 @@ type errorSource struct {
 	errorRate int
 }
 
-func (s *errorSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{})
+func (s *errorSource) Read(ctx context.Context) (<-chan any, <-chan error) {
+	out := make(chan any)
 	errs := make(chan error)
 
 	go func() {
@@ -48,7 +48,7 @@ type validationProcessor struct {
 	maxValue int
 }
 
-func (p *validationProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *validationProcessor) Process(ctx context.Context, items []*batch.Item[any]) ([]*batch.Item[any], error) {
 	for _, item := range items {
 		if item.Error != nil {
 			continue
@@ -75,7 +75,7 @@ type errorProneProcessor struct {
 	batchCount  int32
 }
 
-func (p *errorProneProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *errorProneProcessor) Process(ctx context.Context, items []*batch.Item[any]) ([]*batch.Item[any], error) {
 	batchNum := atomic.AddInt32(&p.batchCount, 1)
 
 	if int(batchNum) == p.failOnBatch {
@@ -102,7 +102,7 @@ func (p *errorProneProcessor) Process(ctx context.Context, items []*batch.Item) 
 
 type errorLogger struct{}
 
-func (p *errorLogger) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *errorLogger) Process(ctx context.Context, items []*batch.Item[any]) ([]*batch.Item[any], error) {
 	fmt.Println("Batch:")
 	errorCount := 0
 
@@ -136,14 +136,14 @@ func Example_errorHandling() {
 		MinItems: 3,
 		MaxItems: 5,
 	})
-	b := batch.New(config)
+	b := batch.New[any](config)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	fmt.Println("=== Error Handling Example ===")
 
-	errs := batch.RunBatchAndWait(ctx, b, src, validator, transformer, logger)
+	errs := batch.RunBatchAndWait[any](ctx, b, src, validator, transformer, logger)
 
 	fmt.Println("\nSummary:")
 	if len(errs) == 0 {

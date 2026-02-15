@@ -10,12 +10,12 @@ import (
 )
 
 type sliceSource struct {
-	items []interface{}
+	items []any
 	delay time.Duration
 }
 
-func (s *sliceSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{}, 100)
+func (s *sliceSource) Read(ctx context.Context) (<-chan any, <-chan error) {
+	out := make(chan any, 100)
 	errs := make(chan error)
 
 	go func() {
@@ -98,7 +98,7 @@ func (c *loadBasedConfig) UpdateLoad(load int) {
 
 type batchInfoProcessor struct{}
 
-func (p *batchInfoProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *batchInfoProcessor) Process(ctx context.Context, items []*batch.Item[any]) ([]*batch.Item[any], error) {
 	fmt.Printf("Batch of %d items\n", len(items))
 	return items, nil
 }
@@ -115,10 +115,10 @@ func Example_customConfig() {
 	fmt.Println("Initial config:")
 	printConfig(cfg.Get())
 
-	b := batch.New(cfg)
+	b := batch.New[any](cfg)
 	p := &batchInfoProcessor{}
 
-	nums := make([]interface{}, 200)
+	nums := make([]any, 200)
 	for i := range nums {
 		nums[i] = i
 	}

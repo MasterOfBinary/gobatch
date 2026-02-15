@@ -7,9 +7,9 @@ import (
 )
 
 // testSourceFunc test helper - simple source implementation
-type testSourceFunc func(ctx context.Context) (<-chan interface{}, <-chan error)
+type testSourceFunc func(ctx context.Context) (<-chan any, <-chan error)
 
-func (f testSourceFunc) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
+func (f testSourceFunc) Read(ctx context.Context) (<-chan any, <-chan error) {
 	return f(ctx)
 }
 
@@ -21,7 +21,7 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 			ErrorBufferSize: 200,
 		}
 
-		b := New(nil).WithBufferConfig(customConfig)
+		b := New[any](nil).WithBufferConfig(customConfig)
 
 		// Verify the config was set
 		if b.bufferConfig.ItemBufferSize != 500 {
@@ -37,11 +37,11 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 
 	t.Run("zero values use defaults", func(t *testing.T) {
 		// Create batch with zero buffer config
-		b := New(nil)
+		b := New[any](nil)
 
 		// Create a simple source
-		src := testSourceFunc(func(ctx context.Context) (<-chan interface{}, <-chan error) {
-			out := make(chan interface{})
+		src := testSourceFunc(func(ctx context.Context) (<-chan any, <-chan error) {
+			out := make(chan any)
 			errs := make(chan error)
 			go func() {
 				defer close(out)
@@ -66,11 +66,11 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 			ErrorBufferSize: -1,
 		}
 
-		b := New(nil).WithBufferConfig(customConfig)
+		b := New[any](nil).WithBufferConfig(customConfig)
 
 		// Create a simple source
-		src := testSourceFunc(func(ctx context.Context) (<-chan interface{}, <-chan error) {
-			out := make(chan interface{})
+		src := testSourceFunc(func(ctx context.Context) (<-chan any, <-chan error) {
+			out := make(chan any)
 			errs := make(chan error)
 			go func() {
 				defer close(out)
@@ -89,11 +89,11 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 	})
 
 	t.Run("panic if called after Go", func(t *testing.T) {
-		b := New(nil)
+		b := New[any](nil)
 
 		// Create a simple source
-		src := testSourceFunc(func(ctx context.Context) (<-chan interface{}, <-chan error) {
-			out := make(chan interface{})
+		src := testSourceFunc(func(ctx context.Context) (<-chan any, <-chan error) {
+			out := make(chan any)
 			errs := make(chan error)
 			go func() {
 				defer close(out)
@@ -127,7 +127,7 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 	})
 
 	t.Run("thread safe with Go", func(t *testing.T) {
-		b := New(nil)
+		b := New[any](nil)
 
 		// Try to call WithBufferConfig and Go concurrently
 		// One should succeed, one should panic
@@ -147,8 +147,8 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 			defer func() {
 				done <- true
 			}()
-			src := testSourceFunc(func(ctx context.Context) (<-chan interface{}, <-chan error) {
-				out := make(chan interface{})
+			src := testSourceFunc(func(ctx context.Context) (<-chan any, <-chan error) {
+				out := make(chan any)
 				errs := make(chan error)
 				close(out)
 				close(errs)

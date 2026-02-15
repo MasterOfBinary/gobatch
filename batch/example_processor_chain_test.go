@@ -14,8 +14,8 @@ type textSource struct {
 	texts []string
 }
 
-func (s *textSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{})
+func (s *textSource) Read(ctx context.Context) (<-chan any, <-chan error) {
+	out := make(chan any)
 	errs := make(chan error)
 
 	go func() {
@@ -39,7 +39,7 @@ type validateProcessor struct {
 	maxLength int
 }
 
-func (p *validateProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *validateProcessor) Process(ctx context.Context, items []*batch.Item[any]) ([]*batch.Item[any], error) {
 	fmt.Println("Validation:")
 	for i, item := range items {
 		if item.Error != nil {
@@ -66,7 +66,7 @@ func (p *validateProcessor) Process(ctx context.Context, items []*batch.Item) ([
 
 type formatProcessor struct{}
 
-func (p *formatProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *formatProcessor) Process(ctx context.Context, items []*batch.Item[any]) ([]*batch.Item[any], error) {
 	fmt.Println("Format:")
 	for i, item := range items {
 		if item.Error != nil {
@@ -84,7 +84,7 @@ type enrichProcessor struct {
 	metadata map[string]string
 }
 
-func (p *enrichProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *enrichProcessor) Process(ctx context.Context, items []*batch.Item[any]) ([]*batch.Item[any], error) {
 	fmt.Println("Enrich:")
 	for i, item := range items {
 		if item.Error != nil {
@@ -111,7 +111,7 @@ func (p *enrichProcessor) Process(ctx context.Context, items []*batch.Item) ([]*
 
 type displayProcessor struct{}
 
-func (p *displayProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *displayProcessor) Process(ctx context.Context, items []*batch.Item[any]) ([]*batch.Item[any], error) {
 	fmt.Println("Results:")
 	for i, item := range items {
 		if item.Error != nil {
@@ -146,14 +146,14 @@ func Example_processorChain() {
 		MinItems: 4,
 		MaxItems: 3,
 	})
-	b := batch.New(config)
+	b := batch.New[any](config)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	fmt.Println("=== Processor Chain Example ===")
 
-	errs := batch.RunBatchAndWait(ctx, b, src,
+	errs := batch.RunBatchAndWait[any](ctx, b, src,
 		&validateProcessor{minLength: 3, maxLength: 15},
 		&formatProcessor{},
 		&enrichProcessor{metadata: meta},
