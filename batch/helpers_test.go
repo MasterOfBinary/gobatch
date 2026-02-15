@@ -75,9 +75,9 @@ func TestCollectErrors(t *testing.T) {
 
 func TestRunBatchAndWait(t *testing.T) {
 	// Create test data
-	batch := New(NewConstantConfig(&ConfigValues{}))
+	batch := New[any](NewConstantConfig(&ConfigValues{}))
 	src := &testSource{
-		Items:   []interface{}{1, 2, 3},
+		Items:   []any{1, 2, 3},
 		WithErr: errors.New("source error"),
 	}
 
@@ -85,7 +85,7 @@ func TestRunBatchAndWait(t *testing.T) {
 	proc := &countProcessor{count: &count}
 
 	// Run the batch and collect errors
-	errs := RunBatchAndWait(context.Background(), batch, src, proc)
+	errs := RunBatchAndWait[any](context.Background(), batch, src, proc)
 
 	// Verify processing occurred
 	if atomic.LoadUint32(&count) != 3 {
@@ -101,23 +101,23 @@ func TestRunBatchAndWait(t *testing.T) {
 func TestExecuteBatches(t *testing.T) {
 	t.Run("all valid configs", func(t *testing.T) {
 		// Create multiple batches with sources and processors
-		batch1 := New(NewConstantConfig(&ConfigValues{}))
-		src1 := &testSource{Items: []interface{}{1, 2, 3}}
+		batch1 := New[any](NewConstantConfig(&ConfigValues{}))
+		src1 := &testSource{Items: []any{1, 2, 3}}
 		var count1 uint32
 		proc1 := &countProcessor{count: &count1}
 
-		batch2 := New(NewConstantConfig(&ConfigValues{}))
+		batch2 := New[any](NewConstantConfig(&ConfigValues{}))
 		src2 := &testSource{
-			Items:   []interface{}{4, 5},
+			Items:   []any{4, 5},
 			WithErr: errors.New("source 2 error"),
 		}
 		var count2 uint32
 		proc2 := &countProcessor{count: &count2}
 
 		// Configure the batches
-		configs := []*BatchConfig{
-			{B: batch1, S: src1, P: []Processor{proc1}},
-			{B: batch2, S: src2, P: []Processor{proc2}},
+		configs := []*BatchConfig[any]{
+			{B: batch1, S: src1, P: []Processor[any]{proc1}},
+			{B: batch2, S: src2, P: []Processor[any]{proc2}},
 		}
 
 		// Execute all batches
@@ -139,20 +139,20 @@ func TestExecuteBatches(t *testing.T) {
 	})
 
 	t.Run("nil config element", func(t *testing.T) {
-		batch1 := New(NewConstantConfig(&ConfigValues{}))
-		src1 := &testSource{Items: []interface{}{1, 2, 3}}
+		batch1 := New[any](NewConstantConfig(&ConfigValues{}))
+		src1 := &testSource{Items: []any{1, 2, 3}}
 		var count1 uint32
 		proc1 := &countProcessor{count: &count1}
 
-		batch2 := New(NewConstantConfig(&ConfigValues{}))
-		src2 := &testSource{Items: []interface{}{4}}
+		batch2 := New[any](NewConstantConfig(&ConfigValues{}))
+		src2 := &testSource{Items: []any{4}}
 		var count2 uint32
 		proc2 := &countProcessor{count: &count2}
 
-		configs := []*BatchConfig{
-			{B: batch1, S: src1, P: []Processor{proc1}},
+		configs := []*BatchConfig[any]{
+			{B: batch1, S: src1, P: []Processor[any]{proc1}},
 			nil,
-			{B: batch2, S: src2, P: []Processor{proc2}},
+			{B: batch2, S: src2, P: []Processor[any]{proc2}},
 		}
 
 		errs := ExecuteBatches(context.Background(), configs...)
@@ -172,20 +172,20 @@ func TestExecuteBatches(t *testing.T) {
 }
 
 func TestExecuteBatches_NilConfig(t *testing.T) {
-	batch1 := New(NewConstantConfig(&ConfigValues{}))
-	src1 := &testSource{Items: []interface{}{1, 2, 3}}
+	batch1 := New[any](NewConstantConfig(&ConfigValues{}))
+	src1 := &testSource{Items: []any{1, 2, 3}}
 	var count1 uint32
 	proc1 := &countProcessor{count: &count1}
 
-	batch2 := New(NewConstantConfig(&ConfigValues{}))
-	src2 := &testSource{Items: []interface{}{4, 5}}
+	batch2 := New[any](NewConstantConfig(&ConfigValues{}))
+	src2 := &testSource{Items: []any{4, 5}}
 	var count2 uint32
 	proc2 := &countProcessor{count: &count2}
 
-	configs := []*BatchConfig{
-		{B: batch1, S: src1, P: []Processor{proc1}},
+	configs := []*BatchConfig[any]{
+		{B: batch1, S: src1, P: []Processor[any]{proc1}},
 		nil,
-		{B: batch2, S: src2, P: []Processor{proc2}},
+		{B: batch2, S: src2, P: []Processor[any]{proc2}},
 	}
 
 	errs := ExecuteBatches(context.Background(), configs...)
@@ -209,18 +209,18 @@ type countProcessor struct {
 	count *uint32
 }
 
-func (p *countProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+func (p *countProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
 	atomic.AddUint32(p.count, uint32(len(items)))
 	return items, nil
 }
 
 type testSource struct {
-	Items   []interface{}
+	Items   []any
 	WithErr error
 }
 
-func (s *testSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{})
+func (s *testSource) Read(ctx context.Context) (<-chan any, <-chan error) {
+	out := make(chan any)
 	errs := make(chan error, 1)
 	go func() {
 		defer close(out)

@@ -12,14 +12,11 @@
 //
 // Basic usage of the Transform processor:
 //
-//	p := &Transform{Func: func(v interface{}) (interface{}, error) {
-//	    if n, ok := v.(int); ok {
-//	        return n * 2, nil
-//	    }
-//	    return v, nil
+//	p := &Transform[int]{Func: func(v int) (int, error) {
+//	    return v * 2, nil
 //	}}
 //
-//	items := []*batch.Item{{Data: 1}, {Data: 2}}
+//	items := []*batch.Item[int]{{Data: 1}, {Data: 2}}
 //	res, _ := p.Process(context.Background(), items)
 //	fmt.Println(res[0].Data, res[1].Data)
 //

@@ -11,9 +11,9 @@ import (
 func TestNil_Process(t *testing.T) {
 	t.Run("returns items unchanged with zero duration", func(t *testing.T) {
 		// Setup
-		processor := &Nil{Duration: 0}
+		processor := &Nil[any]{Duration: 0}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "item1"},
 			{ID: 2, Data: "item2"},
 		}
@@ -55,9 +55,9 @@ func TestNil_Process(t *testing.T) {
 	t.Run("waits for the specified duration", func(t *testing.T) {
 		// Setup
 		duration := 50 * time.Millisecond
-		processor := &Nil{Duration: duration}
+		processor := &Nil[any]{Duration: duration}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "test"},
 		}
 
@@ -80,14 +80,14 @@ func TestNil_Process(t *testing.T) {
 
 	t.Run("handles empty items slice", func(t *testing.T) {
 		// Setup
-		processor := &Nil{
+		processor := &Nil[any]{
 			Duration: 50 * time.Millisecond,
 		}
 
 		// Execute
 		ctx := context.Background()
 		start := time.Now()
-		processedItems, err := processor.Process(ctx, []*batch.Item{})
+		processedItems, err := processor.Process(ctx, []*batch.Item[any]{})
 		elapsed := time.Since(start)
 
 		// Verify
@@ -107,12 +107,12 @@ func TestNil_Process(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		// Setup
-		processor := &Nil{
+		processor := &Nil[any]{
 			Duration:      1 * time.Second, // Long enough to not complete naturally
 			MarkCancelled: true,
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "item1"},
 			{ID: 2, Data: "item2"},
 		}
@@ -122,14 +122,14 @@ func TestNil_Process(t *testing.T) {
 
 		// Start processing in a goroutine
 		resultCh := make(chan struct {
-			items []*batch.Item
+			items []*batch.Item[any]
 			err   error
 		})
 
 		go func() {
 			items, err := processor.Process(ctx, items)
 			resultCh <- struct {
-				items []*batch.Item
+				items []*batch.Item[any]
 				err   error
 			}{items, err}
 		}()
@@ -157,12 +157,12 @@ func TestNil_Process(t *testing.T) {
 
 	t.Run("respects MarkCancelled=false setting", func(t *testing.T) {
 		// Setup - this time don't mark items as canceled
-		processor := &Nil{
+		processor := &Nil[any]{
 			Duration:      1 * time.Second,
 			MarkCancelled: false,
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "test"},
 		}
 

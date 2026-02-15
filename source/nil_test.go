@@ -9,7 +9,7 @@ import (
 func TestNil_Read(t *testing.T) {
 	t.Run("closes immediately with zero duration", func(t *testing.T) {
 		// Setup
-		source := &Nil{Duration: 0}
+		source := &Nil[any]{Duration: 0}
 		ctx := context.Background()
 
 		// Execute
@@ -42,7 +42,7 @@ func TestNil_Read(t *testing.T) {
 	t.Run("closes after specified duration", func(t *testing.T) {
 		// Setup
 		duration := 50 * time.Millisecond
-		source := &Nil{Duration: duration}
+		source := &Nil[any]{Duration: duration}
 		ctx := context.Background()
 
 		// Execute
@@ -86,7 +86,7 @@ func TestNil_Read(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		// Setup
-		source := &Nil{Duration: 10 * time.Second} // Long enough to not complete
+		source := &Nil[any]{Duration: 10 * time.Second} // Long enough to not complete
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// Execute
@@ -121,7 +121,7 @@ func TestNil_Read(t *testing.T) {
 
 	t.Run("negative duration treated as zero", func(t *testing.T) {
 		// Setup
-		source := &Nil{Duration: -10 * time.Millisecond}
+		source := &Nil[any]{Duration: -10 * time.Millisecond}
 		ctx := context.Background()
 
 		// Execute
@@ -153,14 +153,14 @@ func TestNil_Read(t *testing.T) {
 
 	t.Run("emits no data or errors", func(t *testing.T) {
 		// Setup
-		source := &Nil{Duration: 10 * time.Millisecond}
+		source := &Nil[any]{Duration: 10 * time.Millisecond}
 		ctx := context.Background()
 
 		// Execute
 		out, errs := source.Read(ctx)
 
 		// Collect results
-		var data []interface{}
+		var data []any
 		var errors []error
 
 		// Wait for channels to close

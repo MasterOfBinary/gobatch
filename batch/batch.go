@@ -36,12 +36,12 @@ type BufferConfig struct {
 // Any errors are wrapped in either a SourceError or a ProcessorError, so the caller
 // can determine where the errors came from.
 //
-// To create a new Batch, call New. Creating one using &Batch{} will also work.
+// To create a new Batch, call New. Creating one using &Batch[T]{} will also work.
 //
 //	// The following are equivalent:
-//	defaultBatch1 := &batch.Batch{}
-//	defaultBatch2 := batch.New(nil)
-//	defaultBatch3 := batch.New(batch.NewConstantConfig(&batch.ConfigValues{}))
+//	defaultBatch1 := &batch.Batch[any]{}
+//	defaultBatch2 := batch.New[any](nil)
+//	defaultBatch3 := batch.New[any](batch.NewConstantConfig(&batch.ConfigValues{}))
 //
 // If Config is nil, a default configuration is used, where items are processed
 // immediately as they are read.
@@ -67,12 +67,12 @@ type BufferConfig struct {
 // Errors returned on the error channel may be wrapped. Source errors will be
 // of type SourceError, processor errors will be of type ProcessorError, and
 // Batch errors (internal errors) will be plain.
-type Batch struct {
+type Batch[T any] struct {
 	config       Config
 	bufferConfig BufferConfig
-	src          Source
-	processors   []Processor
-	items        chan *Item
+	src          Source[T]
+	processors   []Processor[T]
+	items        chan *Item[T]
 	ids          chan uint64
 	done         chan struct{}
 
@@ -87,8 +87,8 @@ type Batch struct {
 // To avoid race conditions, the config cannot be changed after the Batch
 // is created. Instead, implement the Config interface to support changing
 // values.
-func New(config Config) *Batch {
-	return &Batch{
+func New[T any](config Config) *Batch[T] {
+	return &Batch[T]{
 		config: config,
 	}
 }
@@ -98,14 +98,14 @@ func New(config Config) *Batch {
 //
 // Example:
 //
-//	b := batch.New(config).WithBufferConfig(batch.BufferConfig{
+//	b := batch.New[any](config).WithBufferConfig(batch.BufferConfig{
 //		ItemBufferSize:  1000,
 //		IDBufferSize:    1000,
 //		ErrorBufferSize: 500,
 //	})
 //
 // Panics if called after Go() has started to prevent data races and confusion.
-func (b *Batch) WithBufferConfig(config BufferConfig) *Batch {
+func (b *Batch[T]) WithBufferConfig(config BufferConfig) *Batch[T] {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -118,19 +118,19 @@ func (b *Batch) WithBufferConfig(config BufferConfig) *Batch {
 }
 
 // Item represents a single data item flowing through the batch pipeline.
-type Item struct {
+type Item[T any] struct {
 	// ID is a unique identifier for the item. It must not be modified by processors.
 	ID uint64
 
 	// Data holds the payload being processed. It is safe for processors to modify.
-	Data interface{}
+	Data T
 
 	// Error is set by processors to indicate a failure specific to this item.
 	Error error
 }
 
 // Source reads items that are to be batch processed.
-type Source interface {
+type Source[T any] interface {
 	// Read reads items from a data source and returns two channels:
 	// one for items, and one for errors.
 	//
@@ -139,8 +139,8 @@ type Source interface {
 	//
 	// Example:
 	//
-	//	func (s *MySource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	//		out := make(chan interface{})
+	//	func (s *MySource) Read(ctx context.Context) (<-chan int, <-chan error) {
+	//		out := make(chan int)
 	//		errs := make(chan error)
 	//
 	//		go func() {
@@ -160,13 +160,13 @@ type Source interface {
 	//
 	//		return out, errs
 	//	}
-	Read(ctx context.Context) (<-chan interface{}, <-chan error)
+	Read(ctx context.Context) (<-chan T, <-chan error)
 }
 
 // Processor processes items in batches. Implementations apply operations to each batch
 // and may modify items or set per-item errors. Processors can be chained together to
 // form multi-stage pipelines.
-type Processor interface {
+type Processor[T any] interface {
 	// Process applies operations to a batch of items.
 	// It may modify item data or set item.Error on individual items.
 	//
@@ -175,7 +175,7 @@ type Processor interface {
 	//
 	// Example:
 	//
-	//	func (p *MyProcessor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+	//	func (p *MyProcessor) Process(ctx context.Context, items []*batch.Item[int]) ([]*batch.Item[int], error) {
 	//		for _, item := range items {
 	//			if item.Error != nil {
 	//				continue
@@ -198,7 +198,7 @@ type Processor interface {
 	//
 	//		return items, nil
 	//	}
-	Process(ctx context.Context, items []*Item) ([]*Item, error)
+	Process(ctx context.Context, items []*Item[T]) ([]*Item[T], error)
 }
 
 // Go starts batch processing asynchronously and returns an error channel.
@@ -217,7 +217,7 @@ type Processor interface {
 //
 // Example:
 //
-//	b := batch.New(config)
+//	b := batch.New[any](config)
 //	errs := b.Go(ctx, source, processor)
 //
 //	go func() {
@@ -232,7 +232,7 @@ type Processor interface {
 //   - The Source must close its channels when reading is complete.
 //   - Processors must check for context cancellation and stop early if needed.
 //   - All items that have already been read will be processed even if the context is canceled.
-func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan error {
+func (b *Batch[T]) Go(ctx context.Context, s Source[T], procs ...Processor[T]) <-chan error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -260,7 +260,7 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 	b.src = s
 
 	// Filter out nil processors
-	b.processors = make([]Processor, 0, len(procs))
+	b.processors = make([]Processor[T], 0, len(procs))
 	for _, p := range procs {
 		if p != nil {
 			b.processors = append(b.processors, p)
@@ -281,7 +281,7 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 		errBuf = DefaultErrorBufferSize
 	}
 
-	b.items = make(chan *Item, itemBuf)
+	b.items = make(chan *Item[T], itemBuf)
 	b.ids = make(chan uint64, idBuf)
 	b.errs = make(chan error, errBuf)
 	b.done = make(chan struct{})
@@ -300,7 +300,7 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 //
 // Example:
 //
-//	b := batch.New(config)
+//	b := batch.New[any](config)
 //	batch.IgnoreErrors(b.Go(ctx, source, processor))
 //
 //	<-b.Done()
@@ -316,7 +316,7 @@ func (b *Batch) Go(ctx context.Context, s Source, procs ...Processor) <-chan err
 //	case <-time.After(10 * time.Second):
 //		fmt.Println("Timed out waiting for processing to finish")
 //	}
-func (b *Batch) Done() <-chan struct{} {
+func (b *Batch[T]) Done() <-chan struct{} {
 	if b.done == nil {
 		return closedDone
 	}
@@ -327,7 +327,7 @@ func (b *Batch) Done() <-chan struct{} {
 //
 // It runs as a background goroutine, incrementing a counter starting from zero
 // and sending each ID on the ids channel. It exits when the done channel is closed.
-func (b *Batch) doIDGenerator() {
+func (b *Batch[T]) doIDGenerator() {
 	var id uint64
 	for {
 		select {
@@ -347,7 +347,7 @@ func (b *Batch) doIDGenerator() {
 //
 // When both the data and error channels are closed, it closes the items channel
 // to signal that no more data will be produced.
-func (b *Batch) doReader(ctx context.Context) {
+func (b *Batch[T]) doReader(ctx context.Context) {
 	// Get channels from source
 	out, errs := b.src.Read(ctx)
 
@@ -368,7 +368,7 @@ func (b *Batch) doReader(ctx context.Context) {
 				continue
 			}
 			id := <-b.ids
-			b.items <- &Item{
+			b.items <- &Item[T]{
 				ID:   id,
 				Data: data,
 			}
@@ -397,7 +397,7 @@ func (b *Batch) doReader(ctx context.Context) {
 //
 // Batches are processed concurrently, but each batch is processed sequentially through the chain
 // of Processors. Each Processor receives the output from the previous one.
-func (b *Batch) doProcessors(ctx context.Context) {
+func (b *Batch[T]) doProcessors(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	for {
@@ -410,7 +410,7 @@ func (b *Batch) doProcessors(ctx context.Context) {
 		}
 
 		wg.Add(1)
-		go func(items []*Item) {
+		go func(items []*Item[T]) {
 			defer wg.Done()
 			for _, proc := range b.processors {
 				// Skip nil processors (although they should have been filtered out in Go)
@@ -476,10 +476,10 @@ func fixConfig(c ConfigValues) ConfigValues {
 //   - MinItems: If reached, waits until MinTime is also satisfied.
 //
 // The method returns the collected batch of items.
-func (b *Batch) waitForItems(_ context.Context, config ConfigValues) []*Item {
+func (b *Batch[T]) waitForItems(_ context.Context, config ConfigValues) []*Item[T] {
 	var (
 		reachedMinTime bool
-		batch          = make([]*Item, 0, config.MinItems)
+		batch          = make([]*Item[T], 0, config.MinItems)
 		minTimer       <-chan time.Time
 		maxTimer       <-chan time.Time
 	)

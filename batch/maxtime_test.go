@@ -23,16 +23,16 @@ func TestMaxTimeIdle(t *testing.T) {
 		MaxTime:  100 * time.Millisecond,
 	})
 
-	b := batch.New(cfg)
+	b := batch.New[any](cfg)
 
 	// Input channel
-	input := make(chan interface{})
-	src := &source.Channel{Input: input}
+	input := make(chan any)
+	src := &source.Channel[any]{Input: input}
 
 	// Counter processor
 	var processedCount int32
-	proc := &processor.Transform{
-		Func: func(data interface{}) (interface{}, error) {
+	proc := &processor.Transform[any]{
+		Func: func(data any) (any, error) {
 			atomic.AddInt32(&processedCount, 1)
 			return data, nil
 		},

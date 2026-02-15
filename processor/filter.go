@@ -8,15 +8,15 @@ import (
 
 // FilterFunc is a function that decides whether an item should be included in the output.
 // Return true to keep the item, false to filter it out.
-type FilterFunc func(item *batch.Item) bool
+type FilterFunc[T any] func(item *batch.Item[T]) bool
 
 // Filter is a processor that filters items based on a predicate function.
 // It can be used to remove items from the pipeline that don't meet certain criteria.
-type Filter struct {
+type Filter[T any] struct {
 	// Predicate is a function that returns true for items that should be kept
 	// and false for items that should be filtered out.
 	// If nil, no filtering occurs (all items pass through).
-	Predicate FilterFunc
+	Predicate FilterFunc[T]
 
 	// InvertMatch inverts the predicate logic: if true, items matching the predicate
 	// will be removed instead of kept.
@@ -27,13 +27,13 @@ type Filter struct {
 // Process implements the Processor interface by filtering items according to the predicate.
 // Items that don't pass the filter are simply not included in the returned slice.
 // This does not set any errors on items, it just excludes them from further processing.
-func (p *Filter) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *Filter[T]) Process(_ context.Context, items []*batch.Item[T]) ([]*batch.Item[T], error) {
 	if len(items) == 0 || p.Predicate == nil {
 		return items, nil
 	}
 
 	// Pre-allocate with capacity of original slice
-	result := make([]*batch.Item, 0, len(items))
+	result := make([]*batch.Item[T], 0, len(items))
 
 	for _, item := range items {
 		shouldKeep := p.Predicate(item)

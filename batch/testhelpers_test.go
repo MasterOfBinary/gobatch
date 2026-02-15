@@ -11,13 +11,13 @@ import (
 
 // testSource emits predefined items with optional delay and final error.
 type testSource struct {
-	Items   []interface{}
+	Items   []any
 	Delay   time.Duration
 	WithErr error
 }
 
-func (s *testSource) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
-	out := make(chan interface{})
+func (s *testSource) Read(ctx context.Context) (<-chan any, <-chan error) {
+	out := make(chan any)
 	errs := make(chan error, 1)
 	go func() {
 		defer close(out)
@@ -46,7 +46,7 @@ type countProcessor struct {
 	processorErr error
 }
 
-func (p *countProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+func (p *countProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
 	if p.delay > 0 {
 		time.Sleep(p.delay)
 	}
@@ -64,7 +64,7 @@ type errorPerItemProcessor struct {
 	FailEvery int
 }
 
-func (p *errorPerItemProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+func (p *errorPerItemProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
 	for i, item := range items {
 		if p.FailEvery > 0 && (i%p.FailEvery) == 0 {
 			item.Error = fmt.Errorf("fail item %d", item.ID)
@@ -75,10 +75,10 @@ func (p *errorPerItemProcessor) Process(ctx context.Context, items []*Item) ([]*
 
 // transformProcessor modifies item data with transformFn.
 type transformProcessor struct {
-	transformFn func(interface{}) interface{}
+	transformFn func(any) any
 }
 
-func (p *transformProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+func (p *transformProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
 	select {
 	case <-ctx.Done():
 		return items, ctx.Err()
@@ -95,11 +95,11 @@ func (p *transformProcessor) Process(ctx context.Context, items []*Item) ([]*Ite
 
 // filterProcessor only keeps items for which filterFn returns true.
 type filterProcessor struct {
-	filterFn func(interface{}) bool
+	filterFn func(any) bool
 }
 
-func (p *filterProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
-	var result []*Item
+func (p *filterProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
+	var result []*Item[any]
 	for _, item := range items {
 		select {
 		case <-ctx.Done():
@@ -119,10 +119,10 @@ func (p *filterProcessor) Process(ctx context.Context, items []*Item) ([]*Item, 
 
 // testProcessor calls processFn for processing items.
 type testProcessor struct {
-	processFn func(context.Context, []*Item) ([]*Item, error)
+	processFn func(context.Context, []*Item[any]) ([]*Item[any], error)
 }
 
-func (p *testProcessor) Process(ctx context.Context, items []*Item) ([]*Item, error) {
+func (p *testProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
 	if p.processFn != nil {
 		return p.processFn(ctx, items)
 	}

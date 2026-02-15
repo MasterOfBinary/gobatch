@@ -12,12 +12,12 @@ func TestError_Process(t *testing.T) {
 	t.Run("applies error to all items with default settings", func(t *testing.T) {
 		// Setup
 		customErr := errors.New("custom test error")
-		processor := &Error{
+		processor := &Error[any]{
 			Err:          customErr,
 			FailFraction: 1.0, // Default - apply to all
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "item1"},
 			{ID: 2, Data: "item2"},
 			{ID: 3, Data: "item3"},
@@ -55,12 +55,12 @@ func TestError_Process(t *testing.T) {
 
 	t.Run("uses default error when nil provided", func(t *testing.T) {
 		// Setup
-		processor := &Error{
+		processor := &Error[any]{
 			Err:          nil, // Should use default
 			FailFraction: 1.0,
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "test"},
 		}
 
@@ -78,14 +78,14 @@ func TestError_Process(t *testing.T) {
 
 	t.Run("handles empty items slice", func(t *testing.T) {
 		// Setup
-		processor := &Error{
+		processor := &Error[any]{
 			Err:          errors.New("test"),
 			FailFraction: 1.0,
 		}
 
 		// Execute
 		ctx := context.Background()
-		processedItems, err := processor.Process(ctx, []*batch.Item{})
+		processedItems, err := processor.Process(ctx, []*batch.Item[any]{})
 
 		// Verify
 		if err != nil {
@@ -100,15 +100,15 @@ func TestError_Process(t *testing.T) {
 	t.Run("applies error to fraction of items", func(t *testing.T) {
 		// Setup
 		customErr := errors.New("partial error")
-		processor := &Error{
+		processor := &Error[any]{
 			Err:          customErr,
 			FailFraction: 0.5, // Apply to approximately half
 		}
 
 		// Create 10 items - about 5 should have errors
-		items := make([]*batch.Item, 10)
+		items := make([]*batch.Item[any], 10)
 		for i := 0; i < 10; i++ {
-			items[i] = &batch.Item{ID: uint64(i), Data: i}
+			items[i] = &batch.Item[any]{ID: uint64(i), Data: i}
 		}
 
 		// Execute
@@ -140,12 +140,12 @@ func TestError_Process(t *testing.T) {
 
 	t.Run("applies no errors when fail fraction is zero", func(t *testing.T) {
 		// Setup
-		processor := &Error{
+		processor := &Error[any]{
 			Err:          errors.New("test"),
 			FailFraction: 0, // No errors
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "item1"},
 			{ID: 2, Data: "item2"},
 		}

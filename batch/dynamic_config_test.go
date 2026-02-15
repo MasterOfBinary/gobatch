@@ -19,11 +19,11 @@ func TestBatch_DynamicConfiguration(t *testing.T) {
 			MaxTime:  0,
 		})
 
-		batch := New(dynamicCfg)
+		batch := New[any](dynamicCfg)
 
 		// Create items
 		const totalItems = 100
-		items := make([]interface{}, totalItems)
+		items := make([]any, totalItems)
 		for i := 0; i < totalItems; i++ {
 			items[i] = i
 		}
@@ -36,7 +36,7 @@ func TestBatch_DynamicConfiguration(t *testing.T) {
 
 		// Use a new processor type that's safe for this test
 		proc := &testProcessor{
-			processFn: func(ctx context.Context, items []*Item) ([]*Item, error) {
+			processFn: func(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
 				// Add a delay to ensure the processing happens over time
 				time.Sleep(10 * time.Millisecond)
 

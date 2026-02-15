@@ -24,14 +24,14 @@ and processing logic.
 **NOTE:** GoBatch is considered a version 0 release and is in an unstable state. Compatibility may be broken at any time on
 the master branch. If you need a stable release, wait for version 1.
 
-### Latest Release - v0.4.0
+### Latest Release - v0.5.0
 
-Version 0.4.0 addresses critical stability issues, clarifies configuration usage, and adds performance tuning options:
+Version 0.5.0 introduces a hard switch to generic APIs across the library:
 
-- **Performance:** Added `WithBufferConfig` option and `BufferConfig` struct to allow customizing internal channel buffer sizes (Items, IDs, Errors). This allows for fine-tuning performance based on specific workload requirements.
-- Fixed a busy loop in `doReader` when dealing with closed channels.
-- Fixed `MaxTime` timer logic to correctly handle idle periods (restarts timer if empty).
-- Renamed `ContinueOnError` to `StopOnError` in `Transform` processor to align with default behavior (BREAKING CHANGE).
+- **BREAKING:** `Batch`, `Item`, `Source`, and `Processor` are now generic (`Batch[T]`, `Item[T]`, `Source[T]`, `Processor[T]`).
+- **BREAKING:** `Source.Read` now returns typed item channels: `Read(ctx) (<-chan T, <-chan error)`.
+- **BREAKING:** `Processor.Process` now uses typed items: `Process(ctx, []*Item[T]) ([]*Item[T], error)`.
+- Built-in sources and processors now require type parameters (for example: `source.Channel[int]`, `processor.Transform[string]`).
 
 See the [CHANGELOG.md](./CHANGELOG.md) for complete details.
 
@@ -89,11 +89,11 @@ go get github.com/MasterOfBinary/gobatch
 
 ## Key Components
 
-- `Batch`: The main struct that manages batch processing.
-- `Source`: Provides data by implementing `Read(ctx) (<-chan interface{}, <-chan error)`.
-- `Processor`: Processes batches by implementing `Process(ctx, []*Item) ([]*Item, error)`.
+- `Batch[T]`: The main struct that manages batch processing for item type `T`.
+- `Source[T]`: Provides data by implementing `Read(ctx) (<-chan T, <-chan error)`.
+- `Processor[T]`: Processes batches by implementing `Process(ctx, []*Item[T]) ([]*Item[T], error)`.
 - `Config`: Provides dynamic configuration values.
-- `Item`: Represents a single data item with a unique ID and an optional error.
+- `Item[T]`: Represents a single typed data item with a unique ID and an optional error.
 
 ### Built-in Processors
 
@@ -133,7 +133,7 @@ import (
 
 func main() {
 	// Create a batch processor with simple config
-	b := batch.New(batch.NewConstantConfig(&batch.ConfigValues{
+	b := batch.New[int](batch.NewConstantConfig(&batch.ConfigValues{
 		MinItems: 2,
 		MaxItems: 5,
 		MinTime:  10 * time.Millisecond,
@@ -141,24 +141,21 @@ func main() {
 	}))
 
 	// Create an input channel
-	ch := make(chan interface{})
+	ch := make(chan int)
 
 	// Wrap it with a source.Channel
-	src := &source.Channel{Input: ch}
+	src := &source.Channel[int]{Input: ch}
 
 	// First processor: double each number
-	doubleProc := &processor.Transform{
-		Func: func(data interface{}) (interface{}, error) {
-			if v, ok := data.(int); ok {
-				return v * 2, nil
-			}
-			return data, nil
+	doubleProc := &processor.Transform[int]{
+		Func: func(data int) (int, error) {
+			return data * 2, nil
 		},
 	}
 
 	// Second processor: print each processed number
-	printProc := &processor.Transform{
-		Func: func(data interface{}) (interface{}, error) {
+	printProc := &processor.Transform[int]{
+		Func: func(data int) (int, error) {
 			fmt.Println(data)
 			return data, nil
 		},
@@ -225,7 +222,7 @@ config := batch.NewConstantConfig(&batch.ConfigValues{
     MaxTime:  500 * time.Millisecond,
 })
 
-batchProcessor := batch.New(config)
+batchProcessor := batch.New[int](config)
 ```
 
 ### Example: Dynamic Configuration
@@ -241,7 +238,7 @@ dynConfig := batch.NewDynamicConfig(&batch.ConfigValues{
     MaxTime:  500 * time.Millisecond,
 })
 
-batchProcessor := batch.New(dynConfig)
+batchProcessor := batch.New[int](dynConfig)
 
 // ... start processing ...
 
@@ -256,7 +253,7 @@ You can fine-tune the performance by customizing the internal channel buffer siz
 
 ```go
 // Configure custom buffer sizes
-batchProcessor := batch.New(config).WithBufferConfig(batch.BufferConfig{
+batchProcessor := batch.New[int](config).WithBufferConfig(batch.BufferConfig{
     ItemBufferSize:  1000, // Buffer for incoming items
     IDBufferSize:    1000, // Buffer for ID generation
     ErrorBufferSize: 500,  // Buffer for error reporting

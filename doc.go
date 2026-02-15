@@ -9,12 +9,12 @@
 // Basic usage ties these packages together:
 //
 //	cfg := batch.NewConstantConfig(&batch.ConfigValues{MinItems: 1})
-//	b := batch.New(cfg)
-//	ch := make(chan interface{}, 1)
+//	b := batch.New[string](cfg)
+//	ch := make(chan string, 1)
 //	ch <- "hello"
 //	close(ch)
-//	src := &source.Channel{Input: ch}
-//	proc := &processor.Transform{Func: func(v interface{}) (interface{}, error) {
+//	src := &source.Channel[string]{Input: ch}
+//	proc := &processor.Transform[string]{Func: func(v string) (string, error) {
 //	    fmt.Println(v)
 //	    return v, nil
 //	}}

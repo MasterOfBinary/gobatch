@@ -9,15 +9,15 @@ import (
 // Channel is a Processor that sends the Data field of each item to an output
 // channel. Items with existing errors are ignored. The channel is not closed by
 // the processor.
-type Channel struct {
+type Channel[T any] struct {
 	// Output is the channel that receives each item's Data value.
 	// If nil, the processor does nothing.
-	Output chan<- interface{}
+	Output chan<- T
 }
 
 // Process implements the Processor interface by forwarding item data to the
 // Output channel until the context is canceled.
-func (p *Channel) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *Channel[T]) Process(ctx context.Context, items []*batch.Item[T]) ([]*batch.Item[T], error) {
 	if len(items) == 0 || p.Output == nil {
 		return items, nil
 	}

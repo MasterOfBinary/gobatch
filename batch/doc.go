@@ -30,9 +30,9 @@
 // Basic usage:
 //
 //	cfg := NewConstantConfig(&ConfigValues{MinItems: 1})
-//	b := New(cfg)
-//	src := &source.Nil{}
-//	proc := &processor.Nil{}
+//	b := New[int](cfg)
+//	src := &source.Nil[int]{}
+//	proc := &processor.Nil[int]{}
 //	IgnoreErrors(b.Go(ctx, src, proc))
 //	<-b.Done()
 //

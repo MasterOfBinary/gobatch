@@ -17,7 +17,7 @@ type batchSizeMonitor struct {
 	items   int
 }
 
-func (p *batchSizeMonitor) Process(ctx context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *batchSizeMonitor) Process(ctx context.Context, items []*batch.Item[any]) ([]*batch.Item[any], error) {
 	p.mu.Lock()
 	p.batches++
 	p.items += len(items)
@@ -35,11 +35,11 @@ func Example_dynamicConfig() {
 		MaxItems: 10,
 	})
 
-	b := batch.New(cfg)
+	b := batch.New[any](cfg)
 	monitor := &batchSizeMonitor{name: "Dynamic"}
 
-	ch := make(chan interface{})
-	src := &source.Channel{Input: ch}
+	ch := make(chan any)
+	src := &source.Channel[any]{Input: ch}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

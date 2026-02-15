@@ -10,7 +10,7 @@ import (
 // Error is a Processor that marks all incoming items with the given error.
 // It's useful for testing error handling in batch processing pipelines and
 // for simulating scenarios where items fail processing.
-type Error struct {
+type Error[T any] struct {
 	// Err is the error to apply to each item.
 	// If nil, a default "processor error" will be used.
 	Err error
@@ -25,7 +25,7 @@ type Error struct {
 
 // Process implements the Processor interface by marking items with errors
 // according to the configured FailFraction.
-func (p *Error) Process(_ context.Context, items []*batch.Item) ([]*batch.Item, error) {
+func (p *Error[T]) Process(_ context.Context, items []*batch.Item[T]) ([]*batch.Item[T], error) {
 	if len(items) == 0 {
 		return items, nil
 	}

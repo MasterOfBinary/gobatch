@@ -10,21 +10,21 @@ import (
 func TestChannel_Read(t *testing.T) {
 	t.Run("normal operation", func(t *testing.T) {
 		// Setup
-		testData := []interface{}{1, "two", 3.0, []int{4}}
-		in := make(chan interface{}, len(testData))
+		testData := []any{1, "two", 3.0, []int{4}}
+		in := make(chan any, len(testData))
 		for _, item := range testData {
 			in <- item
 		}
 		close(in)
 
-		source := &Channel{Input: in}
+		source := &Channel[any]{Input: in}
 		ctx := context.Background()
 
 		// Execute
 		out, errs := source.Read(ctx)
 
 		// Collect results
-		var results []interface{}
+		var results []any
 		var errors []error
 
 		// Collect all data first
@@ -64,10 +64,10 @@ func TestChannel_Read(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		// Setup an infinite channel that would hang without cancellation
-		in := make(chan interface{})
+		in := make(chan any)
 		defer close(in)
 
-		source := &Channel{Input: in}
+		source := &Channel[any]{Input: in}
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// Execute
@@ -104,7 +104,7 @@ func TestChannel_Read(t *testing.T) {
 
 	t.Run("handles nil input", func(t *testing.T) {
 		// Setup source with nil input
-		source := &Channel{Input: nil}
+		source := &Channel[any]{Input: nil}
 		ctx := context.Background()
 
 		// Execute
@@ -138,8 +138,8 @@ func TestChannel_Read(t *testing.T) {
 
 	t.Run("respects buffer size", func(t *testing.T) {
 		bufSize := 5
-		source := &Channel{
-			Input:      make(chan interface{}),
+		source := &Channel[any]{
+			Input:      make(chan any),
 			BufferSize: bufSize,
 		}
 

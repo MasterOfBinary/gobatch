@@ -10,10 +10,10 @@ const defaultChannelBuffer = 100
 
 // Channel is a Source that reads from an input channel until it's closed.
 // It simplifies using an existing channel as a data source for batch processing.
-type Channel struct {
+type Channel[T any] struct {
 	// Input is the channel from which this source will read data.
 	// The Channel source will not close this channel.
-	Input <-chan interface{}
+	Input <-chan T
 	// BufferSize controls the size of the output buffer (default: 100)
 	BufferSize int
 }
@@ -23,13 +23,13 @@ type Channel struct {
 //
 // The returned channels are always created (never nil) and always closed properly
 // when the source is done providing data or context is canceled.
-func (s *Channel) Read(ctx context.Context) (<-chan interface{}, <-chan error) {
+func (s *Channel[T]) Read(ctx context.Context) (<-chan T, <-chan error) {
 	bufSize := defaultChannelBuffer
 	if s.BufferSize > 0 {
 		bufSize = s.BufferSize
 	}
 
-	out := make(chan interface{}, bufSize)
+	out := make(chan T, bufSize)
 	errs := make(chan error)
 
 	go func() {

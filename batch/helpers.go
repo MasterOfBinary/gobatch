@@ -59,7 +59,7 @@ func CollectErrors(errs <-chan error) []error {
 //	if len(errs) > 0 {
 //		// Handle errors
 //	}
-func RunBatchAndWait(ctx context.Context, b *Batch, s Source, procs ...Processor) []error {
+func RunBatchAndWait[T any](ctx context.Context, b *Batch[T], s Source[T], procs ...Processor[T]) []error {
 	// Start the batch processing
 	errs := b.Go(ctx, s, procs...)
 
@@ -81,10 +81,10 @@ func RunBatchAndWait(ctx context.Context, b *Batch, s Source, procs ...Processor
 // It combines a Batch instance, a Source to read from, and a list of Processors
 // to apply to the data from the source. This is used primarily with the
 // ExecuteBatches function to run multiple batch operations concurrently.
-type BatchConfig struct {
-	B *Batch      // The Batch instance to use
-	S Source      // The Source to read items from
-	P []Processor // The processors to apply to the items
+type BatchConfig[T any] struct {
+	B *Batch[T]      // The Batch instance to use
+	S Source[T]      // The Source to read items from
+	P []Processor[T] // The processors to apply to the items
 }
 
 // ExecuteBatches runs multiple batches concurrently and waits for all to complete.
@@ -94,10 +94,10 @@ type BatchConfig struct {
 // Example usage:
 //
 //	errs := batch.ExecuteBatches(ctx,
-//		&batch.BatchConfig{B: batch1, S: source1, P: []Processor{proc1}},
-//		&batch.BatchConfig{B: batch2, S: source2, P: []Processor{proc2}},
+//		&batch.BatchConfig[int]{B: batch1, S: source1, P: []batch.Processor[int]{proc1}},
+//		&batch.BatchConfig[int]{B: batch2, S: source2, P: []batch.Processor[int]{proc2}},
 //	)
-func ExecuteBatches(ctx context.Context, configs ...*BatchConfig) []error {
+func ExecuteBatches[T any](ctx context.Context, configs ...*BatchConfig[T]) []error {
 	var (
 		wg      sync.WaitGroup
 		mu      sync.Mutex
@@ -107,7 +107,7 @@ func ExecuteBatches(ctx context.Context, configs ...*BatchConfig) []error {
 	wg.Add(len(configs))
 
 	for _, config := range configs {
-		go func(cfg *BatchConfig) {
+		go func(cfg *BatchConfig[T]) {
 			defer wg.Done()
 
 			if cfg == nil || cfg.B == nil || cfg.S == nil {

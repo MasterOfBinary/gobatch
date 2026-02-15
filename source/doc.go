@@ -10,12 +10,12 @@
 //
 // Basic usage of the Channel source:
 //
-//	input := make(chan interface{}, 2)
-//	input <- "a"
-//	input <- "b"
+//	input := make(chan int, 2)
+//	input <- 1
+//	input <- 2
 //	close(input)
 //
-//	src := &Channel{Input: input}
+//	src := &Channel[int]{Input: input}
 //	out, errs := src.Read(context.Background())
 //	for item := range out {
 //	    fmt.Println(item)
@@ -25,6 +25,6 @@
 //
 // Output:
 //
-//	a
-//	b
+//	1
+//	2
 package source

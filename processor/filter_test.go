@@ -10,13 +10,13 @@ import (
 func TestFilter_Process(t *testing.T) {
 	t.Run("keeps items matching predicate", func(t *testing.T) {
 		// Setup - keep only even-numbered IDs
-		processor := &Filter{
-			Predicate: func(item *batch.Item) bool {
+		processor := &Filter[any]{
+			Predicate: func(item *batch.Item[any]) bool {
 				return item.ID%2 == 0 // Keep even IDs
 			},
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "odd"},
 			{ID: 2, Data: "even"},
 			{ID: 3, Data: "odd"},
@@ -45,14 +45,14 @@ func TestFilter_Process(t *testing.T) {
 
 	t.Run("inverts predicate with InvertMatch", func(t *testing.T) {
 		// Setup - remove even-numbered IDs (keep odd)
-		processor := &Filter{
-			Predicate: func(item *batch.Item) bool {
+		processor := &Filter[any]{
+			Predicate: func(item *batch.Item[any]) bool {
 				return item.ID%2 == 0 // Matches even IDs
 			},
 			InvertMatch: true, // But we'll invert to keep odd IDs
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "odd"},
 			{ID: 2, Data: "even"},
 			{ID: 3, Data: "odd"},
@@ -77,11 +77,11 @@ func TestFilter_Process(t *testing.T) {
 
 	t.Run("handles nil predicate", func(t *testing.T) {
 		// Setup - nil predicate should pass all items through
-		processor := &Filter{
+		processor := &Filter[any]{
 			Predicate: nil,
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "item1"},
 			{ID: 2, Data: "item2"},
 		}
@@ -98,15 +98,15 @@ func TestFilter_Process(t *testing.T) {
 
 	t.Run("handles empty items slice", func(t *testing.T) {
 		// Setup
-		processor := &Filter{
-			Predicate: func(item *batch.Item) bool {
+		processor := &Filter[any]{
+			Predicate: func(item *batch.Item[any]) bool {
 				return true // Keep all
 			},
 		}
 
 		// Execute
 		ctx := context.Background()
-		result, err := processor.Process(ctx, []*batch.Item{})
+		result, err := processor.Process(ctx, []*batch.Item[any]{})
 
 		// Verify
 		if err != nil {
@@ -120,13 +120,13 @@ func TestFilter_Process(t *testing.T) {
 
 	t.Run("can filter all items out", func(t *testing.T) {
 		// Setup - filter that rejects everything
-		processor := &Filter{
-			Predicate: func(item *batch.Item) bool {
+		processor := &Filter[any]{
+			Predicate: func(item *batch.Item[any]) bool {
 				return false // Reject all
 			},
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "item1"},
 			{ID: 2, Data: "item2"},
 		}
@@ -143,14 +143,14 @@ func TestFilter_Process(t *testing.T) {
 
 	t.Run("filters based on Data field", func(t *testing.T) {
 		// Setup - keep only items with string Data
-		processor := &Filter{
-			Predicate: func(item *batch.Item) bool {
+		processor := &Filter[any]{
+			Predicate: func(item *batch.Item[any]) bool {
 				_, isString := item.Data.(string)
 				return isString
 			},
 		}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "string data"},    // keep
 			{ID: 2, Data: 42},               // filter out
 			{ID: 3, Data: "another string"}, // keep

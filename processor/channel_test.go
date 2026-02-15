@@ -11,10 +11,10 @@ import (
 
 func TestChannel_Process(t *testing.T) {
 	t.Run("writes data to output channel", func(t *testing.T) {
-		out := make(chan interface{}, 3)
-		processor := &Channel{Output: out}
+		out := make(chan any, 3)
+		processor := &Channel[any]{Output: out}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "a"},
 			{ID: 2, Data: "b"},
 			{ID: 3, Data: "c"},
@@ -31,7 +31,7 @@ func TestChannel_Process(t *testing.T) {
 		}
 
 		close(out)
-		var collected []interface{}
+		var collected []any
 		for v := range out {
 			collected = append(collected, v)
 		}
@@ -48,12 +48,12 @@ func TestChannel_Process(t *testing.T) {
 	})
 
 	t.Run("respects context cancellation", func(t *testing.T) {
-		out := make(chan interface{})
-		processor := &Channel{Output: out}
+		out := make(chan any)
+		processor := &Channel[any]{Output: out}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		items := []*batch.Item{{ID: 1, Data: "test"}}
+		items := []*batch.Item[any]{{ID: 1, Data: "test"}}
 		_, err := processor.Process(ctx, items)
 
 		if err != context.Canceled {
@@ -69,8 +69,8 @@ func TestChannel_Process(t *testing.T) {
 	})
 
 	t.Run("handles nil output channel", func(t *testing.T) {
-		processor := &Channel{Output: nil}
-		items := []*batch.Item{{ID: 1, Data: "data"}}
+		processor := &Channel[any]{Output: nil}
+		items := []*batch.Item[any]{{ID: 1, Data: "data"}}
 		ctx := context.Background()
 
 		result, err := processor.Process(ctx, items)
@@ -84,10 +84,10 @@ func TestChannel_Process(t *testing.T) {
 	})
 
 	t.Run("skips items with existing errors", func(t *testing.T) {
-		out := make(chan interface{}, 2)
-		processor := &Channel{Output: out}
+		out := make(chan any, 2)
+		processor := &Channel[any]{Output: out}
 
-		items := []*batch.Item{
+		items := []*batch.Item[any]{
 			{ID: 1, Data: "a", Error: errors.New("fail")},
 			{ID: 2, Data: "b"},
 		}
@@ -99,7 +99,7 @@ func TestChannel_Process(t *testing.T) {
 		}
 		close(out)
 
-		var collected []interface{}
+		var collected []any
 		for v := range out {
 			collected = append(collected, v)
 		}
@@ -110,11 +110,11 @@ func TestChannel_Process(t *testing.T) {
 	})
 
 	t.Run("handles empty slice", func(t *testing.T) {
-		out := make(chan interface{}, 1)
-		processor := &Channel{Output: out}
+		out := make(chan any, 1)
+		processor := &Channel[any]{Output: out}
 		ctx := context.Background()
 
-		result, err := processor.Process(ctx, []*batch.Item{})
+		result, err := processor.Process(ctx, []*batch.Item[any]{})
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
