@@ -10,11 +10,9 @@
 
 ## Medium Priority
 
-### Unused Context Parameter in waitForItems
+### ~~Unused Context Parameter in waitForItems~~ — RESOLVED (2026-04-29)
 - **Location:** `batch/batch.go` — `waitForItems()` method
-- **Issue:** Context parameter is accepted but not used for cancellation within the batching logic
-- **Risk:** Batching cannot be interrupted mid-wait; relies on channel closure instead
-- **Suggestion:** Wire context cancellation into the select statements in waitForItems
+- **Resolution:** ctx is now wired into the select. On `ctx.Done()` `waitForItems` returns any partial batch immediately, then drains remaining buffered items one at a time so already-read items are not dropped. Subject to the cancellation contract documented in ARCHITECTURE.md (the source must close its channels in response to ctx — sources that ignore ctx will still block).
 
 ### Silent Configuration Adjustment
 - **Location:** `batch/config.go` — `fixConfig()` function
@@ -22,11 +20,10 @@
 - **Risk:** Users may not realize their configuration was modified; debugging unexpected behavior is harder
 - **Suggestion:** Log warnings when configuration values are adjusted, or return validation errors
 
-### MaxTime Timer Edge Cases
+### MaxTime Timer Edge Cases — PARTIALLY ADDRESSED (2026-04-29)
 - **Location:** `batch/batch.go` — timer handling in waitForItems
-- **Issue:** Repeated MaxTime timeouts with no items could create timer leak or spinning behavior
-- **Risk:** Under pathological conditions (source that never sends items), timer resets indefinitely
-- **Suggestion:** Consider adding an idle timeout or backoff mechanism
+- **Resolved part:** Timer leaks are fixed. `time.After` was replaced with `time.NewTimer` plus `defer Stop()` so timers cannot leak when a batch returns before its timer fires.
+- **Remaining issue:** `waitForItems` still resets `maxTimer` indefinitely when it fires with an empty batch (`maxTimer.Reset(config.MaxTime)`). Under a pathological source that produces no items, the loop will spin every `MaxTime` interval. The cancellation path closes one escape hatch, but an explicit idle-timeout policy is still worth considering.
 
 ### Lock Contention in ExecuteBatches
 - **Location:** `batch/helpers.go` — `ExecuteBatches()` function
@@ -36,16 +33,14 @@
 
 ## Low Priority
 
-### Processor Contract Documentation
+### Processor Contract Documentation — PARTIALLY ADDRESSED (2026-04-29)
 - **Issue:** The exact contract for Processor implementations (when to check item.Error, when to skip vs. process errored items) is implicit
-- **Risk:** Custom processor implementations may handle errors inconsistently
-- **Suggestion:** Document the expected contract explicitly in the Processor interface godoc
+- **Resolved part:** Per-item errors are now reported as `*ItemError` (with the failing `ItemID`) rather than a generic `*ProcessorError`. This makes the conceptual distinction between processor-wide and item-specific failures explicit at the type level.
+- **Remaining issue:** The Processor godoc still does not formally specify whether processors should skip items with `Error != nil` or process them. Custom processors will continue to handle this inconsistently until the interface contract is documented.
 
-### ID Overflow Risk
-- **Location:** `batch/batch.go` — `doIDGenerator()`
-- **Issue:** Uses uint64 counter for item IDs; overflows after 2^64 items
-- **Risk:** Extremely unlikely in practice but IDs would wrap to 0
-- **Suggestion:** Acceptable risk; document the limitation if needed
+### ~~ID Overflow Risk~~ — IMPLEMENTATION SIMPLIFIED (2026-04-29)
+- **Location:** `batch/batch.go` — `doReader()` (was `doIDGenerator()`)
+- **Status:** The dedicated `doIDGenerator` goroutine and channel are gone. IDs are now produced inline in `doReader` via `atomic.AddUint64(&b.nextID, 1) - 1`. The uint64 overflow property is unchanged — IDs still wrap to 0 after 2^64 items, which remains an acceptable risk in practice.
 
 ## Version Stability
 
@@ -55,4 +50,4 @@
 
 ---
 
-*Concerns analysis: 2026-04-10*
+*Concerns analysis: 2026-04-10. Updated 2026-04-29 to reflect the cancellation-and-IDs refactor; the High-priority panic concern remains open.*

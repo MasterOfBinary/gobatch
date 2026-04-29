@@ -10,12 +10,12 @@
 
 ### Types
 - PascalCase for exported types: `Batch[T]`, `Source[T]`, `Processor[T]`, `Item[T]`, `Config`, `ConstantConfig`, `DynamicConfig`
-- Error types: `SourceError`, `ProcessorError`
+- Error types: `SourceError`, `ProcessorError`, `ItemError`
 - Generics use brackets: `[T any]`
 
 ### Functions
 - PascalCase for exported: `New[T]()`, `Go()`, `Done()`, `IgnoreErrors()`, `CollectErrors()`
-- camelCase for unexported: `doReader()`, `doProcessors()`, `doIDGenerator()`, `waitForItems()`, `fixConfig()`
+- camelCase for unexported: `doReader()`, `doProcessors()`, `waitForItems()`, `fixConfig()`
 
 ### Files
 - Lowercase, single-word names: `batch.go`, `config.go`, `errors.go`, `helpers.go`
@@ -38,9 +38,10 @@
 ### Concurrency
 - `sync.Mutex` for protecting shared state (Batch.mu)
 - `sync.WaitGroup` for goroutine coordination
+- `sync/atomic` for the per-batch ID counter (`Batch.nextID`)
 - Channel-based communication between pipeline stages
-- `context.Context` for cancellation propagation
-- Goroutines spawned in `Go()`: doIDGenerator, doReader, doProcessors
+- `context.Context` for cancellation propagation; `waitForItems` watches `ctx.Done()`
+- Goroutines spawned in `Go()`: doReader, doProcessors
 
 ### Configuration
 - `Config` interface with `Get()` method returning `ConfigValues`
@@ -51,9 +52,10 @@
 ## Error Handling
 
 ### Custom Error Types
-- `SourceError` wraps errors from Source.Read() — defined in `batch/errors.go`
-- `ProcessorError` wraps errors from Processor.Process() — defined in `batch/errors.go`
-- Both implement `Unwrap()` for `errors.As()` inspection
+- `SourceError` wraps errors returned by `Source.Read()` — defined in `batch/errors.go`
+- `ProcessorError` wraps processor-wide errors returned as the second value of `Processor.Process()` — defined in `batch/errors.go`
+- `ItemError` wraps per-item failures (`item.Error`) and carries the failing `ItemID` — defined in `batch/errors.go`
+- All three implement `Unwrap()` for `errors.As()` inspection
 
 ### Error Propagation
 - Errors sent on dedicated error channel returned by `Batch.Go()`
@@ -75,4 +77,4 @@
 
 ---
 
-*Conventions analysis: 2026-04-10*
+*Conventions analysis: 2026-04-10. Updated 2026-04-29 for the cancellation-and-IDs refactor (atomic counter, ItemError type, ctx-aware waitForItems).*

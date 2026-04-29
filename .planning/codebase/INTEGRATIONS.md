@@ -28,7 +28,7 @@
 
 **Error Tracking:**
 - Errors returned through error channels
-- Error wrapping provided: `SourceError` and `ProcessorError` types in `batch/errors.go`
+- Error wrapping provided: `SourceError`, `ProcessorError`, and `ItemError` (with `ItemID`) types in `batch/errors.go`
 - Users can implement custom error handling via channels
 
 **Logs:**

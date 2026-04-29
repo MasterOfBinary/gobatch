@@ -30,12 +30,12 @@ Defined in `batch/testhelpers_test.go`:
 ### Concurrency Testing
 - Race detection (`-race` flag) catches data races
 - Tests verify goroutine cleanup and channel closure
-- Context cancellation tests verify proper shutdown
+- Context cancellation tests in `batch/cancellation_test.go` exercise the ctx-aware shutdown path: `TestCancellation_BufferedItemsDrained` verifies that already-buffered items are still processed after cancel, and `TestCancellation_SourceErrorNoRace` loops 50× to flush out the previous send-on-closed-channel race between `doReader` and `doProcessors`.
 
 ### Error Path Testing
 - Dedicated error sources (`source.NewError[T]()`) and processors (`processor.NewError[T]()`)
-- Tests verify error wrapping with `errors.As()` for SourceError/ProcessorError
-- Item-level error propagation tested
+- Tests verify error wrapping with `errors.As()` for `SourceError`, `ProcessorError`, and `ItemError`
+- Item-level error propagation tested via `TestCancellation_ItemErrorType` and `TestCancellation_ProcessorErrorDistinct`
 
 ### Example Tests
 - `example_test.go`: end-to-end pipeline examples using `Example` functions
@@ -64,4 +64,4 @@ go test -race -run TestBatchGo ./batch/...
 
 ---
 
-*Testing analysis: 2026-04-10*
+*Testing analysis: 2026-04-10. Updated 2026-04-29 for the new `cancellation_test.go` and `ItemError` coverage.*

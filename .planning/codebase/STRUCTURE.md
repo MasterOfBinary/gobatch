@@ -42,16 +42,16 @@
 - `batch/config.go`: Config interface (Get method), ConstantConfig (static), DynamicConfig (runtime-updatable)
 
 ### Core Logic
-- `batch/batch.go` lines 235-294: Go() starts pipeline
-- `batch/batch.go` lines 479-537: waitForItems implements batching strategy
-- `batch/batch.go` lines 400-442: doProcessors runs processor chain
+- `batch/batch.go` — `Go()` starts the pipeline (assigns IDs via an atomic counter, spawns `doReader` and `doProcessors`)
+- `batch/batch.go` — `waitForItems` implements batching strategy and honors `ctx.Done()` for cancellation drain
+- `batch/batch.go` — `doProcessors` runs the processor chain and emits `*ItemError` for per-item failures, `*ProcessorError` for processor-wide failures
 
 ### Interfaces
-- `batch/batch.go` lines 132-164: Source[T] interface - Read(ctx) returns channels
-- `batch/batch.go` lines 166-202: Processor[T] interface - Process(ctx, items) returns modified items + error
+- `batch/batch.go` — `Source[T]`: `Read(ctx)` returns items and errors channels; both must be closed when the source observes ctx done
+- `batch/batch.go` — `Processor[T]`: `Process(ctx, items)` returns modified items + error
 
 ### Error Handling
-- `batch/errors.go`: SourceError, ProcessorError with Unwrap() for error chaining
+- `batch/errors.go`: `SourceError`, `ProcessorError`, `ItemError` (with `ItemID`), all implementing `Unwrap()` for error chaining
 
 ### Utilities
 - `batch/helpers.go`: IgnoreErrors, CollectErrors, RunBatchAndWait, ExecuteBatches, BatchConfig
@@ -71,11 +71,11 @@
 ### Functions
 - Capitalized exported functions: `New[T]()`, `Go()`, `Done()`, `IgnoreErrors()`, `CollectErrors()`
 - Capitalized exported methods: `Process()`, `Read()`, `Get()`, `Update()`
-- Unexported goroutines: `doReader()`, `doProcessors()`, `doIDGenerator()`
+- Unexported goroutines: `doReader()`, `doProcessors()`
 
 ### Types
 - Capitalized: `Batch[T]`, `Source[T]`, `Processor[T]`, `Item[T]`, `Config`, `ConstantConfig`, `DynamicConfig`
-- Error types: `SourceError`, `ProcessorError`
+- Error types: `SourceError`, `ProcessorError`, `ItemError`
 
 ### Interfaces
 - Named ending with capitalized letter: `Source[T]`, `Processor[T]`, `Config`
@@ -125,4 +125,4 @@
 
 ---
 
-*Structure analysis: 2026-04-10*
+*Structure analysis: 2026-04-10. Updated 2026-04-29 for the cancellation-and-IDs refactor (no more `doIDGenerator` goroutine, atomic ID counter, `ItemError` type).*
