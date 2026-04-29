@@ -8,6 +8,45 @@ Note: This project is in early development. The API may change without warning i
 
 ## [Unreleased]
 
+### Added
+
+- New `ItemError` type for per-item errors. It carries the failing item's `ItemID` alongside the wrapped error so callers can correlate errors with specific items.
+
+### Changed
+
+- **BREAKING:** Per-item errors (where `item.Error != nil` after a processor returns) are now reported as `*ItemError` instead of `*ProcessorError`. Processor-wide errors (those returned as the second value of `Processor.Process`) are still reported as `*ProcessorError`.
+- **BREAKING:** Removed `BufferConfig.IDBufferSize` and the `DefaultIDBufferSize` constant. IDs are now generated with an atomic counter, so the dedicated ID-generator goroutine and channel — and the buffer that backed them — are gone.
+- Context cancellation now drains items 1-by-1 once any partial batch has been returned. Downstream consumers that rely on receiving full `MinItems`-sized batches will see smaller batches during shutdown.
+- `CollectErrors` documentation clarified to note that it blocks until the error channel is closed; callers no longer need to wait on `Done()` afterward.
+
+### Fixed
+
+- `waitForItems` now honors `ctx.Done()`. Previously the context parameter was ignored, which could delay shutdown by up to `MaxTime` and cause the pipeline to keep waiting for batch thresholds long after cancellation.
+- Replaced `time.After` with `time.NewTimer` plus `defer Stop()` in `waitForItems` so timers do not leak when a batch returns before its timer fires.
+- Closed a "send on closed channel" race window during cancellation: previously, if `waitForItems` had returned and `doProcessors` had closed `b.errs` while `doReader` was still alive, the source's next `SourceError` send would panic. The new cancellation path waits for `b.items` to close before letting `doProcessors` exit, which only happens after `doReader` is fully drained.
+
+### Migration
+
+- Any `errors.As(err, &procErr)` switch that used to catch per-item errors needs an additional case for `*ItemError`:
+
+```go
+var (
+    srcErr  *batch.SourceError
+    procErr *batch.ProcessorError
+    itemErr *batch.ItemError
+)
+switch {
+case errors.As(err, &srcErr):
+    // source-level failure
+case errors.As(err, &procErr):
+    // processor-wide failure
+case errors.As(err, &itemErr):
+    // per-item failure — itemErr.ItemID identifies the item
+}
+```
+
+- Drop `IDBufferSize` from any `BufferConfig` struct literal; remove references to `DefaultIDBufferSize`.
+
 ## [0.5.0] - 2026-02-15
 
 This release introduces a hard switch to generics across the public API.
