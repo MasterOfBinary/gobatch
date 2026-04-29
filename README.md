@@ -255,7 +255,6 @@ You can fine-tune the performance by customizing the internal channel buffer siz
 // Configure custom buffer sizes
 batchProcessor := batch.New[int](config).WithBufferConfig(batch.BufferConfig{
     ItemBufferSize:  1000, // Buffer for incoming items
-    IDBufferSize:    1000, // Buffer for ID generation
     ErrorBufferSize: 500,  // Buffer for error reporting
 })
 ```
@@ -282,11 +281,14 @@ go func() {
 	for err := range errs {
 		var srcErr *batch.SourceError
 		var procErr *batch.ProcessorError
+		var itemErr *batch.ItemError
 		switch {
 		case errors.As(err, &srcErr):
 			log.Printf("Source error: %v", srcErr.Unwrap())
 		case errors.As(err, &procErr):
 			log.Printf("Processor error: %v", procErr.Unwrap())
+		case errors.As(err, &itemErr):
+			log.Printf("Item %d error: %v", itemErr.ItemID, itemErr.Unwrap())
 		default:
 			log.Printf("Error: %v", err)
 		}
@@ -297,9 +299,8 @@ go func() {
 Or using helper functions:
 
 ```go
-// Collect all errors
+// Collect all errors (blocks until processing completes)
 errs := batch.CollectErrors(batchProcessor.Go(ctx, source, processor))
-<-batchProcessor.Done()
 
 // Or use the RunBatchAndWait helper
 errs := batch.RunBatchAndWait(ctx, batchProcessor, source, processor)

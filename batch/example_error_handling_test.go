@@ -152,12 +152,15 @@ func Example_errorHandling() {
 		for i, err := range errs {
 			var srcErr *batch.SourceError
 			var procErr *batch.ProcessorError
+			var itemErr *batch.ItemError
 
 			switch {
 			case errors.As(err, &srcErr):
 				fmt.Printf("%d. Source error: %v\n", i+1, srcErr.Unwrap())
 			case errors.As(err, &procErr):
 				fmt.Printf("%d. Processor error: %v\n", i+1, procErr.Unwrap())
+			case errors.As(err, &itemErr):
+				fmt.Printf("%d. Item %d error: %v\n", i+1, itemErr.ItemID, itemErr.Unwrap())
 			default:
 				fmt.Printf("%d. Other error: %v\n", i+1, err)
 			}
@@ -191,8 +194,8 @@ func Example_errorHandling() {
 	// 1. Source error: source error at item 5
 	// 2. Processor error: processor failed on batch 2
 	// 3. Source error: source error at item 10
-	// 4. Processor error: value 12 exceeds maximum 10
-	// 5. Processor error: value 15 exceeds maximum 10
-	// 6. Processor error: value 20 exceeds maximum 10
-	// 7. Processor error: value 25 exceeds maximum 10
+	// 4. Item 9 error: value 12 exceeds maximum 10
+	// 5. Item 10 error: value 15 exceeds maximum 10
+	// 6. Item 11 error: value 20 exceeds maximum 10
+	// 7. Item 12 error: value 25 exceeds maximum 10
 }

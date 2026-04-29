@@ -26,8 +26,8 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 
 		received := 0
 		for err := range errs {
-			var processorError *ProcessorError
-			if !errors.As(err, &processorError) {
+			var itemError *ItemError
+			if !errors.As(err, &itemError) {
 				t.Errorf("unexpected error type: %v", err)
 			}
 			received++

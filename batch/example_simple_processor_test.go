@@ -65,5 +65,5 @@ func Example_simpleProcessor() {
 	// Batch: [7 8 9]
 	// Batch: [10]
 	// Errors: 1
-	// Last error: processor error: value 5 not allowed
+	// Last error: item 4 error: value 5 not allowed
 }

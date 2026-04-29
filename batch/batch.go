@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -22,10 +23,6 @@ type BufferConfig struct {
 	// Default: DefaultItemBufferSize
 	ItemBufferSize int
 
-	// IDBufferSize is the buffer size for the ID generator channel.
-	// Default: DefaultIDBufferSize
-	IDBufferSize int
-
 	// ErrorBufferSize is the buffer size for the error channel.
 	// Default: DefaultErrorBufferSize
 	ErrorBufferSize int
@@ -33,8 +30,8 @@ type BufferConfig struct {
 
 // Batch provides batch processing given a Source and one or more Processors.
 // Data is read from the Source and processed through each Processor in sequence.
-// Any errors are wrapped in either a SourceError or a ProcessorError, so the caller
-// can determine where the errors came from.
+// Any errors are wrapped in a SourceError, ProcessorError, or ItemError so the
+// caller can determine where the errors came from.
 //
 // To create a new Batch, call New. Creating one using &Batch[T]{} will also work.
 //
@@ -65,15 +62,16 @@ type BufferConfig struct {
 //	// Now batch processing is done
 //
 // Errors returned on the error channel may be wrapped. Source errors will be
-// of type SourceError, processor errors will be of type ProcessorError, and
-// Batch errors (internal errors) will be plain.
+// of type SourceError, processor errors will be of type ProcessorError,
+// per-item errors will be of type ItemError, and Batch errors (internal
+// errors) will be plain.
 type Batch[T any] struct {
 	config       Config
 	bufferConfig BufferConfig
 	src          Source[T]
 	processors   []Processor[T]
 	items        chan *Item[T]
-	ids          chan uint64
+	nextID       uint64
 	done         chan struct{}
 
 	mu      sync.Mutex
@@ -100,7 +98,6 @@ func New[T any](config Config) *Batch[T] {
 //
 //	b := batch.New[any](config).WithBufferConfig(batch.BufferConfig{
 //		ItemBufferSize:  1000,
-//		IDBufferSize:    1000,
 //		ErrorBufferSize: 500,
 //	})
 //
@@ -272,21 +269,16 @@ func (b *Batch[T]) Go(ctx context.Context, s Source[T], procs ...Processor[T]) <
 	if itemBuf <= 0 {
 		itemBuf = DefaultItemBufferSize
 	}
-	idBuf := b.bufferConfig.IDBufferSize
-	if idBuf <= 0 {
-		idBuf = DefaultIDBufferSize
-	}
 	errBuf := b.bufferConfig.ErrorBufferSize
 	if errBuf <= 0 {
 		errBuf = DefaultErrorBufferSize
 	}
 
 	b.items = make(chan *Item[T], itemBuf)
-	b.ids = make(chan uint64, idBuf)
+	atomic.StoreUint64(&b.nextID, 0)
 	b.errs = make(chan error, errBuf)
 	b.done = make(chan struct{})
 
-	go b.doIDGenerator()
 	go b.doReader(ctx)
 	go b.doProcessors(ctx)
 
@@ -323,22 +315,6 @@ func (b *Batch[T]) Done() <-chan struct{} {
 	return b.done
 }
 
-// doIDGenerator generates unique IDs for items in the pipeline.
-//
-// It runs as a background goroutine, incrementing a counter starting from zero
-// and sending each ID on the ids channel. It exits when the done channel is closed.
-func (b *Batch[T]) doIDGenerator() {
-	var id uint64
-	for {
-		select {
-		case b.ids <- id:
-			id++
-		case <-b.done:
-			return
-		}
-	}
-}
-
 // doReader reads items from the Source and forwards them to the batch processor.
 //
 // It starts the Source.Read goroutine, then listens for data and errors.
@@ -367,7 +343,7 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 				out = nil
 				continue
 			}
-			id := <-b.ids
+			id := atomic.AddUint64(&b.nextID, 1) - 1
 			b.items <- &Item[T]{
 				ID:   id,
 				Data: data,
@@ -427,13 +403,17 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 
 			for _, item := range items {
 				if item.Error != nil {
-					b.errs <- &ProcessorError{Err: item.Error}
+					b.errs <- &ItemError{ItemID: item.ID, Err: item.Error}
 				}
 			}
 		}(batch)
 	}
 
 	wg.Wait()
+	// Invariant: doReader closes b.items only after both source channels
+	// close, so reaching here means no more sends to b.errs are possible.
+	// Keep this ordering — closing b.errs while doReader is still running
+	// would panic on its next SourceError.
 	close(b.errs)
 	close(b.done)
 	b.mu.Lock()
@@ -476,32 +456,60 @@ func fixConfig(c ConfigValues) ConfigValues {
 //   - MinItems: If reached, waits until MinTime is also satisfied.
 //
 // The method returns the collected batch of items.
-func (b *Batch[T]) waitForItems(_ context.Context, config ConfigValues) []*Item[T] {
+//
+// Cancellation contract: when ctx is cancelled, waitForItems returns any
+// partial batch immediately and then drains remaining buffered items one
+// at a time so already-read items are not dropped. Eventually the loop
+// terminates when b.items closes, which only happens once doReader has
+// observed both source channels close. That means cancellation only
+// completes when the Source itself observes ctx and closes its channels;
+// Sources that ignore ctx will block waitForItems indefinitely after
+// cancel. Source authors must propagate ctx into their Read goroutine.
+func (b *Batch[T]) waitForItems(ctx context.Context, config ConfigValues) []*Item[T] {
 	var (
 		reachedMinTime bool
+		cancelled      bool
 		batch          = make([]*Item[T], 0, config.MinItems)
-		minTimer       <-chan time.Time
-		maxTimer       <-chan time.Time
+		minTimerCh     <-chan time.Time
+		maxTimerCh     <-chan time.Time
+		minTimer       *time.Timer
+		maxTimer       *time.Timer
+		ctxDone        = ctx.Done()
 	)
 
-	// Be careful not to set timers that end right away. Instead, if a
-	// min or max time is not specified, use a nil channel so the select
-	// statement ignores it.
+	// Only create timers when the duration is positive. A nil channel
+	// is never selected, so the corresponding case is effectively disabled.
 	if config.MinTime > 0 {
-		minTimer = time.After(config.MinTime)
+		minTimer = time.NewTimer(config.MinTime)
+		defer minTimer.Stop()
+		minTimerCh = minTimer.C
 	} else {
-		minTimer = nil
 		reachedMinTime = true
 	}
 
 	if config.MaxTime > 0 {
-		maxTimer = time.After(config.MaxTime)
-	} else {
-		maxTimer = nil
+		maxTimer = time.NewTimer(config.MaxTime)
+		defer maxTimer.Stop()
+		maxTimerCh = maxTimer.C
 	}
 
 	for {
 		select {
+		case <-ctxDone:
+			if len(batch) > 0 {
+				// Return collected items immediately for processing.
+				return batch
+			}
+			// No items yet. Returning here would let doProcessors close
+			// b.errs while doReader is still sending SourceErrors on it
+			// (panic: send on closed channel). Wait for b.items to close
+			// instead — that signals doReader has fully drained. Disable
+			// timers and ctx so subsequent iterations only watch b.items.
+			cancelled = true
+			ctxDone = nil
+			minTimerCh = nil
+			maxTimerCh = nil
+
 		case item, ok := <-b.items:
 			if !ok {
 				// Source is exhausted, return whatever was collected
@@ -510,6 +518,12 @@ func (b *Batch[T]) waitForItems(_ context.Context, config ConfigValues) []*Item[
 
 			batch = append(batch, item)
 
+			// After cancellation, return each item immediately instead
+			// of waiting for batch thresholds.
+			if cancelled {
+				return batch
+			}
+
 			if uint64(len(batch)) >= config.MinItems && reachedMinTime {
 				return batch
 			}
@@ -517,20 +531,20 @@ func (b *Batch[T]) waitForItems(_ context.Context, config ConfigValues) []*Item[
 				return batch
 			}
 
-		case <-minTimer:
+		case <-minTimerCh:
 			reachedMinTime = true
 			if uint64(len(batch)) >= config.MinItems {
 				return batch
 			}
 			// Keep waiting until MinItems is met
 
-		case <-maxTimer:
+		case <-maxTimerCh:
 			if len(batch) > 0 {
 				return batch
 			}
 			// If max timer fires with no items, restart it so we don't wait indefinitely
 			if config.MaxTime > 0 {
-				maxTimer = time.After(config.MaxTime)
+				maxTimer.Reset(config.MaxTime)
 			}
 		}
 	}
