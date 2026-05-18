@@ -70,8 +70,9 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 - `ExecuteBatches`: Runs multiple batches concurrently and collects all errors
 
 ## Error Handling
-- Errors are wrapped to indicate their origin (SourceError, ProcessorError)
+- Errors are wrapped to indicate their origin (SourceError, ProcessorError, ItemError)
+- Per-item failures (where `item.Error != nil` after a processor returns) surface as `*ItemError` (carrying the item's `ItemID`), not `*ProcessorError`
 - Processors should respect context cancellation
 - Items with errors are tracked individually through the Error field
 - Batch processing continues despite individual item errors
-- Use `errors.As` to check error types (SourceError, ProcessorError)
+- Use `errors.As` to check error types (SourceError, ProcessorError, ItemError)

@@ -16,7 +16,7 @@ Note: This project is in early development. The API may change without warning i
 
 - **BREAKING:** Per-item errors (where `item.Error != nil` after a processor returns) are now reported as `*ItemError` instead of `*ProcessorError`. Processor-wide errors (those returned as the second value of `Processor.Process`) are still reported as `*ProcessorError`.
 - **BREAKING:** Removed `BufferConfig.IDBufferSize` and the `DefaultIDBufferSize` constant. IDs are now generated with an atomic counter, so the dedicated ID-generator goroutine and channel — and the buffer that backed them — are gone.
-- Context cancellation now drains items 1-by-1 once any partial batch has been returned. Downstream consumers that rely on receiving full `MinItems`-sized batches will see smaller batches during shutdown.
+- Context cancellation now drains buffered items on a best-effort basis once any partial batch has been returned. Downstream consumers that rely on receiving full `MinItems`-sized batches may see smaller batches during shutdown (no items are dropped, but post-cancel batch sizes are not guaranteed).
 - `CollectErrors` documentation clarified to note that it blocks until the error channel is closed; callers no longer need to wait on `Done()` afterward.
 
 ### Fixed

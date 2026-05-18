@@ -4,7 +4,7 @@ GoBatch follows a **pipeline-based batch processing architecture** with five dis
 
 1. **Source Layer** (`source/` package): Data ingestion abstraction. Implementations include Channel, Error, and Nil sources that return item and error channels.
 
-2. **Batching/Orchestration Layer** (`batch/batch.go`): Core Batch type coordinates two goroutines - doReader (assigns each item a unique ID via an atomic counter and forwards it on the items channel) and doProcessors (collects items into batches and chains them through Processors). Cancellation flows from `ctx` into `waitForItems`, which returns any partial batch immediately and then drains remaining buffered items one at a time so already-read items are never dropped.
+2. **Batching/Orchestration Layer** (`batch/batch.go`): Core Batch type coordinates two goroutines - doReader (assigns each item a unique ID via an atomic counter and forwards it on the items channel) and doProcessors (collects items into batches and chains them through Processors). Cancellation flows from `ctx` into `waitForItems`, which returns any partial batch immediately and then drains remaining buffered items on a best-effort basis so already-read items are never dropped (post-cancel batch sizes are not guaranteed).
 
 3. **Configuration Layer** (`batch/config.go`): Config interface with ConstantConfig and DynamicConfig implementations control batching timing (MinTime/MaxTime) and sizing (MinItems/MaxItems) with priority: `MaxTime = MaxItems > EOF > MinTime > MinItems`.
 

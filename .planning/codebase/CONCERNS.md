@@ -12,7 +12,7 @@
 
 ### ~~Unused Context Parameter in waitForItems~~ — RESOLVED (2026-04-29)
 - **Location:** `batch/batch.go` — `waitForItems()` method
-- **Resolution:** ctx is now wired into the select. On `ctx.Done()` `waitForItems` returns any partial batch immediately, then drains remaining buffered items one at a time so already-read items are not dropped. Subject to the cancellation contract documented in ARCHITECTURE.md (the source must close its channels in response to ctx — sources that ignore ctx will still block).
+- **Resolution:** ctx is now wired into the select. On `ctx.Done()` `waitForItems` returns any partial batch immediately, then drains remaining buffered items on a best-effort basis so already-read items are not dropped (post-cancel batch sizes are not guaranteed). Subject to the cancellation contract documented in ARCHITECTURE.md (the source must close its channels in response to ctx — sources that ignore ctx will still block).
 
 ### Silent Configuration Adjustment
 - **Location:** `batch/config.go` — `fixConfig()` function

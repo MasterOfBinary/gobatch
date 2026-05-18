@@ -458,8 +458,11 @@ func fixConfig(c ConfigValues) ConfigValues {
 // The method returns the collected batch of items.
 //
 // Cancellation contract: when ctx is cancelled, waitForItems returns any
-// partial batch immediately and then drains remaining buffered items one
-// at a time so already-read items are not dropped. Eventually the loop
+// partial batch immediately and then drains remaining buffered items on a
+// best-effort basis so already-read items are not dropped. Post-cancel
+// batch sizes are not guaranteed — consumers may observe smaller batches
+// (down to one item) during shutdown, but full-size batches are still
+// possible while buffered items remain. Eventually the loop
 // terminates when b.items closes, which only happens once doReader has
 // observed both source channels close. That means cancellation only
 // completes when the Source itself observes ctx and closes its channels;
