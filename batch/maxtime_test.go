@@ -41,7 +41,11 @@ func TestMaxTimeIdle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	b.Go(ctx, src, proc)
+	errs, err := b.Go(ctx, src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+	batch.IgnoreErrors(errs)
 
 	// 1. Wait for longer than MaxTime (200ms > 100ms) to trigger the idle expiration bug
 	time.Sleep(200 * time.Millisecond)
