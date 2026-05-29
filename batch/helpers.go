@@ -27,12 +27,13 @@ func IgnoreErrors(errs <-chan error) {
 }
 
 // CollectErrors collects all errors from the error channel into a slice.
-// This is useful when you need to process all errors after batch processing completes.
+// It blocks until the error channel is closed (i.e., until batch processing
+// completes), so there is no need to wait on Done afterwards.
 //
 // Example usage:
 //
 //	errs := batch.CollectErrors(myBatch.Go(ctx, source, processor))
-//	<-myBatch.Done()
+//	// CollectErrors blocks until processing is done.
 //	for _, err := range errs {
 //		log.Printf("Error: %v", err)
 //	}

@@ -22,10 +22,6 @@ type BufferConfig struct {
 	// Default: DefaultItemBufferSize
 	ItemBufferSize int
 
-	// IDBufferSize is the buffer size for the ID generator channel.
-	// Default: DefaultIDBufferSize
-	IDBufferSize int
-
 	// ErrorBufferSize is the buffer size for the error channel.
 	// Default: DefaultErrorBufferSize
 	ErrorBufferSize int
@@ -73,7 +69,7 @@ type Batch[T any] struct {
 	src          Source[T]
 	processors   []Processor[T]
 	items        chan *Item[T]
-	ids          chan uint64
+	nextID       uint64
 	done         chan struct{}
 
 	mu      sync.Mutex
@@ -100,7 +96,6 @@ func New[T any](config Config) *Batch[T] {
 //
 //	b := batch.New[any](config).WithBufferConfig(batch.BufferConfig{
 //		ItemBufferSize:  1000,
-//		IDBufferSize:    1000,
 //		ErrorBufferSize: 500,
 //	})
 //
@@ -272,21 +267,17 @@ func (b *Batch[T]) Go(ctx context.Context, s Source[T], procs ...Processor[T]) <
 	if itemBuf <= 0 {
 		itemBuf = DefaultItemBufferSize
 	}
-	idBuf := b.bufferConfig.IDBufferSize
-	if idBuf <= 0 {
-		idBuf = DefaultIDBufferSize
-	}
 	errBuf := b.bufferConfig.ErrorBufferSize
 	if errBuf <= 0 {
 		errBuf = DefaultErrorBufferSize
 	}
 
 	b.items = make(chan *Item[T], itemBuf)
-	b.ids = make(chan uint64, idBuf)
 	b.errs = make(chan error, errBuf)
 	b.done = make(chan struct{})
+	// Reset the item ID counter so a reused Batch starts numbering from zero.
+	b.nextID = 0
 
-	go b.doIDGenerator()
 	go b.doReader(ctx)
 	go b.doProcessors(ctx)
 
@@ -323,22 +314,6 @@ func (b *Batch[T]) Done() <-chan struct{} {
 	return b.done
 }
 
-// doIDGenerator generates unique IDs for items in the pipeline.
-//
-// It runs as a background goroutine, incrementing a counter starting from zero
-// and sending each ID on the ids channel. It exits when the done channel is closed.
-func (b *Batch[T]) doIDGenerator() {
-	var id uint64
-	for {
-		select {
-		case b.ids <- id:
-			id++
-		case <-b.done:
-			return
-		}
-	}
-}
-
 // doReader reads items from the Source and forwards them to the batch processor.
 //
 // It starts the Source.Read goroutine, then listens for data and errors.
@@ -367,7 +342,10 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 				out = nil
 				continue
 			}
-			id := <-b.ids
+			// Only doReader increments nextID, and Go resets it before
+			// starting this goroutine, so a plain counter is race-free.
+			id := b.nextID
+			b.nextID++
 			b.items <- &Item[T]{
 				ID:   id,
 				Data: data,
@@ -434,10 +412,15 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 	}
 
 	wg.Wait()
-	close(b.errs)
-	close(b.done)
+
+	// Finalize shutdown under b.mu, closing done and clearing running before
+	// errs. A CollectErrors caller (which returns once errs closes) therefore
+	// always observes a fully torn-down, reusable Batch — done closed and
+	// running false — and a reusing Go() blocks on b.mu until this completes.
 	b.mu.Lock()
+	close(b.done)
 	b.running = false
+	close(b.errs)
 	b.mu.Unlock()
 }
 
@@ -480,24 +463,28 @@ func (b *Batch[T]) waitForItems(_ context.Context, config ConfigValues) []*Item[
 	var (
 		reachedMinTime bool
 		batch          = make([]*Item[T], 0, config.MinItems)
-		minTimer       <-chan time.Time
-		maxTimer       <-chan time.Time
+		minTimerCh     <-chan time.Time
+		maxTimerCh     <-chan time.Time
+		minTimer       *time.Timer
+		maxTimer       *time.Timer
 	)
 
 	// Be careful not to set timers that end right away. Instead, if a
-	// min or max time is not specified, use a nil channel so the select
-	// statement ignores it.
+	// min or max time is not specified, leave the channel nil so the
+	// select statement ignores it. Timers are stopped on return so a
+	// timer does not leak when a batch returns before its timer fires.
 	if config.MinTime > 0 {
-		minTimer = time.After(config.MinTime)
+		minTimer = time.NewTimer(config.MinTime)
+		defer minTimer.Stop()
+		minTimerCh = minTimer.C
 	} else {
-		minTimer = nil
 		reachedMinTime = true
 	}
 
 	if config.MaxTime > 0 {
-		maxTimer = time.After(config.MaxTime)
-	} else {
-		maxTimer = nil
+		maxTimer = time.NewTimer(config.MaxTime)
+		defer maxTimer.Stop()
+		maxTimerCh = maxTimer.C
 	}
 
 	for {
@@ -517,20 +504,20 @@ func (b *Batch[T]) waitForItems(_ context.Context, config ConfigValues) []*Item[
 				return batch
 			}
 
-		case <-minTimer:
+		case <-minTimerCh:
 			reachedMinTime = true
 			if uint64(len(batch)) >= config.MinItems {
 				return batch
 			}
 			// Keep waiting until MinItems is met
 
-		case <-maxTimer:
+		case <-maxTimerCh:
 			if len(batch) > 0 {
 				return batch
 			}
 			// If max timer fires with no items, restart it so we don't wait indefinitely
 			if config.MaxTime > 0 {
-				maxTimer = time.After(config.MaxTime)
+				maxTimer.Reset(config.MaxTime)
 			}
 		}
 	}

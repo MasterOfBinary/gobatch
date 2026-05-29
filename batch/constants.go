@@ -7,10 +7,6 @@ const (
 	// This determines how many items can be queued between the reader and processor.
 	DefaultItemBufferSize = 100
 
-	// DefaultIDBufferSize is the default buffer size for the ID generator channel.
-	// This should match or exceed the item buffer size to avoid blocking.
-	DefaultIDBufferSize = 100
-
 	// DefaultErrorBufferSize is the default buffer size for the error channel.
 	// This should be large enough to handle bursts of errors without blocking.
 	DefaultErrorBufferSize = 100
