@@ -69,7 +69,11 @@ func TestCancelStop_StopsOnUncooperativeSource(t *testing.T) {
 	src := newUncooperativeSource(2, nil)
 
 	b := New[any](nil).WithCancelMode(CancelStop)
-	IgnoreErrors(b.Go(ctx, src, &noopProc{}))
+	errs, err := b.Go(ctx, src, &noopProc{})
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+	IgnoreErrors(errs)
 
 	// Make sure the source is actually running before we cancel, so we are
 	// exercising the cancel-while-reading path rather than a pre-cancel race.
@@ -101,7 +105,11 @@ func TestCancelDrain_DefaultRelaysOnSource(t *testing.T) {
 
 	// No WithCancelMode call => default CancelDrain.
 	b := New[any](nil)
-	IgnoreErrors(b.Go(ctx, src, &noopProc{}))
+	errs, err := b.Go(ctx, src, &noopProc{})
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+	IgnoreErrors(errs)
 
 	<-src.started
 	cancel()
@@ -175,7 +183,11 @@ func TestCancelDrain_ReleaseCompletes(t *testing.T) {
 	src := newReleasableSource(2, nil)
 
 	b := New[any](nil) // default CancelDrain
-	IgnoreErrors(b.Go(ctx, src, &noopProc{}))
+	errs, err := b.Go(ctx, src, &noopProc{})
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+	IgnoreErrors(errs)
 
 	<-src.started
 	cancel()
@@ -222,7 +234,11 @@ func TestCancelStop_ProcessesBufferedItems(t *testing.T) {
 	b := New[any](NewConstantConfig(&ConfigValues{MinItems: 1})).
 		WithCancelMode(CancelStop).
 		WithBufferConfig(BufferConfig{ItemBufferSize: 100, ErrorBufferSize: 100})
-	IgnoreErrors(b.Go(ctx, src, proc))
+	errs, err := b.Go(ctx, src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+	IgnoreErrors(errs)
 
 	// Wait until the Source has delivered all `emit` items into the pipeline.
 	deadline := time.After(2 * time.Second)
@@ -267,7 +283,10 @@ func TestWithCancelMode_PanicsAfterGo(t *testing.T) {
 		return out, errs
 	})
 
-	errs := b.Go(context.Background(), src)
+	errs, err := b.Go(context.Background(), src)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
 
 	defer func() {
 		if r := recover(); r == nil {
@@ -331,7 +350,11 @@ func TestDefaultCancelModeIsDrain(t *testing.T) {
 	} {
 		mode := mode
 		t.Run(mode.name, func(t *testing.T) {
-			IgnoreErrors(mode.applied.Go(context.Background(), cooperative(), &noopProc{}))
+			errs, err := mode.applied.Go(context.Background(), cooperative(), &noopProc{})
+			if err != nil {
+				t.Fatalf("Go returned unexpected error: %v", err)
+			}
+			IgnoreErrors(errs)
 			select {
 			case <-mode.applied.Done():
 			case <-time.After(2 * time.Second):

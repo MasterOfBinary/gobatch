@@ -149,7 +149,7 @@ func (b *Batch[T]) WithCancelMode(m CancelMode) *Batch[T] {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.running {
+	if b.used {
 		panic("batch: WithCancelMode cannot be called after Go() has started")
 	}
 
