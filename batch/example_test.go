@@ -43,7 +43,11 @@ func Example() {
 	ctx := context.Background()
 
 	// Start processing with both processors chained
-	errs := b.Go(ctx, src, doubleProc, printProc)
+	errs, err := b.Go(ctx, src, doubleProc, printProc)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	// Ignore errors
 	batch.IgnoreErrors(errs)

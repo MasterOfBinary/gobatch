@@ -164,7 +164,10 @@ func main() {
 	ctx := context.Background()
 
 	// Start batch processing with processors chained
-	errs := b.Go(ctx, src, doubleProc, printProc)
+	errs, err := b.Go(ctx, src, doubleProc, printProc)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Ignore errors for this simple example
 	batch.IgnoreErrors(errs)
@@ -297,15 +300,28 @@ Or using helper functions:
 
 ```go
 // Collect all errors (blocks until processing completes)
-errs := batch.CollectErrors(batchProcessor.Go(ctx, source, processor))
+pipeErrs, err := batchProcessor.Go(ctx, source, processor)
+if err != nil {
+    // Handle start error (e.g. batch.ErrNilSource, batch.ErrBatchUsed)
+    log.Fatal(err)
+}
+errs := batch.CollectErrors(pipeErrs)
 
-// Or use the RunBatchAndWait helper
+// Or use the RunBatchAndWait helper, which folds a start error into the slice
 errs := batch.RunBatchAndWait(ctx, batchProcessor, source, processor)
 
 for _, err := range errs {
     // Handle error
 }
 ```
+
+### Batch lifecycle
+
+A `Batch` is **single-use**: call `Go` exactly once per `Batch`. Calling `Go`
+again returns `batch.ErrBatchUsed` (along with a closed, drainable error channel)
+instead of starting a second run — create a fresh `Batch` with `New` for each
+run. `Go` also returns `batch.ErrNilSource` when the source is nil. Both errors
+are checkable with `errors.Is`.
 
 ## Documentation
 

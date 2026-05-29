@@ -128,7 +128,11 @@ func Example_customConfig() {
 	defer cancel()
 
 	fmt.Println("Starting batch processing...")
-	errs := b.Go(ctx, src, p)
+	errs, err := b.Go(ctx, src, p)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	batch.IgnoreErrors(errs)
 	<-b.Done()

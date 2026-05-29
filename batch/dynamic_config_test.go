@@ -53,7 +53,7 @@ func TestBatch_DynamicConfiguration(t *testing.T) {
 		}
 
 		// Start batch processing with initial config
-		errs := batch.Go(context.Background(), src, proc)
+		errs, _ := batch.Go(context.Background(), src, proc)
 
 		// Wait a bit for some items to be read, but not processed due to MinItems: 50
 		time.Sleep(100 * time.Millisecond)

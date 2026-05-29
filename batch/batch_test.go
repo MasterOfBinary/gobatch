@@ -22,7 +22,7 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 		errProc := &errorPerItemProcessor{FailEvery: 3}
 		countProc := &countProcessor{count: &count}
 
-		errs := batch.Go(context.Background(), src, errProc, countProc)
+		errs, _ := batch.Go(context.Background(), src, errProc, countProc)
 
 		received := 0
 		for err := range errs {
@@ -52,7 +52,7 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 		src := &testSource{Items: []any{1, 2}, WithErr: srcErr}
 		countProc := &countProcessor{count: new(uint32)}
 
-		errs := batch.Go(context.Background(), src, countProc)
+		errs, _ := batch.Go(context.Background(), src, countProc)
 		<-batch.Done()
 
 		var found bool
@@ -75,7 +75,7 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 		src := &testSource{Items: []any{1, 2, 3}}
 		proc := &countProcessor{count: new(uint32), processorErr: procErr}
 
-		errs := batch.Go(context.Background(), src, proc)
+		errs, _ := batch.Go(context.Background(), src, proc)
 
 		var found bool
 		var unwrappedErr error
@@ -120,7 +120,7 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// Start processing
-		_ = batch.Go(ctx, src, proc)
+		_, _ = batch.Go(ctx, src, proc)
 
 		// Give some time for processing to start
 		time.Sleep(50 * time.Millisecond)
@@ -290,7 +290,7 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 					},
 				}
 
-				_ = batch.Go(context.Background(), src, proc)
+				_, _ = batch.Go(context.Background(), src, proc)
 				<-batch.Done()
 
 				got := int(atomic.LoadUint32(&count))
@@ -388,7 +388,7 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 			ctx := context.Background()
 
 			// Start processing and wait for completion
-			errs := b.Go(ctx, s, p)
+			errs, _ := b.Go(ctx, s, p)
 			for range errs {
 				// Consume errors
 			}
@@ -460,7 +460,7 @@ func TestBatch_ComplexProcessingPipeline(t *testing.T) {
 		var count uint32
 		counter := &countProcessor{count: &count}
 
-		errs := batch.Go(context.Background(), src, transformer, filter, counter)
+		errs, _ := batch.Go(context.Background(), src, transformer, filter, counter)
 
 		// Drain errors
 		for range errs {
@@ -506,7 +506,7 @@ func TestBatch_ConcurrentProcessing(t *testing.T) {
 				src := &testSource{Items: items}
 				proc := &countProcessor{count: counters[i]}
 
-				_ = batch.Go(context.Background(), src, proc)
+				_, _ = batch.Go(context.Background(), src, proc)
 				<-batch.Done()
 			}()
 		}
@@ -544,7 +544,7 @@ func TestBatch_RobustnessAndEdgeCases(t *testing.T) {
 		proc := &countProcessor{count: &count}
 
 		// Process large batch
-		errs := batch.Go(context.Background(), src, proc)
+		errs, _ := batch.Go(context.Background(), src, proc)
 		<-batch.Done()
 
 		// Drain errors
@@ -567,7 +567,7 @@ func TestBatch_RobustnessAndEdgeCases(t *testing.T) {
 		var count uint32
 		proc := &countProcessor{count: &count}
 
-		errs := batch.Go(context.Background(), src, proc)
+		errs, _ := batch.Go(context.Background(), src, proc)
 		<-batch.Done()
 
 		// Drain errors
@@ -595,7 +595,7 @@ func TestBatch_RobustnessAndEdgeCases(t *testing.T) {
 		var count uint32
 		proc := &countProcessor{count: &count}
 
-		errs := batch.Go(context.Background(), src, proc)
+		errs, _ := batch.Go(context.Background(), src, proc)
 		<-batch.Done()
 
 		// Drain errors
@@ -623,7 +623,7 @@ func TestBatch_RobustnessAndEdgeCases(t *testing.T) {
 		var count uint32
 		proc := &countProcessor{count: &count}
 
-		errs := batch.Go(context.Background(), src, proc)
+		errs, _ := batch.Go(context.Background(), src, proc)
 		<-batch.Done()
 
 		// Drain errors
@@ -647,7 +647,7 @@ func TestBatch_NoProcessors(t *testing.T) {
 		src := &testSource{Items: items}
 
 		// Call Go with source but no processors
-		errs := batch.Go(context.Background(), src)
+		errs, _ := batch.Go(context.Background(), src)
 
 		// Count errors instead of collecting them
 		errorCount := 0
@@ -675,7 +675,7 @@ func TestBatch_NoProcessors(t *testing.T) {
 		emptyProcessors := make([]Processor[any], 0)
 
 		// Call Go with source and empty processor slice
-		errs := batch.Go(context.Background(), src, emptyProcessors...)
+		errs, _ := batch.Go(context.Background(), src, emptyProcessors...)
 
 		// Use a counter instead of collecting errors
 		errorCount := 0
@@ -716,7 +716,7 @@ func TestBatch_NoTimersWithMinItems(t *testing.T) {
 			},
 		}
 
-		errs := batch.Go(context.Background(), src, proc)
+		errs, _ := batch.Go(context.Background(), src, proc)
 		<-batch.Done()
 		for range errs {
 			// Drain errors
@@ -746,7 +746,7 @@ func TestBatch_DoneNonBlocking(t *testing.T) {
 	t.Run("after Go", func(t *testing.T) {
 		b := New[any](NewConstantConfig(nil))
 		src := &testSource{Items: []any{}}
-		errs := b.Go(context.Background(), src)
+		errs, _ := b.Go(context.Background(), src)
 		<-b.Done()
 		for range errs {
 		}

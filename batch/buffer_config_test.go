@@ -48,7 +48,7 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		})
 
 		// Start processing to trigger channel creation
-		errs := b.Go(context.Background(), src)
+		errs, _ := b.Go(context.Background(), src)
 		IgnoreErrors(errs)
 		<-b.Done()
 
@@ -76,7 +76,7 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		})
 
 		// Start processing - should use default buffer sizes
-		errs := b.Go(context.Background(), src)
+		errs, _ := b.Go(context.Background(), src)
 		IgnoreErrors(errs)
 		<-b.Done()
 
@@ -99,7 +99,7 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		})
 
 		// Start batch processing
-		errs := b.Go(context.Background(), src)
+		errs, _ := b.Go(context.Background(), src)
 
 		// Should panic when trying to set buffer config after Go
 		defer func() {
@@ -149,7 +149,7 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 				close(errs)
 				return out, errs
 			})
-			errs := b.Go(context.Background(), src)
+			errs, _ := b.Go(context.Background(), src)
 			IgnoreErrors(errs)
 		}()
 

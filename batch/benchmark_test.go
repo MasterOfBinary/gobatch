@@ -41,8 +41,8 @@ func (benchPassthrough) Process(_ context.Context, items []*Item[any]) ([]*Item[
 // items per run. Every item gets an ID assigned in doReader, so this captures
 // the cost of the ID-generation mechanism (the inline counter on this branch
 // vs. the dedicated goroutine + buffered channel on master) plus the per-Go
-// setup cost. A fresh Batch is created each iteration so the benchmark runs
-// identically on master, where Batch reuse is not yet supported.
+// setup cost. A fresh Batch is created each iteration, which is also the
+// required usage: a Batch is single-use.
 //
 // Compare across branches with:
 //
@@ -59,7 +59,8 @@ func BenchmarkBatchThroughput(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		bt := New[any](cfg)
-		IgnoreErrors(bt.Go(ctx, &benchSource{n: itemsPerRun}, proc))
+		errs, _ := bt.Go(ctx, &benchSource{n: itemsPerRun}, proc)
+		IgnoreErrors(errs)
 		<-bt.Done()
 	}
 }

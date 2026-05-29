@@ -33,7 +33,11 @@
 //	b := New[int](cfg)
 //	src := &source.Nil[int]{}
 //	proc := &processor.Nil[int]{}
-//	IgnoreErrors(b.Go(ctx, src, proc))
+//	errs, err := b.Go(ctx, src, proc)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	IgnoreErrors(errs)
 //	<-b.Done()
 //
 // The configuration is reloaded before each batch is collected. This allows

@@ -21,7 +21,7 @@ func TestBatch_ErrorHandling(t *testing.T) {
 			processorErr: procErr,
 		}
 
-		errs := batch.Go(context.Background(), src, proc)
+		errs, _ := batch.Go(context.Background(), src, proc)
 
 		var foundErr bool
 		for err := range errs {
@@ -49,7 +49,7 @@ func TestBatch_ErrorHandling(t *testing.T) {
 
 		proc := &countProcessor{count: new(uint32)}
 
-		errs := batch.Go(context.Background(), src, proc)
+		errs, _ := batch.Go(context.Background(), src, proc)
 
 		var foundErr bool
 		for err := range errs {
@@ -66,32 +66,9 @@ func TestBatch_ErrorHandling(t *testing.T) {
 		}
 	})
 
-	t.Run("nil source handling", func(t *testing.T) {
-		batch := New[any](NewConstantConfig(&ConfigValues{}))
-
-		// Pass nil source
-		errs := batch.Go(context.Background(), nil)
-
-		var foundErr bool
-		var errMsg string
-		for err := range errs {
-			if err != nil {
-				foundErr = true
-				errMsg = err.Error()
-				break
-			}
-		}
-
-		<-batch.Done()
-
-		if !foundErr {
-			t.Error("expected error with nil source")
-		}
-
-		if !strings.Contains(errMsg, "source cannot be nil") {
-			t.Errorf("expected 'source cannot be nil' error, got: %s", errMsg)
-		}
-	})
+	// Nil-source handling is covered by TestGo_NilSourceReturnsErrNilSource,
+	// which asserts the start error is reported via Go's return value rather
+	// than the pipeline error channel.
 
 	t.Run("nil processor filtering", func(t *testing.T) {
 		batch := New[any](NewConstantConfig(&ConfigValues{}))
@@ -102,7 +79,7 @@ func TestBatch_ErrorHandling(t *testing.T) {
 		validProc := &countProcessor{count: &count}
 
 		// Pass a mix of nil and valid processors
-		errs := batch.Go(context.Background(), src, nil, validProc, nil)
+		errs, _ := batch.Go(context.Background(), src, nil, validProc, nil)
 
 		// Count errors instead of collecting them
 		errorCount := 0
@@ -131,7 +108,7 @@ func TestBatch_NilChannelHandling(t *testing.T) {
 		// Create a source that returns a nil output channel
 		nilChannelSource := &nilOutputChannelSource{}
 
-		errs := batch.Go(context.Background(), nilChannelSource)
+		errs, _ := batch.Go(context.Background(), nilChannelSource)
 
 		var foundErr bool
 		var errMsg string
@@ -160,7 +137,7 @@ func TestBatch_NilChannelHandling(t *testing.T) {
 		// Create a source that returns a nil error channel
 		nilChannelSource := &nilErrorChannelSource{}
 
-		errs := batch.Go(context.Background(), nilChannelSource)
+		errs, _ := batch.Go(context.Background(), nilChannelSource)
 
 		var foundErr bool
 		var errMsg string

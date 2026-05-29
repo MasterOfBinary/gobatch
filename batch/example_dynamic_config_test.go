@@ -46,7 +46,11 @@ func Example_dynamicConfig() {
 
 	fmt.Println("=== Dynamic Config Example ===")
 
-	errs := b.Go(ctx, src, monitor)
+	errs, err := b.Go(ctx, src, monitor)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	// Simulate sending data and changing config dynamically
 	go func() {
