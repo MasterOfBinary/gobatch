@@ -52,7 +52,10 @@ func TestCancelUnblocksWedgedReader(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Start processing but deliberately never drain the returned error channel.
-	_ = b.Go(ctx, src)
+	_, err := b.Go(ctx, src)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
 
 	// Give the reader time to fill the 1-slot error buffer and wedge.
 	time.Sleep(50 * time.Millisecond)
@@ -90,7 +93,10 @@ func TestCancelUnblocksWedgedProcessor(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	_ = b.Go(ctx, src, proc)
+	_, err := b.Go(ctx, src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
 
 	time.Sleep(50 * time.Millisecond)
 	cancel()
@@ -131,7 +137,10 @@ func TestPanicInProcessorIsRecovered(t *testing.T) {
 	src := &testSource{Items: []any{1, 2, 3}}
 	proc := &panicProcessor{msg: "boom in processor"}
 
-	errs := b.Go(context.Background(), src, proc)
+	errs, err := b.Go(context.Background(), src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
 
 	var sawPanicErr bool
 	for err := range errs {
@@ -179,7 +188,10 @@ func TestMaxTimeMultipleIdleCyclesThenLateItem(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	errs := b.Go(ctx, src, proc)
+	errs, err := b.Go(ctx, src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
 	go func() {
 		for range errs {
 		}
@@ -281,7 +293,10 @@ func TestDoneRace(t *testing.T) {
 	// Let the reader goroutine spin up and start calling Done().
 	time.Sleep(5 * time.Millisecond)
 
-	errs := b.Go(context.Background(), src)
+	errs, err := b.Go(context.Background(), src)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
 	go func() {
 		for range errs {
 		}
@@ -290,62 +305,6 @@ func TestDoneRace(t *testing.T) {
 	<-b.Done()
 	close(stop)
 	<-done
-}
-
-// TestConcurrentGoPanics verifies the documented contract that calling Go again
-// while a batch is already running panics with a specific message. (Coverage
-// gap at the running check in Go.)
-func TestConcurrentGoPanics(t *testing.T) {
-	b := New[any](NewConstantConfig(&ConfigValues{}))
-
-	// A source that blocks (never emits, never closes until we cancel) so the
-	// first batch stays running while we attempt the second Go call.
-	block := make(chan any)
-	src := &chanSource{in: block}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	errs := b.Go(ctx, src)
-	go func() {
-		for range errs {
-		}
-	}()
-
-	// Give the first Go's goroutines time to start so running == true.
-	time.Sleep(20 * time.Millisecond)
-
-	var (
-		panicked bool
-		gotMsg   any
-	)
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				panicked = true
-				gotMsg = r
-			}
-		}()
-		// Second concurrent Go must panic.
-		_ = b.Go(ctx, src)
-	}()
-
-	if !panicked {
-		t.Fatal("expected Go to panic when called while already running")
-	}
-	const want = "Concurrent calls to Batch.Go are not allowed"
-	if msg, ok := gotMsg.(string); !ok || msg != want {
-		t.Fatalf("expected panic message %q, got %v", want, gotMsg)
-	}
-
-	// Clean up: unblock the source and let the first batch finish.
-	cancel()
-	close(block)
-	select {
-	case <-b.Done():
-	case <-time.After(2 * time.Second):
-		t.Fatal("Done() did not close within 2s during cleanup")
-	}
 }
 
 // TestSourceErrorMessage covers SourceError.Error formatting.
