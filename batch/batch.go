@@ -446,6 +446,33 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 	close(b.errs)
 }
 
+// maxPreallocCap bounds the capacity that waitForItems will pre-allocate for a
+// batch slice. Without this bound, a very large MinItems (reachable, for
+// example, via DynamicConfig.UpdateBatchSize(huge, 0)) would be passed directly
+// to make, triggering a multi-terabyte allocation that crashes the process.
+// The slice still grows as needed via append; this only caps the initial hint.
+const maxPreallocCap = 4096
+
+// clampPreallocCap returns a sane, bounded capacity to use when pre-allocating
+// a batch slice for the given config values. It never returns more than
+// maxPreallocCap, and if maxItems is set it is treated as a hard upper bound on
+// the batch size (so the pre-allocation is not larger than the batch can grow).
+//
+// This guards against pathological configurations where minItems is enormous
+// while maxItems is unset, which would otherwise attempt an unbounded
+// allocation.
+func clampPreallocCap(minItems, maxItems uint64) int {
+	c := minItems
+	// If a maximum batch size is set, never pre-allocate beyond it.
+	if maxItems > 0 && maxItems < c {
+		c = maxItems
+	}
+	if c > maxPreallocCap {
+		c = maxPreallocCap
+	}
+	return int(c)
+}
+
 // fixConfig corrects invalid ConfigValues to ensure consistent batch behavior.
 //
 // It applies the following adjustments:
@@ -484,7 +511,7 @@ func fixConfig(c ConfigValues) ConfigValues {
 func (b *Batch[T]) waitForItems(_ context.Context, config ConfigValues) []*Item[T] {
 	var (
 		reachedMinTime bool
-		batch          = make([]*Item[T], 0, config.MinItems)
+		batch          = make([]*Item[T], 0, clampPreallocCap(config.MinItems, config.MaxItems))
 		minTimerCh     <-chan time.Time
 		maxTimerCh     <-chan time.Time
 		minTimer       *time.Timer
