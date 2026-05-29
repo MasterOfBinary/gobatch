@@ -292,6 +292,71 @@ func TestDoneRace(t *testing.T) {
 	<-done
 }
 
+// TestConcurrentGoPanics verifies the documented contract that calling Go again
+// while a batch is already running panics with a specific message. (Coverage
+// gap at the running check in Go.)
+func TestConcurrentGoPanics(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{}))
+
+	// A source that blocks (never emits, never closes until we cancel) so the
+	// first batch stays running while we attempt the second Go call.
+	block := make(chan any)
+	src := &chanSource{in: block}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errs := b.Go(ctx, src)
+	go func() {
+		for range errs {
+		}
+	}()
+
+	// Give the first Go's goroutines time to start so running == true.
+	time.Sleep(20 * time.Millisecond)
+
+	var (
+		panicked bool
+		gotMsg   any
+	)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+				gotMsg = r
+			}
+		}()
+		// Second concurrent Go must panic.
+		_ = b.Go(ctx, src)
+	}()
+
+	if !panicked {
+		t.Fatal("expected Go to panic when called while already running")
+	}
+	const want = "Concurrent calls to Batch.Go are not allowed"
+	if msg, ok := gotMsg.(string); !ok || msg != want {
+		t.Fatalf("expected panic message %q, got %v", want, gotMsg)
+	}
+
+	// Clean up: unblock the source and let the first batch finish.
+	cancel()
+	close(block)
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done() did not close within 2s during cleanup")
+	}
+}
+
+// TestSourceErrorMessage covers SourceError.Error formatting.
+func TestSourceErrorMessage(t *testing.T) {
+	err := &SourceError{Err: errors.New("boom")}
+	const want = "source error: boom"
+	if got := err.Error(); got != want {
+		t.Errorf("SourceError.Error() = %q, want %q", got, want)
+	}
+}
+
 // containsStr is a tiny substring helper to avoid importing strings here.
 func containsStr(haystack, needle string) bool {
 	if len(needle) == 0 {
