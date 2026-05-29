@@ -3,6 +3,7 @@ package batch_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -27,21 +28,53 @@ func TestBatch_ProcessorChainingAndErrorTracking(t *testing.T) {
 			t.Fatalf("Go returned unexpected error: %v", err)
 		}
 
-		received := 0
+		// errorPerItemProcessor fails items whose *per-batch local index* is a
+		// multiple of FailEvery (i%3 == 0), NOT their global ID. Which items
+		// fail therefore depends entirely on the batch boundaries, not on a
+		// fixed set of global indices.
+		//
+		// With MinItems=5, no MaxItems and no timers, batching is deterministic:
+		// the reader emits items in strict ID order and doProcessors collects
+		// one batch at a time, cutting the first batch the moment it reaches 5
+		// items. So the source of 9 items splits as:
+		//
+		//	batch 1: IDs [0 1 2 3 4]  -> local idx 0 and 3 fail -> IDs 0, 3
+		//	batch 2: IDs [5 6 7 8]    -> local idx 0 and 3 fail -> IDs 5, 8
+		//
+		// i.e. exactly 4 item errors, on IDs {0, 3, 5, 8}. (The error message
+		// from errorPerItemProcessor is "fail item <ID>", so we recover the ID
+		// from each error to assert which items failed, not merely how many.)
+		failedIDs := make(map[uint64]bool)
 		for err := range errs {
 			var processorError *ProcessorError
 			if !errors.As(err, &processorError) {
 				t.Errorf("unexpected error type: %v", err)
+				continue
 			}
-			received++
-		}
-		// There are 9 items, items at indexes 0, 3, 6 (values 1, 4, 7) will fail (FailEvery=3)
-		// but it appears there is 1 more error that occurs during processing
-		if received != 4 {
-			t.Errorf("expected 4 item errors, got %d", received)
+			var id uint64
+			if _, scanErr := fmt.Sscanf(err.Error(), "processor error: fail item %d", &id); scanErr != nil {
+				t.Errorf("could not parse item ID from error %q: %v", err.Error(), scanErr)
+				continue
+			}
+			failedIDs[id] = true
 		}
 
-		// All 9 items should be processed with the fix
+		wantFailed := map[uint64]bool{0: true, 3: true, 5: true, 8: true}
+		if len(failedIDs) != len(wantFailed) {
+			t.Errorf("expected %d item errors, got %d (IDs %v)", len(wantFailed), len(failedIDs), failedIDs)
+		}
+		for id := range wantFailed {
+			if !failedIDs[id] {
+				t.Errorf("expected item ID %d to carry an error, but it did not (got %v)", id, failedIDs)
+			}
+		}
+		for id := range failedIDs {
+			if !wantFailed[id] {
+				t.Errorf("item ID %d carried an unexpected error (got %v)", id, failedIDs)
+			}
+		}
+
+		// All 9 items should still be processed despite per-item errors.
 		if atomic.LoadUint32(&count) != 9 {
 			t.Errorf("expected 9 items processed, got %d", count)
 		}
