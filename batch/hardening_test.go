@@ -110,3 +110,61 @@ type alwaysErrProcessor struct {
 func (p *alwaysErrProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
 	return items, p.err
 }
+
+// panicProcessor panics inside Process, simulating a buggy user processor.
+type panicProcessor struct {
+	msg string
+}
+
+func (p *panicProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
+	panic(p.msg)
+}
+
+// TestPanicInProcessorIsRecovered verifies that a panic in a user Processor does
+// not crash the host process. Before the fix, the per-batch goroutine called
+// proc.Process with no recover, so a panic took down the whole process. After
+// the fix the panic is recovered, surfaced as a ProcessorError on the error
+// channel, and the pipeline completes cleanly (errs and done close).
+func TestPanicInProcessorIsRecovered(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: 1}))
+	src := &testSource{Items: []any{1, 2, 3}}
+	proc := &panicProcessor{msg: "boom in processor"}
+
+	errs := b.Go(context.Background(), src, proc)
+
+	var sawPanicErr bool
+	for err := range errs {
+		var pe *ProcessorError
+		if errors.As(err, &pe) {
+			// The recovered panic must be surfaced and carry the panic value.
+			if containsStr(err.Error(), "processor panic") &&
+				containsStr(err.Error(), "boom in processor") {
+				sawPanicErr = true
+			}
+		}
+	}
+
+	// The pipeline must complete rather than crash or hang.
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done() did not close within 2s after a panicking processor")
+	}
+
+	if !sawPanicErr {
+		t.Fatal("expected a ProcessorError describing the recovered panic")
+	}
+}
+
+// containsStr is a tiny substring helper to avoid importing strings here.
+func containsStr(haystack, needle string) bool {
+	if len(needle) == 0 {
+		return true
+	}
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}

@@ -3,6 +3,7 @@ package batch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -433,6 +434,19 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 		wg.Add(1)
 		go func(items []*Item[T]) {
 			defer wg.Done()
+			// Recover from panics in user processors so a single buggy
+			// Process call cannot crash the host process. Declared after
+			// wg.Done so (deferred-LIFO) recover runs first and wg.Done still
+			// fires, letting the pipeline complete. The panic is surfaced as a
+			// ProcessorError via a context-aware send.
+			defer func() {
+				if r := recover(); r != nil {
+					select {
+					case b.errs <- &ProcessorError{Err: fmt.Errorf("processor panic: %v", r)}:
+					case <-ctx.Done():
+					}
+				}
+			}()
 			for _, proc := range b.processors {
 				// Skip nil processors (although they should have been filtered out in Go)
 				if proc == nil {
