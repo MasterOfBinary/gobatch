@@ -17,6 +17,17 @@ var ErrBatchUsed = errors.New("batch: Batch is single-use; create a new Batch wi
 // ProcessorError is returned when a processor fails. It wraps the original
 // error from the processor to maintain the error chain while providing
 // context about the source of the error.
+//
+// The engine always wraps with the pointer form, &ProcessorError{}. When
+// checking errors with errors.As, callers must therefore use the pointer
+// target form:
+//
+//	if errors.As(err, new(*ProcessorError)) {
+//		// err came from a processor
+//	}
+//
+// The value-target form, errors.As(err, new(ProcessorError)), does not match,
+// because *ProcessorError is not assignable to ProcessorError.
 type ProcessorError struct {
 	// Err is the underlying error that occurred in the processor.
 	Err error
@@ -36,6 +47,16 @@ func (e ProcessorError) Unwrap() error {
 // SourceError is returned when a source fails. It wraps the original
 // error from the source to maintain the error chain while providing
 // context about the source of the error.
+//
+// The engine always wraps with the pointer form, &SourceError{}. When checking
+// errors with errors.As, callers must therefore use the pointer target form:
+//
+//	if errors.As(err, new(*SourceError)) {
+//		// err came from the source
+//	}
+//
+// The value-target form, errors.As(err, new(SourceError)), does not match,
+// because *SourceError is not assignable to SourceError.
 type SourceError struct {
 	// Err is the underlying error that occurred in the source.
 	Err error
