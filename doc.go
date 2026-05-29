@@ -26,9 +26,7 @@
 //	batch.IgnoreErrors(errs)
 //	<-b.Done()
 //
-// Output:
-//
-// hello
+// The Transform func above prints each item, so this pipeline writes "hello".
 //
 // See the README.md for an overview of how these pieces fit together.
 package gobatch
