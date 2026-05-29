@@ -3,7 +3,6 @@ package batch_test
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/MasterOfBinary/gobatch/batch"
 	"github.com/MasterOfBinary/gobatch/processor"
@@ -11,12 +10,15 @@ import (
 )
 
 func Example() {
-	// Create a batch processor with simple config
+	// Create a batch processor that collects all five items into a single
+	// batch. Because every batch is processed in its own goroutine, splitting
+	// the items across multiple batches would let those goroutines print in a
+	// non-deterministic order. Requiring MinItems items before processing (and
+	// capping MaxItems at the same value) guarantees exactly one batch, so the
+	// output below is stable.
 	b := batch.New[int](batch.NewConstantConfig(&batch.ConfigValues{
-		MinItems: 2,
+		MinItems: 5,
 		MaxItems: 5,
-		MinTime:  10 * time.Millisecond,
-		MaxTime:  100 * time.Millisecond,
 	}))
 
 	// Create an input channel

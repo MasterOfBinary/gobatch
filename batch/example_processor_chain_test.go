@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/MasterOfBinary/gobatch/batch"
 )
@@ -26,7 +25,6 @@ func (s *textSource) Read(ctx context.Context) (<-chan any, <-chan error) {
 			case <-ctx.Done():
 				return
 			case out <- text:
-				time.Sleep(10 * time.Millisecond)
 			}
 		}
 	}()
@@ -142,9 +140,14 @@ func Example_processorChain() {
 		"batch":      "Group of items processed together",
 	}
 
+	// Process all six items as a single batch. Each batch runs in its own
+	// goroutine, so splitting the items across batches would let the per-batch
+	// output (the "Validation:", "Format:", ... sections) interleave
+	// non-deterministically. One batch keeps the chained-processor output
+	// stable while still demonstrating the full pipeline.
 	config := batch.NewConstantConfig(&batch.ConfigValues{
-		MinItems: 4,
-		MaxItems: 3,
+		MinItems: 6,
+		MaxItems: 6,
 	})
 	b := batch.New[any](config)
 
@@ -170,29 +173,25 @@ func Example_processorChain() {
 	//   Item 0: hello (ok)
 	//   Item 1: a (error: too short (min 3))
 	//   Item 2: world (ok)
+	//   Item 3: processing (ok)
+	//   Item 4: thisisaverylongstringthatwillexceedthemaximumlength (error: too long (max 15))
+	//   Item 5: batch (ok)
 	// Format:
 	//   Item 0: formatted to [HELLO]
 	//   Item 2: formatted to [WORLD]
+	//   Item 3: formatted to [PROCESSING]
+	//   Item 5: formatted to [BATCH]
 	// Enrich:
 	//   Item 0: enriched with "English greeting"
 	//   Item 2: enriched with "Planet Earth"
+	//   Item 3: enriched with "Act of handling data"
+	//   Item 5: enriched with "Group of items processed together"
 	// Results:
 	//   Item 0: OK: {[HELLO] English greeting}
 	//   Item 1: ERROR: too short (min 3)
 	//   Item 2: OK: {[WORLD] Planet Earth}
-	// Validation:
-	//   Item 0: processing (ok)
-	//   Item 1: thisisaverylongstringthatwillexceedthemaximumlength (error: too long (max 15))
-	//   Item 2: batch (ok)
-	// Format:
-	//   Item 0: formatted to [PROCESSING]
-	//   Item 2: formatted to [BATCH]
-	// Enrich:
-	//   Item 0: enriched with "Act of handling data"
-	//   Item 2: enriched with "Group of items processed together"
-	// Results:
-	//   Item 0: OK: {[PROCESSING] Act of handling data}
-	//   Item 1: ERROR: too long (max 15)
-	//   Item 2: OK: {[BATCH] Group of items processed together}
+	//   Item 3: OK: {[PROCESSING] Act of handling data}
+	//   Item 4: ERROR: too long (max 15)
+	//   Item 5: OK: {[BATCH] Group of items processed together}
 	// Total errors: 2
 }

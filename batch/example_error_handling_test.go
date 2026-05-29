@@ -129,12 +129,21 @@ func Example_errorHandling() {
 	}
 
 	validator := &validationProcessor{maxValue: 10}
-	transformer := &errorProneProcessor{failOnBatch: 2}
+	transformer := &errorProneProcessor{failOnBatch: 1}
 	logger := &errorLogger{}
 
+	// Process everything as a single batch. Each batch is handled in its own
+	// goroutine, so multiple batches would print their "Batch:" sections in a
+	// non-deterministic order and would also race the source's error reporting.
+	// One batch makes both the per-batch output and the final error Summary
+	// deterministic: the source finishes reading (emitting its errors) before
+	// the single batch goroutine runs, so source errors always precede
+	// processor errors. MaxItems caps the batch; because two source reads are
+	// reported as errors instead of items, the batch holds the 13 emitted
+	// items and is flushed at end-of-input.
 	config := batch.NewConstantConfig(&batch.ConfigValues{
-		MinItems: 3,
-		MaxItems: 5,
+		MinItems: 15,
+		MaxItems: 15,
 	})
 	b := batch.New[any](config)
 
@@ -167,30 +176,25 @@ func Example_errorHandling() {
 	// Output:
 	// === Error Handling Example ===
 	// Batch:
-	// - Item 0: Item: 1
-	// - Item 1: Item: 2
-	// - Item 2: Item: 3
-	// Batch:
+	// - Item 0: 1
+	// - Item 1: 2
+	// - Item 2: 3
 	// - Item 3: 4
 	// - Item 4: 5
 	// - Item 5: 7
-	// Batch:
-	// - Item 6: Item: 8
-	// - Item 7: Item: 9
-	// - Item 8: Item: 10
-	// Batch:
+	// - Item 6: 8
+	// - Item 7: 9
+	// - Item 8: 10
 	// - Item 9 error: value 12 exceeds maximum 10
 	// - Item 10 error: value 15 exceeds maximum 10
 	// - Item 11 error: value 20 exceeds maximum 10
-	// Batch had 3 error(s)
-	// Batch:
 	// - Item 12 error: value 25 exceeds maximum 10
-	// Batch had 1 error(s)
+	// Batch had 4 error(s)
 	//
 	// Summary:
 	// 1. Source error: source error at item 5
-	// 2. Processor error: processor failed on batch 2
-	// 3. Source error: source error at item 10
+	// 2. Source error: source error at item 10
+	// 3. Processor error: processor failed on batch 1
 	// 4. Processor error: value 12 exceeds maximum 10
 	// 5. Processor error: value 15 exceeds maximum 10
 	// 6. Processor error: value 20 exceeds maximum 10
