@@ -14,6 +14,7 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 - Run tests with race detection and coverage: `go test -race -coverprofile=coverage.txt -covermode=atomic ./...`
 - Basic lint: `go vet ./...`
 - Full lint: `golangci-lint run --timeout=3m`
+- Install golangci-lint (v2.12.2, matching CI): `curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/v2.12.2/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2`
 
 ## Code Standards
 - Follow Go best practices and idiomatic Go patterns
