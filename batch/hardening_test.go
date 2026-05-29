@@ -254,6 +254,44 @@ func (p *countingProc) Process(ctx context.Context, items []*Item[any]) ([]*Item
 	return items, nil
 }
 
+// TestDoneRace verifies there is no data race between Done() reading b.done and
+// Go() writing it. Done() previously read b.done without holding b.mu, while Go
+// writes it under the lock. Run with -race to surface the report (RED) before
+// the fix; after the fix it must be clean.
+func TestDoneRace(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{}))
+	src := &testSource{Items: []any{1, 2, 3}}
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+
+	// Hammer Done() concurrently with Go().
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = b.Done()
+			}
+		}
+	}()
+
+	// Let the reader goroutine spin up and start calling Done().
+	time.Sleep(5 * time.Millisecond)
+
+	errs := b.Go(context.Background(), src)
+	go func() {
+		for range errs {
+		}
+	}()
+
+	<-b.Done()
+	close(stop)
+	<-done
+}
+
 // containsStr is a tiny substring helper to avoid importing strings here.
 func containsStr(haystack, needle string) bool {
 	if len(needle) == 0 {

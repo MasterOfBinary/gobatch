@@ -332,10 +332,16 @@ func (b *Batch[T]) Go(ctx context.Context, s Source[T], procs ...Processor[T]) (
 //		fmt.Println("Timed out waiting for processing to finish")
 //	}
 func (b *Batch[T]) Done() <-chan struct{} {
-	if b.done == nil {
+	// Guard the read of b.done with b.mu: Go assigns b.done while holding the
+	// lock, so reading it unlocked is a data race.
+	b.mu.Lock()
+	done := b.done
+	b.mu.Unlock()
+
+	if done == nil {
 		return closedDone
 	}
-	return b.done
+	return done
 }
 
 // doReader reads items from the Source and forwards them to the batch processor.
