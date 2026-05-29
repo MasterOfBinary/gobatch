@@ -16,8 +16,13 @@ import (
 type Config interface {
 	// Get returns the values for configuration.
 	//
-	// If MinItems > MaxItems or MinTime > MaxTime, the min value will be
-	// set to the maximum value.
+	// The batch engine clamps conflicting min/max values, but only when the
+	// corresponding maximum is greater than zero (non-zero). Specifically:
+	// if MaxItems > 0 and MinItems > MaxItems, MinItems is reduced to
+	// MaxItems; if MaxTime > 0 and MinTime > MaxTime, MinTime is reduced to
+	// MaxTime. When the maximum is zero it is treated as unset (see
+	// ConfigValues.MaxItems and ConfigValues.MaxTime), so no clamping occurs
+	// and the min value is used as-is.
 	//
 	// If the config values may be modified during batch processing, Get
 	// must properly handle concurrency issues.
@@ -34,6 +39,10 @@ type ConfigValues struct {
 	// of items was specified and that number is reached before MinTime;
 	// in that case those items will be processed right away.
 	//
+	// A value of 0 means there is no minimum-time wait: a batch becomes
+	// eligible as soon as MinItems is satisfied, without waiting for any
+	// time to elapse.
+	//
 	// This parameter is useful to prevent processing very small batches
 	// too frequently when items arrive at a slow but steady rate.
 	MinTime time.Duration `json:"minTime"`
@@ -45,6 +54,10 @@ type ConfigValues struct {
 	// items is available, or if all items have been read and are ready
 	// to process.
 	//
+	// A value of 0 is treated by the engine as 1: at least one item is
+	// processed per batch. MinItems is therefore never effectively zero at
+	// runtime.
+	//
 	// This parameter helps optimize processing by ensuring batches are
 	// large enough to amortize the overhead of processing across multiple items.
 	MinItems uint64 `json:"minItems"`
@@ -53,6 +66,11 @@ type ConfigValues struct {
 	// processing. Once that time has been reached, items will be processed
 	// whether or not MinItems items are available.
 	//
+	// A value of 0 means unset / disabled: there is NO maximum-time flush
+	// and the underlying timer is not started. This is counter-intuitive
+	// (zero may read like "flush immediately"), but a zero MaxTime imposes
+	// no upper bound on how long a batch may wait for MinItems.
+	//
 	// This parameter ensures that items don't wait in the queue for too long,
 	// which is important for latency-sensitive applications.
 	MaxTime time.Duration `json:"maxTime"`
@@ -60,6 +78,12 @@ type ConfigValues struct {
 	// MaxItems specifies that a maximum number of items should be available
 	// before processing. Once that number of items is available, they will
 	// be processed whether or not MinTime has been reached.
+	//
+	// A value of 0 means unset / disabled: there is NO maximum-count
+	// trigger. This is counter-intuitive (zero may read like "flush on the
+	// first item"), but a zero MaxItems imposes no upper bound on batch
+	// size; batches are then bounded only by MinItems, MaxTime, or the
+	// source being exhausted.
 	//
 	// This parameter prevents the system from accumulating too many items
 	// in a single batch, which could lead to memory pressure or processing
