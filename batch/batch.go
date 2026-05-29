@@ -375,12 +375,6 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 	var outClosed, errsClosed bool
 	for !outClosed || !errsClosed {
 		select {
-		case <-ctx.Done():
-			// A cancelled context must always be able to break the reader out,
-			// even if it is otherwise blocked sending to a full error buffer.
-			close(b.items)
-			return
-
 		case data, ok := <-out:
 			if !ok {
 				outClosed = true
