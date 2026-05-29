@@ -349,9 +349,14 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 	// Get channels from source
 	out, errs := b.src.Read(ctx)
 
-	// Handle nil channels from source - just report an error and finish
+	// Handle nil channels from source - just report an error and finish.
+	// The send to b.errs is context-aware so a cancelled context cannot wedge
+	// the reader if the error buffer is full and nobody is draining it.
 	if out == nil || errs == nil {
-		b.errs <- errors.New("invalid source implementation: returned nil channel(s)")
+		select {
+		case b.errs <- errors.New("invalid source implementation: returned nil channel(s)"):
+		case <-ctx.Done():
+		}
 		close(b.items)
 		return
 	}
@@ -363,6 +368,12 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 	var outClosed, errsClosed bool
 	for !outClosed || !errsClosed {
 		select {
+		case <-ctx.Done():
+			// A cancelled context must always be able to break the reader out,
+			// even if it is otherwise blocked sending to a full error buffer.
+			close(b.items)
+			return
+
 		case data, ok := <-out:
 			if !ok {
 				outClosed = true
@@ -382,7 +393,14 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 				errs = nil
 				continue
 			}
-			b.errs <- &SourceError{Err: err}
+			// Context-aware send: if the error buffer is full and the context
+			// is cancelled, stop reading rather than blocking forever.
+			select {
+			case b.errs <- &SourceError{Err: err}:
+			case <-ctx.Done():
+				close(b.items)
+				return
+			}
 		}
 	}
 
@@ -424,13 +442,23 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 				var err error
 				items, err = proc.Process(ctx, items)
 				if err != nil {
-					b.errs <- &ProcessorError{Err: err}
+					// Context-aware send so a cancelled context can free this
+					// goroutine even if the error buffer is full and undrained.
+					select {
+					case b.errs <- &ProcessorError{Err: err}:
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 
 			for _, item := range items {
 				if item.Error != nil {
-					b.errs <- &ProcessorError{Err: item.Error}
+					select {
+					case b.errs <- &ProcessorError{Err: item.Error}:
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 		}(batch)
