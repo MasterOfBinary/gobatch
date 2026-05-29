@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -154,6 +155,103 @@ func TestPanicInProcessorIsRecovered(t *testing.T) {
 	if !sawPanicErr {
 		t.Fatal("expected a ProcessorError describing the recovered panic")
 	}
+}
+
+// TestMaxTimeMultipleIdleCyclesThenLateItem exercises several idle MaxTime
+// cycles (the batch stays empty past MaxTime more than once) and then delivers
+// a late item, asserting it is still processed. This locks in the re-arm
+// behavior so the timer refactor (single *time.Timer with Reset instead of a
+// fresh time.After each idle fire) cannot regress it.
+func TestMaxTimeMultipleIdleCyclesThenLateItem(t *testing.T) {
+	cfg := NewConstantConfig(&ConfigValues{
+		MinItems: 10,                    // high, so MinItems alone never triggers
+		MaxTime:  50 * time.Millisecond, // fires repeatedly while idle
+	})
+
+	b := New[any](cfg)
+
+	input := make(chan any)
+	src := &chanSource{in: input}
+
+	var processed int32
+	proc := &countingProc{n: &processed}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errs := b.Go(ctx, src, proc)
+	go func() {
+		for range errs {
+		}
+	}()
+
+	// Let several idle MaxTime cycles elapse (4 x 50ms = 200ms+).
+	time.Sleep(220 * time.Millisecond)
+
+	// Now deliver a late item; it must still be picked up and processed.
+	input <- 42
+
+	// Give the late item time to be batched (within one MaxTime cycle) and run.
+	deadline := time.After(2 * time.Second)
+	for atomic.LoadInt32(&processed) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("late item was not processed after multiple idle MaxTime cycles")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	close(input)
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done() did not close within 2s")
+	}
+
+	if got := atomic.LoadInt32(&processed); got != 1 {
+		t.Errorf("expected exactly 1 item processed, got %d", got)
+	}
+}
+
+// chanSource adapts a caller-owned input channel into a Source, respecting
+// context cancellation.
+type chanSource struct {
+	in chan any
+}
+
+func (s *chanSource) Read(ctx context.Context) (<-chan any, <-chan error) {
+	out := make(chan any)
+	errs := make(chan error)
+	go func() {
+		defer close(out)
+		defer close(errs)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case v, ok := <-s.in:
+				if !ok {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case out <- v:
+				}
+			}
+		}
+	}()
+	return out, errs
+}
+
+// countingProc atomically counts the items it processes.
+type countingProc struct {
+	n *int32
+}
+
+func (p *countingProc) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
+	atomic.AddInt32(p.n, int32(len(items)))
+	return items, nil
 }
 
 // containsStr is a tiny substring helper to avoid importing strings here.
