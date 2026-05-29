@@ -125,7 +125,10 @@ func ExecuteBatches[T any](ctx context.Context, configs ...*BatchConfig[T]) []er
 		go func(cfg *BatchConfig[T]) {
 			defer wg.Done()
 
-			if cfg == nil || cfg.B == nil || cfg.S == nil {
+			// Skip entries with nothing to run. A nil source is NOT skipped
+			// here: cfg.B.Go reports it as ErrNilSource below, so a missing
+			// source surfaces an error instead of silently dropping the batch.
+			if cfg == nil || cfg.B == nil {
 				return
 			}
 

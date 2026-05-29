@@ -203,6 +203,36 @@ func TestExecuteBatches_NilConfig(t *testing.T) {
 	}
 }
 
+// TestExecuteBatches_NilSourceSurfacesError verifies that a configured batch
+// with a nil Source surfaces ErrNilSource instead of being silently skipped,
+// so callers cannot mistake unprocessed data for a completed run. Valid configs
+// in the same call must still run to completion.
+func TestExecuteBatches_NilSourceSurfacesError(t *testing.T) {
+	valid := New[any](NewConstantConfig(&ConfigValues{}))
+	var count uint32
+
+	configs := []*BatchConfig[any]{
+		{B: valid, S: &testSource{Items: []any{1, 2, 3}}, P: []Processor[any]{&countProcessor{count: &count}}},
+		{B: New[any](NewConstantConfig(&ConfigValues{})), S: nil, P: []Processor[any]{&countProcessor{count: new(uint32)}}},
+	}
+
+	errs := ExecuteBatches(context.Background(), configs...)
+
+	if atomic.LoadUint32(&count) != 3 {
+		t.Errorf("valid batch: expected 3 items processed, got %d", count)
+	}
+
+	var found bool
+	for _, err := range errs {
+		if errors.Is(err, ErrNilSource) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected ErrNilSource to be surfaced for the nil-source config, got %v", errs)
+	}
+}
+
 // Helper types for testing
 
 type countProcessor struct {

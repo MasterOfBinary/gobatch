@@ -124,6 +124,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/MasterOfBinary/gobatch/batch"
@@ -202,6 +203,8 @@ GoBatch supports flexible configuration through the `Config` interface, which de
 You can choose between:
 - **`ConstantConfig`** for static, unchanging settings.
 - **`DynamicConfig`** for runtime-adjustable settings that can be updated while processing.
+
+Passing a `nil` `Config` to `New` (or using the zero-value `&Batch[T]{}`) uses a default configuration, where items are processed immediately as they are read.
 
 Configuration options include:
 
