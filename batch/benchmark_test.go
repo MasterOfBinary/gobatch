@@ -59,7 +59,10 @@ func BenchmarkBatchThroughput(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		bt := New[any](cfg)
-		errs, _ := bt.Go(ctx, &benchSource{n: itemsPerRun}, proc)
+		errs, err := bt.Go(ctx, &benchSource{n: itemsPerRun}, proc)
+		if err != nil {
+			b.Fatal(err)
+		}
 		IgnoreErrors(errs)
 		<-bt.Done()
 	}

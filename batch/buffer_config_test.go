@@ -48,7 +48,10 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		})
 
 		// Start processing to trigger channel creation
-		errs, _ := b.Go(context.Background(), src)
+		errs, err := b.Go(context.Background(), src)
+		if err != nil {
+			t.Fatalf("Go returned unexpected error: %v", err)
+		}
 		IgnoreErrors(errs)
 		<-b.Done()
 
@@ -76,7 +79,10 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		})
 
 		// Start processing - should use default buffer sizes
-		errs, _ := b.Go(context.Background(), src)
+		errs, err := b.Go(context.Background(), src)
+		if err != nil {
+			t.Fatalf("Go returned unexpected error: %v", err)
+		}
 		IgnoreErrors(errs)
 		<-b.Done()
 
@@ -99,7 +105,10 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		})
 
 		// Start batch processing
-		errs, _ := b.Go(context.Background(), src)
+		errs, err := b.Go(context.Background(), src)
+		if err != nil {
+			t.Fatalf("Go returned unexpected error: %v", err)
+		}
 
 		// Should panic when trying to set buffer config after Go
 		defer func() {
