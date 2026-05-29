@@ -34,11 +34,11 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 - Include practical examples in documentation
 
 ## File Structure
-- `/batch`: Core batch processing functionality, includes the main Batch type, configuration, errors, and helper functions
-- `/processor`: Different processors for data manipulation (Transform, Filter, Channel, Error, Nil)
-- `/source`: Data sources for batch processing (Channel, Error, Nil)
-- `/doc.go`: Package-level documentation
-- `/example_test.go`: Top-level usage examples
+- `/batch`: Core batch processing package. Includes `batch.go` (the main `Batch` type and pipeline), `config.go` (Config interface, ConstantConfig, DynamicConfig, BufferConfig), `errors.go` (SourceError, ProcessorError), `constants.go`, `helpers.go` (IgnoreErrors, CollectErrors, RunBatchAndWait, ExecuteBatches), and `doc.go`. Accompanied by unit tests (`*_test.go`) and several runnable `example_*_test.go` files.
+- `/processor`: Processor implementations — `transform.go`, `filter.go`, `channel.go`, `error.go`, `nil.go` — plus `doc.go` and tests.
+- `/source`: Source implementations — `channel.go`, `error.go`, `nil.go` — plus `doc.go` and tests.
+- `/doc.go`: Root package-level documentation.
+- `/example_test.go`: Top-level usage examples.
 
 ## Key Concepts
 - **Batch**: Main type that orchestrates the batch processing pipeline
@@ -57,7 +57,7 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 - **Filter**: Filters items based on a predicate function
 - **Channel**: Writes item data to an output channel
 - **Error**: Simulates processor errors (for testing)
-- **Nil**: Passes items through unchanged (for benchmarking)
+- **Nil**: Sleeps for a configurable `Duration` without modifying item data (can mark items cancelled via `MarkCancelled`); useful for simulating slow processing and testing timing behavior
 
 ### Sources
 - **Channel**: Uses Go channels as data sources
@@ -75,4 +75,4 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 - Processors should respect context cancellation
 - Items with errors are tracked individually through the Error field
 - Batch processing continues despite individual item errors
-- Use `errors.As` to check error types (SourceError, ProcessorError)
+- Use `errors.As` to check error types (SourceError, ProcessorError). The engine wraps errors as pointers (`&SourceError{...}`, `&ProcessorError{...}`), so `errors.As` must target the pointer type — e.g. `var se *batch.SourceError; errors.As(err, &se)` (equivalently `errors.As(err, new(*batch.SourceError))`). A value-target such as `var se batch.SourceError; errors.As(err, &se)` will not match.

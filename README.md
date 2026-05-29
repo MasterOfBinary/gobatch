@@ -100,7 +100,7 @@ go get github.com/MasterOfBinary/gobatch
 - **Filter**: Filters items based on a predicate function.
 - **Transform**: Transforms item data with a custom function.
 - **Error**: Simulates processor errors for testing.
-- **Nil**: Passes items through unchanged for benchmarking.
+- **Nil**: Sleeps for a configurable `Duration` without modifying item data; useful for simulating slow processing and testing timing behavior.
 - **Channel**: Writes item data to an output channel.
 
 ### Built-in Sources
