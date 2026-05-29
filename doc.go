@@ -19,7 +19,11 @@
 //	    return v, nil
 //	}}
 //
-//	batch.IgnoreErrors(b.Go(context.Background(), src, proc))
+//	errs, err := b.Go(context.Background(), src, proc)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	batch.IgnoreErrors(errs)
 //	<-b.Done()
 //
 // Output:

@@ -9,12 +9,17 @@ import (
 // It can be used with Batch.Go if errors aren't needed. Ignoring the returned
 // channel without reading from it can block once the buffer fills. For example:
 //
-//	// NOTE: bad - this can cause a deadlock!
-//	_ = batch.Go(ctx, p, s)
+//	// NOTE: bad - leaving errs undrained can deadlock once the buffer fills!
+//	errs, _ := myBatch.Go(ctx, s, p)
+//	_ = errs
 //
 // Instead, IgnoreErrors can be used to safely discard all errors:
 //
-//	batch.IgnoreErrors(myBatch.Go(ctx, p, s))
+//	errs, err := myBatch.Go(ctx, s, p)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	batch.IgnoreErrors(errs)
 func IgnoreErrors(errs <-chan error) {
 	// nil channels always block, so check for nil first to avoid a goroutine
 	// leak
@@ -27,12 +32,17 @@ func IgnoreErrors(errs <-chan error) {
 }
 
 // CollectErrors collects all errors from the error channel into a slice.
-// This is useful when you need to process all errors after batch processing completes.
+// It blocks until the error channel is closed (i.e., until batch processing
+// completes), so there is no need to wait on Done afterwards.
 //
 // Example usage:
 //
-//	errs := batch.CollectErrors(myBatch.Go(ctx, source, processor))
-//	<-myBatch.Done()
+//	pipeErrs, err := myBatch.Go(ctx, source, processor)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	errs := batch.CollectErrors(pipeErrs)
+//	// CollectErrors blocks until processing is done.
 //	for _, err := range errs {
 //		log.Printf("Error: %v", err)
 //	}
@@ -60,8 +70,13 @@ func CollectErrors(errs <-chan error) []error {
 //		// Handle errors
 //	}
 func RunBatchAndWait[T any](ctx context.Context, b *Batch[T], s Source[T], procs ...Processor[T]) []error {
-	// Start the batch processing
-	errs := b.Go(ctx, s, procs...)
+	// Start the batch processing. A start error (e.g. ErrNilSource or
+	// ErrBatchUsed) is surfaced in the returned slice so callers that only
+	// inspect the slice still see the failure.
+	errs, err := b.Go(ctx, s, procs...)
+	if err != nil {
+		return []error{err}
+	}
 
 	// Collect all errors into a slice
 	var collectedErrors []error
@@ -110,11 +125,20 @@ func ExecuteBatches[T any](ctx context.Context, configs ...*BatchConfig[T]) []er
 		go func(cfg *BatchConfig[T]) {
 			defer wg.Done()
 
-			if cfg == nil || cfg.B == nil || cfg.S == nil {
+			// Skip entries with nothing to run. A nil source is NOT skipped
+			// here: cfg.B.Go reports it as ErrNilSource below, so a missing
+			// source surfaces an error instead of silently dropping the batch.
+			if cfg == nil || cfg.B == nil {
 				return
 			}
 
-			errs := cfg.B.Go(ctx, cfg.S, cfg.P...)
+			errs, err := cfg.B.Go(ctx, cfg.S, cfg.P...)
+			if err != nil {
+				mu.Lock()
+				allErrs = append(allErrs, err)
+				mu.Unlock()
+				return
+			}
 			for err := range errs {
 				mu.Lock()
 				allErrs = append(allErrs, err)

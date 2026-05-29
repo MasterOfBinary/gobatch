@@ -23,7 +23,12 @@ func Example() {
 		return v, nil
 	}}
 
-	batch.IgnoreErrors(b.Go(context.Background(), src, proc))
+	errs, err := b.Go(context.Background(), src, proc)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	batch.IgnoreErrors(errs)
 	<-b.Done()
 	// Output:
 	// hello

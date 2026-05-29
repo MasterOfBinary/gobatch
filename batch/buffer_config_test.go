@@ -17,7 +17,6 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 	t.Run("custom buffer sizes", func(t *testing.T) {
 		customConfig := BufferConfig{
 			ItemBufferSize:  500,
-			IDBufferSize:    600,
 			ErrorBufferSize: 200,
 		}
 
@@ -26,9 +25,6 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		// Verify the config was set
 		if b.bufferConfig.ItemBufferSize != 500 {
 			t.Errorf("expected ItemBufferSize=500, got %d", b.bufferConfig.ItemBufferSize)
-		}
-		if b.bufferConfig.IDBufferSize != 600 {
-			t.Errorf("expected IDBufferSize=600, got %d", b.bufferConfig.IDBufferSize)
 		}
 		if b.bufferConfig.ErrorBufferSize != 200 {
 			t.Errorf("expected ErrorBufferSize=200, got %d", b.bufferConfig.ErrorBufferSize)
@@ -52,7 +48,10 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		})
 
 		// Start processing to trigger channel creation
-		errs := b.Go(context.Background(), src)
+		errs, err := b.Go(context.Background(), src)
+		if err != nil {
+			t.Fatalf("Go returned unexpected error: %v", err)
+		}
 		IgnoreErrors(errs)
 		<-b.Done()
 
@@ -62,7 +61,6 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 	t.Run("negative values use defaults", func(t *testing.T) {
 		customConfig := BufferConfig{
 			ItemBufferSize:  -1,
-			IDBufferSize:    -1,
 			ErrorBufferSize: -1,
 		}
 
@@ -81,7 +79,10 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		})
 
 		// Start processing - should use default buffer sizes
-		errs := b.Go(context.Background(), src)
+		errs, err := b.Go(context.Background(), src)
+		if err != nil {
+			t.Fatalf("Go returned unexpected error: %v", err)
+		}
 		IgnoreErrors(errs)
 		<-b.Done()
 
@@ -104,7 +105,10 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 		})
 
 		// Start batch processing
-		errs := b.Go(context.Background(), src)
+		errs, err := b.Go(context.Background(), src)
+		if err != nil {
+			t.Fatalf("Go returned unexpected error: %v", err)
+		}
 
 		// Should panic when trying to set buffer config after Go
 		defer func() {
@@ -154,7 +158,7 @@ func TestBatch_WithBufferConfig(t *testing.T) {
 				close(errs)
 				return out, errs
 			})
-			errs := b.Go(context.Background(), src)
+			errs, _ := b.Go(context.Background(), src)
 			IgnoreErrors(errs)
 		}()
 
@@ -172,9 +176,6 @@ func TestDefaultConstants(t *testing.T) {
 	if DefaultItemBufferSize < 1 {
 		t.Errorf("DefaultItemBufferSize should be positive, got %d", DefaultItemBufferSize)
 	}
-	if DefaultIDBufferSize < 1 {
-		t.Errorf("DefaultIDBufferSize should be positive, got %d", DefaultIDBufferSize)
-	}
 	if DefaultErrorBufferSize < 1 {
 		t.Errorf("DefaultErrorBufferSize should be positive, got %d", DefaultErrorBufferSize)
 	}
@@ -182,9 +183,6 @@ func TestDefaultConstants(t *testing.T) {
 	// Verify defaults are consistent
 	if DefaultItemBufferSize != 100 {
 		t.Errorf("DefaultItemBufferSize changed from expected 100 to %d", DefaultItemBufferSize)
-	}
-	if DefaultIDBufferSize != 100 {
-		t.Errorf("DefaultIDBufferSize changed from expected 100 to %d", DefaultIDBufferSize)
 	}
 	if DefaultErrorBufferSize != 100 {
 		t.Errorf("DefaultErrorBufferSize changed from expected 100 to %d", DefaultErrorBufferSize)

@@ -1,6 +1,18 @@
 package batch
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrNilSource is returned by Batch.Go when the provided Source is nil.
+// Use errors.Is to check for it.
+var ErrNilSource = errors.New("batch: source cannot be nil")
+
+// ErrBatchUsed is returned by Batch.Go when it is called on a Batch that has
+// already been used. A Batch is single-use: create a new one with New to run
+// again. Use errors.Is to check for it.
+var ErrBatchUsed = errors.New("batch: Batch is single-use; create a new Batch with New to run again")
 
 // ProcessorError is returned when a processor fails. It wraps the original
 // error from the processor to maintain the error chain while providing

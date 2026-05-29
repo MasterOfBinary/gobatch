@@ -15,16 +15,22 @@ var closedDone = func() chan struct{} {
 	return ch
 }()
 
+// closedErrs is a pre-closed, empty error channel returned by Go when it rejects
+// a call (a nil source or an already-used Batch). Returning a closed channel
+// rather than nil keeps a caller that ranges over Go's first return value safe
+// even when it ignores the returned error.
+var closedErrs = func() chan error {
+	ch := make(chan error)
+	close(ch)
+	return ch
+}()
+
 // BufferConfig configures the internal buffer sizes used by Batch.
 // If not specified, default values are used.
 type BufferConfig struct {
 	// ItemBufferSize is the buffer size for the items channel.
 	// Default: DefaultItemBufferSize
 	ItemBufferSize int
-
-	// IDBufferSize is the buffer size for the ID generator channel.
-	// Default: DefaultIDBufferSize
-	IDBufferSize int
 
 	// ErrorBufferSize is the buffer size for the error channel.
 	// Default: DefaultErrorBufferSize
@@ -48,11 +54,15 @@ type BufferConfig struct {
 //
 // Batch runs asynchronously after Go is called. When processing is complete,
 // either the error channel returned from Go is closed, or the channel returned
-// from Done is closed.
+// from Done is closed. A Batch is single-use: create a new one with New for
+// each run.
 //
 // A simple way to wait for completion while handling errors:
 //
-//	errs := b.Go(ctx, s, p)
+//	errs, err := b.Go(ctx, s, p)
+//	if err != nil {
+//	  log.Fatal(err)
+//	}
 //	for err := range errs {
 //	  log.Print(err.Error())
 //	}
@@ -60,7 +70,11 @@ type BufferConfig struct {
 //
 // If errors don't need to be handled, IgnoreErrors can be used:
 //
-//	batch.IgnoreErrors(b.Go(ctx, s, p))
+//	errs, err := b.Go(ctx, s, p)
+//	if err != nil {
+//	  log.Fatal(err)
+//	}
+//	batch.IgnoreErrors(errs)
 //	<-b.Done()
 //	// Now batch processing is done
 //
@@ -73,12 +87,11 @@ type Batch[T any] struct {
 	src          Source[T]
 	processors   []Processor[T]
 	items        chan *Item[T]
-	ids          chan uint64
 	done         chan struct{}
 
-	mu      sync.Mutex
-	running bool
-	errs    chan error
+	mu   sync.Mutex
+	used bool
+	errs chan error
 }
 
 // New creates a new Batch using the provided config. If config is nil,
@@ -100,7 +113,6 @@ func New[T any](config Config) *Batch[T] {
 //
 //	b := batch.New[any](config).WithBufferConfig(batch.BufferConfig{
 //		ItemBufferSize:  1000,
-//		IDBufferSize:    1000,
 //		ErrorBufferSize: 500,
 //	})
 //
@@ -109,7 +121,7 @@ func (b *Batch[T]) WithBufferConfig(config BufferConfig) *Batch[T] {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.running {
+	if b.used {
 		panic("batch: WithBufferConfig cannot be called after Go() has started")
 	}
 
@@ -208,8 +220,14 @@ type Processor[T any] interface {
 //   - Items are grouped into batches based on the Config.
 //   - Each batch is processed through the Processors in sequence.
 //
-// Go must only be called once at a time. Calling Go again while a batch is
-// already running will cause a panic.
+// A Batch is single-use. Go returns the pipeline error channel together with a
+// start error:
+//   - If the Batch has already been used, Go returns ErrBatchUsed.
+//   - If s is nil, Go returns ErrNilSource.
+//
+// On a start error the returned channel is non-nil and already closed, so it is
+// always safe to range over even if the error is not checked. To run again,
+// create a new Batch with New. Use errors.Is to test the returned error.
 //
 // Context cancellation:
 //   - Go does not immediately stop processing when the context is canceled.
@@ -218,7 +236,10 @@ type Processor[T any] interface {
 // Example:
 //
 //	b := batch.New[any](config)
-//	errs := b.Go(ctx, source, processor)
+//	errs, err := b.Go(ctx, source, processor)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
 //
 //	go func() {
 //		for err := range errs {
@@ -232,29 +253,24 @@ type Processor[T any] interface {
 //   - The Source must close its channels when reading is complete.
 //   - Processors must check for context cancellation and stop early if needed.
 //   - All items that have already been read will be processed even if the context is canceled.
-func (b *Batch[T]) Go(ctx context.Context, s Source[T], procs ...Processor[T]) <-chan error {
+func (b *Batch[T]) Go(ctx context.Context, s Source[T], procs ...Processor[T]) (<-chan error, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.running {
-		panic("Concurrent calls to Batch.Go are not allowed")
+	// A Batch is single-use. Reject a second call before touching any state so an
+	// already-running or already-finished Batch is never disturbed.
+	if b.used {
+		return closedErrs, ErrBatchUsed
 	}
+
+	if s == nil {
+		return closedErrs, ErrNilSource
+	}
+
+	b.used = true
 
 	if b.config == nil {
 		b.config = NewConstantConfig(nil)
-	}
-
-	b.running = true
-
-	// Check if source is nil and return error if it is
-	if s == nil {
-		b.errs = make(chan error, 1)
-		b.done = make(chan struct{})
-		b.errs <- errors.New("source cannot be nil")
-		close(b.errs)
-		close(b.done)
-		b.running = false
-		return b.errs
 	}
 
 	b.src = s
@@ -272,25 +288,19 @@ func (b *Batch[T]) Go(ctx context.Context, s Source[T], procs ...Processor[T]) <
 	if itemBuf <= 0 {
 		itemBuf = DefaultItemBufferSize
 	}
-	idBuf := b.bufferConfig.IDBufferSize
-	if idBuf <= 0 {
-		idBuf = DefaultIDBufferSize
-	}
 	errBuf := b.bufferConfig.ErrorBufferSize
 	if errBuf <= 0 {
 		errBuf = DefaultErrorBufferSize
 	}
 
 	b.items = make(chan *Item[T], itemBuf)
-	b.ids = make(chan uint64, idBuf)
 	b.errs = make(chan error, errBuf)
 	b.done = make(chan struct{})
 
-	go b.doIDGenerator()
 	go b.doReader(ctx)
 	go b.doProcessors(ctx)
 
-	return b.errs
+	return b.errs, nil
 }
 
 // Done returns a channel that is closed when batch processing is complete.
@@ -301,7 +311,11 @@ func (b *Batch[T]) Go(ctx context.Context, s Source[T], procs ...Processor[T]) <
 // Example:
 //
 //	b := batch.New[any](config)
-//	batch.IgnoreErrors(b.Go(ctx, source, processor))
+//	errs, err := b.Go(ctx, source, processor)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	batch.IgnoreErrors(errs)
 //
 //	<-b.Done()
 //	fmt.Println("Processing complete")
@@ -323,22 +337,6 @@ func (b *Batch[T]) Done() <-chan struct{} {
 	return b.done
 }
 
-// doIDGenerator generates unique IDs for items in the pipeline.
-//
-// It runs as a background goroutine, incrementing a counter starting from zero
-// and sending each ID on the ids channel. It exits when the done channel is closed.
-func (b *Batch[T]) doIDGenerator() {
-	var id uint64
-	for {
-		select {
-		case b.ids <- id:
-			id++
-		case <-b.done:
-			return
-		}
-	}
-}
-
 // doReader reads items from the Source and forwards them to the batch processor.
 //
 // It starts the Source.Read goroutine, then listens for data and errors.
@@ -358,6 +356,10 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 		return
 	}
 
+	// nextID is goroutine-local: doReader is the only place item IDs are
+	// assigned, and a single-use Batch runs doReader exactly once, so the
+	// counter needs no synchronization (no atomic, no lock).
+	var nextID uint64
 	var outClosed, errsClosed bool
 	for !outClosed || !errsClosed {
 		select {
@@ -367,7 +369,8 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 				out = nil
 				continue
 			}
-			id := <-b.ids
+			id := nextID
+			nextID++
 			b.items <- &Item[T]{
 				ID:   id,
 				Data: data,
@@ -434,11 +437,13 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 	}
 
 	wg.Wait()
-	close(b.errs)
+
+	// Close done before errs. A CollectErrors caller returns once errs closes,
+	// so closing done first guarantees it also observes Done() as closed. No
+	// lock is needed: a Batch is single-use, so nothing reassigns done or errs
+	// while they are being closed here.
 	close(b.done)
-	b.mu.Lock()
-	b.running = false
-	b.mu.Unlock()
+	close(b.errs)
 }
 
 // fixConfig corrects invalid ConfigValues to ensure consistent batch behavior.
@@ -480,24 +485,28 @@ func (b *Batch[T]) waitForItems(_ context.Context, config ConfigValues) []*Item[
 	var (
 		reachedMinTime bool
 		batch          = make([]*Item[T], 0, config.MinItems)
-		minTimer       <-chan time.Time
-		maxTimer       <-chan time.Time
+		minTimerCh     <-chan time.Time
+		maxTimerCh     <-chan time.Time
+		minTimer       *time.Timer
+		maxTimer       *time.Timer
 	)
 
 	// Be careful not to set timers that end right away. Instead, if a
-	// min or max time is not specified, use a nil channel so the select
-	// statement ignores it.
+	// min or max time is not specified, leave the channel nil so the
+	// select statement ignores it. Timers are stopped on return so a
+	// timer does not leak when a batch returns before its timer fires.
 	if config.MinTime > 0 {
-		minTimer = time.After(config.MinTime)
+		minTimer = time.NewTimer(config.MinTime)
+		defer minTimer.Stop()
+		minTimerCh = minTimer.C
 	} else {
-		minTimer = nil
 		reachedMinTime = true
 	}
 
 	if config.MaxTime > 0 {
-		maxTimer = time.After(config.MaxTime)
-	} else {
-		maxTimer = nil
+		maxTimer = time.NewTimer(config.MaxTime)
+		defer maxTimer.Stop()
+		maxTimerCh = maxTimer.C
 	}
 
 	for {
@@ -517,20 +526,20 @@ func (b *Batch[T]) waitForItems(_ context.Context, config ConfigValues) []*Item[
 				return batch
 			}
 
-		case <-minTimer:
+		case <-minTimerCh:
 			reachedMinTime = true
 			if uint64(len(batch)) >= config.MinItems {
 				return batch
 			}
 			// Keep waiting until MinItems is met
 
-		case <-maxTimer:
+		case <-maxTimerCh:
 			if len(batch) > 0 {
 				return batch
 			}
 			// If max timer fires with no items, restart it so we don't wait indefinitely
 			if config.MaxTime > 0 {
-				maxTimer = time.After(config.MaxTime)
+				maxTimer.Reset(config.MaxTime)
 			}
 		}
 	}

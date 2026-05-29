@@ -29,3 +29,5 @@ coverage.out
 
 # Gogland project files
 .idea
+# Planning/codebase-mapping docs (local only)
+.planning/
