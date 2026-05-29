@@ -18,13 +18,15 @@
 //	src := &Channel[int]{Input: input}
 //	out, errs := src.Read(context.Background())
 //	for item := range out {
-//	    fmt.Println(item)
+//	    fmt.Println(item) // prints 1 then 2
 //	}
 //	for range errs {
 //	}
 //
-// Output:
-//
-//	1
-//	2
+// Caution: draining out fully and then errs sequentially, as shown above, is
+// only safe because Channel emits no errors. In general, data and errors should
+// be consumed concurrently — the Batch engine reads both channels at the same
+// time — otherwise a source that emits an error while data is still pending can
+// block. Prefer separate goroutines (or a select) when a source may report
+// errors.
 package source
