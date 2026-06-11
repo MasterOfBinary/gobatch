@@ -1,6 +1,6 @@
 # Claude Instructions
 
-This file contains instructions and guidelines for Claude when working with this project.
+This file contains instructions and guidelines for Claude when working with this project. [AGENTS.md](./AGENTS.md) mirrors these instructions for all other AI coding agents; keep the two files in sync.
 
 ## Project Overview
 GoBatch is a Go library for batch data processing. It provides infrastructure for processing batches of data with configurable sources, processors, and pipelines. The library allows for flexible batch processing with configurable timing and item count parameters.
@@ -23,7 +23,7 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 - Document interfaces thoroughly with usage examples
 - For methods, include descriptive comments that explain parameters, return values, and behavior
 - Write tests for new functionality
-- Maintain backward compatibility where possible
+- This is a version 0 library; breaking changes are acceptable on master. When you change the public API, update the docs in the same change: README.md, CHANGELOG.md, the package docs (doc.go in the root, batch, processor, and source packages), and the affected example tests
 
 ## Documentation Style
 - Use godoc style comments for all exported types, functions, methods, and constants
@@ -41,10 +41,10 @@ GoBatch is a Go library for batch data processing. It provides infrastructure fo
 - `/example_test.go`: Top-level usage examples
 
 ## Key Concepts
-- **Batch**: Main type that orchestrates the batch processing pipeline
-- **Source**: Interface for data providers that read from various origins
-- **Processor**: Interface for components that process batches of items
-- **Item**: Represents a single data item flowing through the pipeline with unique ID and optional error
+- **Batch[T]**: Main type that orchestrates the batch processing pipeline
+- **Source[T]**: Interface for data providers that read from various origins
+- **Processor[T]**: Interface for components that process batches of items
+- **Item[T]**: Represents a single data item flowing through the pipeline with unique ID and optional error
 - **Config**: Interface for controlling batch timing and item count parameters
   - **ConstantConfig**: Static, unchanging configuration
   - **DynamicConfig**: Runtime-adjustable configuration that can be updated while processing

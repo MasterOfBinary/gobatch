@@ -1,4 +1,3 @@
-// Package batch provides a flexible batch processing pipeline for handling data.
 package batch
 
 import (
@@ -14,10 +13,11 @@ import (
 // which can be adjusted during runtime. This is useful for tuning the system
 // under different load scenarios or adapting to changing performance requirements.
 type Config interface {
-	// Get returns the values for configuration.
-	//
-	// If MinItems > MaxItems or MinTime > MaxTime, the min value will be
-	// set to the maximum value.
+	// Get returns the values for configuration. Implementations return the
+	// values as provided; Batch normalizes them before collecting each batch:
+	// MinItems defaults to 1 if zero, and when a non-zero MaxItems or MaxTime
+	// is smaller than its corresponding min value, the min is lowered to the
+	// max. A zero MaxItems or MaxTime means no maximum applies.
 	//
 	// If the config values may be modified during batch processing, Get
 	// must properly handle concurrency issues.
@@ -105,9 +105,9 @@ func (b *ConstantConfig) Get() ConfigValues {
 // If values is nil, the default values are used as described in Batch.
 //
 // This is useful for:
-// - Systems that need to adapt to changing workloads
-// - Services that implement backpressure mechanisms
-// - Applications that tune batch parameters based on performance metrics
+//   - Systems that need to adapt to changing workloads
+//   - Services that implement backpressure mechanisms
+//   - Applications that tune batch parameters based on performance metrics
 func NewDynamicConfig(values *ConfigValues) *DynamicConfig {
 	if values == nil {
 		return &DynamicConfig{}
