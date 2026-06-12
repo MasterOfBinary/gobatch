@@ -138,9 +138,9 @@ func Example_errorHandling() {
 	// One batch makes both the per-batch output and the final error Summary
 	// deterministic: the source finishes reading (emitting its errors) before
 	// the single batch goroutine runs, so source errors always precede
-	// processor errors. MaxItems caps the batch; because two source reads are
-	// reported as errors instead of items, the batch holds the 13 emitted
-	// items and is flushed at end-of-input.
+	// processor errors. Because two source reads are reported as errors instead
+	// of items, the batch holds the 13 emitted items and is flushed at
+	// end-of-input (EOF) rather than reaching the MaxItems cap.
 	config := batch.NewConstantConfig(&batch.ConfigValues{
 		MinItems: 15,
 		MaxItems: 15,
