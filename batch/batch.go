@@ -3,6 +3,7 @@ package batch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -331,10 +332,37 @@ func (b *Batch[T]) Go(ctx context.Context, s Source[T], procs ...Processor[T]) (
 //		fmt.Println("Timed out waiting for processing to finish")
 //	}
 func (b *Batch[T]) Done() <-chan struct{} {
-	if b.done == nil {
+	// Guard the read of b.done with b.mu: Go assigns b.done while holding the
+	// lock, so reading it unlocked is a data race.
+	b.mu.Lock()
+	done := b.done
+	b.mu.Unlock()
+
+	if done == nil {
 		return closedDone
 	}
-	return b.done
+	return done
+}
+
+// sendErr forwards err to the error channel without risking a permanent block:
+// if the buffer is full and nobody is draining it, a canceled context frees the
+// sender. It reports whether the error was delivered.
+//
+// The non-blocking attempt comes first so that a canceled context never
+// preempts a send that would succeed immediately — cancellation only escapes
+// a send that would actually block.
+func (b *Batch[T]) sendErr(ctx context.Context, err error) bool {
+	select {
+	case b.errs <- err:
+		return true
+	default:
+	}
+	select {
+	case b.errs <- err:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // doReader reads items from the Source and forwards them to the batch processor.
@@ -349,9 +377,11 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 	// Get channels from source
 	out, errs := b.src.Read(ctx)
 
-	// Handle nil channels from source - just report an error and finish
+	// Handle nil channels from source - just report an error and finish.
+	// The send to b.errs is context-aware so a cancelled context cannot wedge
+	// the reader if the error buffer is full and nobody is draining it.
 	if out == nil || errs == nil {
-		b.errs <- errors.New("invalid source implementation: returned nil channel(s)")
+		b.sendErr(ctx, errors.New("invalid source implementation: returned nil channel(s)"))
 		close(b.items)
 		return
 	}
@@ -382,7 +412,10 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 				errs = nil
 				continue
 			}
-			b.errs <- &SourceError{Err: err}
+			if !b.sendErr(ctx, &SourceError{Err: err}) {
+				close(b.items)
+				return
+			}
 		}
 	}
 
@@ -415,24 +448,33 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 		wg.Add(1)
 		go func(items []*Item[T]) {
 			defer wg.Done()
-			for _, proc := range b.processors {
-				// Skip nil processors (although they should have been filtered out in Go)
-				if proc == nil {
-					continue
+			// Recover from panics in user processors so a single buggy
+			// Process call cannot crash the host process. Declared after
+			// wg.Done so (deferred-LIFO) recover runs first and wg.Done still
+			// fires, letting the pipeline complete. The panic is surfaced as a
+			// ProcessorError via a context-aware send.
+			//
+			// A completion flag detects the panic instead of recover()'s
+			// return value: under this module's Go 1.18 semantics recover()
+			// returns nil for panic(nil), which would otherwise be swallowed.
+			panicked := true
+			defer func() {
+				if !panicked {
+					return
 				}
-
+				r := recover()
 				var err error
-				items, err = proc.Process(ctx, items)
-				if err != nil {
-					b.errs <- &ProcessorError{Err: err}
+				// Preserve error identity for error-valued panics so
+				// errors.Is/errors.As reach the original through ProcessorError.
+				if e, ok := r.(error); ok {
+					err = fmt.Errorf("processor panic: %w", e)
+				} else {
+					err = fmt.Errorf("processor panic: %v", r)
 				}
-			}
-
-			for _, item := range items {
-				if item.Error != nil {
-					b.errs <- &ProcessorError{Err: item.Error}
-				}
-			}
+				b.sendErr(ctx, &ProcessorError{Err: err})
+			}()
+			b.processBatch(ctx, items)
+			panicked = false
 		}(batch)
 	}
 
@@ -444,6 +486,59 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 	// while they are being closed here.
 	close(b.done)
 	close(b.errs)
+}
+
+// processBatch runs one batch through the processor chain and forwards
+// per-item errors to the error channel. It returns early only when an error
+// send fails, which sendErr guarantees can happen solely in the wedged state
+// (error buffer full and context canceled) — continuing then would produce
+// more errors that cannot be delivered.
+func (b *Batch[T]) processBatch(ctx context.Context, items []*Item[T]) {
+	// Nil processors were filtered out in Go, so every proc is callable.
+	for _, proc := range b.processors {
+		var err error
+		items, err = proc.Process(ctx, items)
+		if err != nil {
+			if !b.sendErr(ctx, &ProcessorError{Err: err}) {
+				return
+			}
+		}
+	}
+
+	for _, item := range items {
+		if item.Error != nil {
+			if !b.sendErr(ctx, &ProcessorError{Err: item.Error}) {
+				return
+			}
+		}
+	}
+}
+
+// maxPreallocCap bounds the capacity that waitForItems will pre-allocate for a
+// batch slice. Without this bound, a very large MinItems (reachable, for
+// example, via DynamicConfig.UpdateBatchSize(huge, 0)) would be passed directly
+// to make, triggering a multi-terabyte allocation that crashes the process.
+// The slice still grows as needed via append; this only caps the initial hint.
+const maxPreallocCap = 4096
+
+// clampPreallocCap returns a sane, bounded capacity to use when pre-allocating
+// a batch slice for the given config values. It never returns more than
+// maxPreallocCap, and if maxItems is set it is treated as a hard upper bound on
+// the batch size (so the pre-allocation is not larger than the batch can grow).
+//
+// This guards against pathological configurations where minItems is enormous
+// while maxItems is unset, which would otherwise attempt an unbounded
+// allocation.
+func clampPreallocCap(minItems, maxItems uint64) int {
+	c := minItems
+	// If a maximum batch size is set, never pre-allocate beyond it.
+	if maxItems > 0 && maxItems < c {
+		c = maxItems
+	}
+	if c > maxPreallocCap {
+		c = maxPreallocCap
+	}
+	return int(c)
 }
 
 // fixConfig corrects invalid ConfigValues to ensure consistent batch behavior.
@@ -484,7 +579,7 @@ func fixConfig(c ConfigValues) ConfigValues {
 func (b *Batch[T]) waitForItems(_ context.Context, config ConfigValues) []*Item[T] {
 	var (
 		reachedMinTime bool
-		batch          = make([]*Item[T], 0, config.MinItems)
+		batch          = make([]*Item[T], 0, clampPreallocCap(config.MinItems, config.MaxItems))
 		minTimerCh     <-chan time.Time
 		maxTimerCh     <-chan time.Time
 		minTimer       *time.Timer

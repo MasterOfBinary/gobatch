@@ -1,0 +1,580 @@
+package batch_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	. "github.com/MasterOfBinary/gobatch/batch"
+)
+
+// manyErrorsSource emits N errors (and no data items). It is used to fill the
+// error buffer so the pipeline wedges when nobody drains b.errs.
+type manyErrorsSource struct {
+	N int
+}
+
+func (s *manyErrorsSource) Read(ctx context.Context) (<-chan any, <-chan error) {
+	out := make(chan any)
+	errs := make(chan error)
+	go func() {
+		defer close(out)
+		defer close(errs)
+		for i := 0; i < s.N; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			case errs <- fmt.Errorf("err %d", i):
+			}
+		}
+	}()
+	return out, errs
+}
+
+// TestCancelUnblocksWedgedReader verifies that cancelling the context unblocks a
+// pipeline that has wedged because the error buffer filled and nobody is
+// draining it. Before the fix the internal sends to b.errs were unguarded
+// blocking sends, so cancel() did not free the reader and Done() never closed.
+//
+// The test is bounded by a timeout so the RED state fails fast instead of
+// hanging the suite.
+func TestCancelUnblocksWedgedReader(t *testing.T) {
+	// Tiny error buffer so it fills almost immediately, and a source that emits
+	// far more errors than the buffer can hold.
+	b := New[any](NewConstantConfig(&ConfigValues{})).
+		WithBufferConfig(BufferConfig{ErrorBufferSize: 1})
+
+	src := &manyErrorsSource{N: 1000}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start processing but deliberately never drain the returned error channel.
+	_, err := b.Go(ctx, src)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	// Give the reader time to fill the 1-slot error buffer and wedge.
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancelling must break the pipeline out of the blocked send.
+	cancel()
+
+	select {
+	case <-b.Done():
+		// Pipeline completed after cancellation - correct.
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: Done() did not close within 2s after cancel; " +
+			"the wedged reader was not unblocked by context cancellation")
+	}
+}
+
+// TestCancelUnblocksWedgedProcessor verifies the same guarantee for the
+// per-batch processor goroutine: if a processor returns errors that cannot be
+// delivered because the error buffer is full and nobody is draining, cancelling
+// the context must let the goroutine exit so the pipeline can complete.
+func TestCancelUnblocksWedgedProcessor(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: 1})).
+		WithBufferConfig(BufferConfig{ErrorBufferSize: 1})
+
+	// A source that emits many data items so many batches are produced, each of
+	// which fails and tries to send a ProcessorError.
+	items := make([]any, 1000)
+	for i := range items {
+		items[i] = i
+	}
+	src := &sliceSource{items: items}
+
+	procErr := errors.New("always fails")
+	proc := &alwaysErrProcessor{err: procErr}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	_, err := b.Go(ctx, src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: Done() did not close within 2s after cancel; " +
+			"the wedged processor goroutine was not unblocked by context cancellation")
+	}
+}
+
+// TestCancelUnblocksWedgedItemErrorSend verifies the same guarantee for the
+// per-item error forwarding loop: if items come back from the processors with
+// their Error field set and the sends wedge on a full, undrained error buffer,
+// cancelling the context must let the goroutine exit.
+func TestCancelUnblocksWedgedItemErrorSend(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: 1})).
+		WithBufferConfig(BufferConfig{ErrorBufferSize: 1})
+
+	items := make([]any, 1000)
+	for i := range items {
+		items[i] = i
+	}
+	src := &sliceSource{items: items}
+
+	itemErr := errors.New("item failed")
+	proc := &markItemsErrProcessor{err: itemErr}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	_, err := b.Go(ctx, src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: Done() did not close within 2s after cancel; " +
+			"the wedged item-error send was not unblocked by context cancellation")
+	}
+}
+
+// markItemsErrProcessor sets Error on every item and reports no stage error.
+type markItemsErrProcessor struct {
+	err error
+}
+
+func (p *markItemsErrProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
+	for _, item := range items {
+		item.Error = p.err
+	}
+	return items, nil
+}
+
+// alwaysErrProcessor returns a processor-wide error for every batch.
+type alwaysErrProcessor struct {
+	err error
+}
+
+func (p *alwaysErrProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
+	return items, p.err
+}
+
+// panicProcessor panics inside Process, simulating a buggy user processor.
+type panicProcessor struct {
+	msg string
+}
+
+func (p *panicProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
+	panic(p.msg)
+}
+
+// TestPanicInProcessorIsRecovered verifies that a panic in a user Processor does
+// not crash the host process. Before the fix, the per-batch goroutine called
+// proc.Process with no recover, so a panic took down the whole process. After
+// the fix the panic is recovered, surfaced as a ProcessorError on the error
+// channel, and the pipeline completes cleanly (errs and done close).
+func TestPanicInProcessorIsRecovered(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: 1}))
+	src := &testSource{Items: []any{1, 2, 3}}
+	proc := &panicProcessor{msg: "boom in processor"}
+
+	errs, err := b.Go(context.Background(), src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	var sawPanicErr bool
+	for err := range errs {
+		var pe *ProcessorError
+		if errors.As(err, &pe) {
+			// The recovered panic must be surfaced and carry the panic value.
+			if containsStr(err.Error(), "processor panic") &&
+				containsStr(err.Error(), "boom in processor") {
+				sawPanicErr = true
+			}
+		}
+	}
+
+	// The pipeline must complete rather than crash or hang.
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done() did not close within 2s after a panicking processor")
+	}
+
+	if !sawPanicErr {
+		t.Fatal("expected a ProcessorError describing the recovered panic")
+	}
+}
+
+// TestMaxTimeMultipleIdleCyclesThenLateItem exercises several idle MaxTime
+// cycles (the batch stays empty past MaxTime more than once) and then delivers
+// a late item, asserting it is still processed. This locks in the re-arm
+// behavior so the timer refactor (single *time.Timer with Reset instead of a
+// fresh time.After each idle fire) cannot regress it.
+func TestMaxTimeMultipleIdleCyclesThenLateItem(t *testing.T) {
+	cfg := NewConstantConfig(&ConfigValues{
+		MinItems: 10,                    // high, so MinItems alone never triggers
+		MaxTime:  50 * time.Millisecond, // fires repeatedly while idle
+	})
+
+	b := New[any](cfg)
+
+	input := make(chan any)
+	src := &chanSource{in: input}
+
+	var processed int32
+	proc := &countingProc{n: &processed}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errs, err := b.Go(ctx, src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+	go func() {
+		for range errs {
+		}
+	}()
+
+	// Let several idle MaxTime cycles elapse (4 x 50ms = 200ms+).
+	time.Sleep(220 * time.Millisecond)
+
+	// Now deliver a late item; it must still be picked up and processed.
+	input <- 42
+
+	// Give the late item time to be batched (within one MaxTime cycle) and run.
+	deadline := time.After(2 * time.Second)
+	for atomic.LoadInt32(&processed) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("late item was not processed after multiple idle MaxTime cycles")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	close(input)
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done() did not close within 2s")
+	}
+
+	if got := atomic.LoadInt32(&processed); got != 1 {
+		t.Errorf("expected exactly 1 item processed, got %d", got)
+	}
+}
+
+// chanSource adapts a caller-owned input channel into a Source, respecting
+// context cancellation.
+type chanSource struct {
+	in chan any
+}
+
+func (s *chanSource) Read(ctx context.Context) (<-chan any, <-chan error) {
+	out := make(chan any)
+	errs := make(chan error)
+	go func() {
+		defer close(out)
+		defer close(errs)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case v, ok := <-s.in:
+				if !ok {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case out <- v:
+				}
+			}
+		}
+	}()
+	return out, errs
+}
+
+// countingProc atomically counts the items it processes.
+type countingProc struct {
+	n *int32
+}
+
+func (p *countingProc) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
+	atomic.AddInt32(p.n, int32(len(items)))
+	return items, nil
+}
+
+// TestDoneRace verifies there is no data race between Done() reading b.done and
+// Go() writing it. Done() previously read b.done without holding b.mu, while Go
+// writes it under the lock. Run with -race to surface the report (RED) before
+// the fix; after the fix it must be clean.
+func TestDoneRace(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{}))
+	src := &testSource{Items: []any{1, 2, 3}}
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+
+	// Hammer Done() concurrently with Go().
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = b.Done()
+			}
+		}
+	}()
+
+	// Let the reader goroutine spin up and start calling Done().
+	time.Sleep(5 * time.Millisecond)
+
+	errs, err := b.Go(context.Background(), src)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+	go func() {
+		for range errs {
+		}
+	}()
+
+	<-b.Done()
+	close(stop)
+	<-done
+}
+
+// errAfterCancelProcessor waits for the context to be canceled, then marks
+// every item with err. It forces all downstream error sends to happen with an
+// already-canceled context.
+type errAfterCancelProcessor struct {
+	err error
+}
+
+func (p *errAfterCancelProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
+	<-ctx.Done()
+	for _, item := range items {
+		item.Error = p.err
+	}
+	return items, nil
+}
+
+// TestCanceledContextStillDeliversErrorsWithBufferRoom verifies that a
+// canceled context does not preempt error sends that would succeed
+// immediately. Every item error produced after cancellation must still reach
+// the error channel when the buffer has room: cancellation may only escape a
+// send that would actually block.
+func TestCanceledContextStillDeliversErrorsWithBufferRoom(t *testing.T) {
+	const n = 50 // well under the default error buffer of 100
+
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: n, MaxItems: n}))
+
+	items := make([]any, n)
+	for i := range items {
+		items[i] = i
+	}
+	src := &sliceSource{items: items}
+
+	itemErr := errors.New("item failed after cancel")
+	proc := &errAfterCancelProcessor{err: itemErr}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errs, err := b.Go(ctx, src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	// Let the batch assemble and enter the processor, then cancel. The
+	// processor only marks errors after cancellation, so every send happens
+	// on a canceled context.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	var got int
+	for err := range errs {
+		if containsStr(err.Error(), "item failed after cancel") {
+			got++
+		}
+	}
+	if got != n {
+		t.Errorf("expected all %d item errors delivered after cancel, got %d", n, got)
+	}
+}
+
+// TestBlockedErrorSendDeliversToSlowConsumer verifies that an error send that
+// finds the buffer full blocks and then delivers once the consumer drains a
+// slot, rather than dropping — with a live (uncanceled) context, every error
+// must arrive no matter how slow the consumer is.
+func TestBlockedErrorSendDeliversToSlowConsumer(t *testing.T) {
+	const n = 3
+
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: n, MaxItems: n})).
+		WithBufferConfig(BufferConfig{ErrorBufferSize: 1})
+
+	items := make([]any, n)
+	for i := range items {
+		items[i] = i
+	}
+	src := &sliceSource{items: items}
+
+	itemErr := errors.New("slow consumer error")
+	proc := &markItemsErrProcessor{err: itemErr}
+
+	errs, err := b.Go(context.Background(), src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	// Drain slowly: the 1-slot buffer fills on the first send, so later sends
+	// must block until a receive frees the slot, then still deliver.
+	var got int
+	for err := range errs {
+		if containsStr(err.Error(), "slow consumer error") {
+			got++
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got != n {
+		t.Errorf("expected all %d errors delivered to a slow consumer, got %d", n, got)
+	}
+}
+
+// nilPanicProcessor panics with a nil value. Under the module's Go 1.18
+// semantics recover() returns nil for panic(nil).
+type nilPanicProcessor struct{}
+
+func (nilPanicProcessor) Process(context.Context, []*Item[any]) ([]*Item[any], error) {
+	panic(nil)
+}
+
+// TestPanicNilIsReported verifies that panic(nil) in a user processor is still
+// surfaced as a ProcessorError. recover() returns nil for panic(nil) under the
+// module's Go 1.18 semantics, so the recovery path must not key off the
+// recovered value being non-nil.
+func TestPanicNilIsReported(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: 1}))
+	src := &testSource{Items: []any{1}}
+
+	errs, err := b.Go(context.Background(), src, nilPanicProcessor{})
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	var sawPanicErr bool
+	for err := range errs {
+		if containsStr(err.Error(), "processor panic") {
+			sawPanicErr = true
+		}
+	}
+	if !sawPanicErr {
+		t.Fatal("expected a ProcessorError for panic(nil); got none")
+	}
+
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done() did not close within 2s after panic(nil)")
+	}
+}
+
+// errPanicProcessor panics with an error value.
+type errPanicProcessor struct {
+	err error
+}
+
+func (p errPanicProcessor) Process(context.Context, []*Item[any]) ([]*Item[any], error) {
+	panic(p.err)
+}
+
+// TestPanicErrorPreservesIdentity verifies that an error-valued panic keeps
+// its identity through ProcessorError, so errors.Is reaches the original
+// panic value.
+func TestPanicErrorPreservesIdentity(t *testing.T) {
+	sentinel := errors.New("sentinel panic error")
+
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: 1}))
+	src := &testSource{Items: []any{1}}
+
+	errs, err := b.Go(context.Background(), src, errPanicProcessor{err: sentinel})
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	var sawSentinel bool
+	for err := range errs {
+		if errors.Is(err, sentinel) {
+			sawSentinel = true
+		}
+	}
+	if !sawSentinel {
+		t.Fatal("errors.Is could not reach the error-valued panic payload through ProcessorError")
+	}
+}
+
+// nilChannelSource models a broken Source that returns nil channels from Read.
+type nilChannelSource struct{}
+
+func (nilChannelSource) Read(context.Context) (<-chan any, <-chan error) {
+	return nil, nil
+}
+
+// TestNilChannelSourceReportsError verifies that a Source returning nil
+// channels surfaces an error on the error channel and the pipeline still
+// completes instead of hanging.
+func TestNilChannelSourceReportsError(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{}))
+
+	errs, err := b.Go(context.Background(), nilChannelSource{})
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	var sawInvalidSource bool
+	for err := range errs {
+		if containsStr(err.Error(), "invalid source implementation") {
+			sawInvalidSource = true
+		}
+	}
+	if !sawInvalidSource {
+		t.Fatal("expected an error reporting the nil source channels")
+	}
+
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done() did not close within 2s for a nil-channel source")
+	}
+}
+
+// TestSourceErrorMessage covers SourceError.Error formatting.
+func TestSourceErrorMessage(t *testing.T) {
+	err := &SourceError{Err: errors.New("boom")}
+	const want = "source error: boom"
+	if got := err.Error(); got != want {
+		t.Errorf("SourceError.Error() = %q, want %q", got, want)
+	}
+}
+
+// containsStr is a tiny substring helper to avoid importing strings here.
+func containsStr(haystack, needle string) bool {
+	if len(needle) == 0 {
+		return true
+	}
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}
