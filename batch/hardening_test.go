@@ -354,6 +354,136 @@ func TestDoneRace(t *testing.T) {
 	<-done
 }
 
+// errAfterCancelProcessor waits for the context to be canceled, then marks
+// every item with err. It forces all downstream error sends to happen with an
+// already-canceled context.
+type errAfterCancelProcessor struct {
+	err error
+}
+
+func (p *errAfterCancelProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
+	<-ctx.Done()
+	for _, item := range items {
+		item.Error = p.err
+	}
+	return items, nil
+}
+
+// TestCanceledContextStillDeliversErrorsWithBufferRoom verifies that a
+// canceled context does not preempt error sends that would succeed
+// immediately. Every item error produced after cancellation must still reach
+// the error channel when the buffer has room: cancellation may only escape a
+// send that would actually block.
+func TestCanceledContextStillDeliversErrorsWithBufferRoom(t *testing.T) {
+	const n = 50 // well under the default error buffer of 100
+
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: n, MaxItems: n}))
+
+	items := make([]any, n)
+	for i := range items {
+		items[i] = i
+	}
+	src := &sliceSource{items: items}
+
+	itemErr := errors.New("item failed after cancel")
+	proc := &errAfterCancelProcessor{err: itemErr}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errs, err := b.Go(ctx, src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	// Let the batch assemble and enter the processor, then cancel. The
+	// processor only marks errors after cancellation, so every send happens
+	// on a canceled context.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	var got int
+	for err := range errs {
+		if containsStr(err.Error(), "item failed after cancel") {
+			got++
+		}
+	}
+	if got != n {
+		t.Errorf("expected all %d item errors delivered after cancel, got %d", n, got)
+	}
+}
+
+// nilPanicProcessor panics with a nil value. Under the module's Go 1.18
+// semantics recover() returns nil for panic(nil).
+type nilPanicProcessor struct{}
+
+func (nilPanicProcessor) Process(context.Context, []*Item[any]) ([]*Item[any], error) {
+	panic(nil)
+}
+
+// TestPanicNilIsReported verifies that panic(nil) in a user processor is still
+// surfaced as a ProcessorError. recover() returns nil for panic(nil) under the
+// module's Go 1.18 semantics, so the recovery path must not key off the
+// recovered value being non-nil.
+func TestPanicNilIsReported(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: 1}))
+	src := &testSource{Items: []any{1}}
+
+	errs, err := b.Go(context.Background(), src, nilPanicProcessor{})
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	var sawPanicErr bool
+	for err := range errs {
+		if containsStr(err.Error(), "processor panic") {
+			sawPanicErr = true
+		}
+	}
+	if !sawPanicErr {
+		t.Fatal("expected a ProcessorError for panic(nil); got none")
+	}
+
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done() did not close within 2s after panic(nil)")
+	}
+}
+
+// errPanicProcessor panics with an error value.
+type errPanicProcessor struct {
+	err error
+}
+
+func (p errPanicProcessor) Process(context.Context, []*Item[any]) ([]*Item[any], error) {
+	panic(p.err)
+}
+
+// TestPanicErrorPreservesIdentity verifies that an error-valued panic keeps
+// its identity through ProcessorError, so errors.Is reaches the original
+// panic value.
+func TestPanicErrorPreservesIdentity(t *testing.T) {
+	sentinel := errors.New("sentinel panic error")
+
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: 1}))
+	src := &testSource{Items: []any{1}}
+
+	errs, err := b.Go(context.Background(), src, errPanicProcessor{err: sentinel})
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	var sawSentinel bool
+	for err := range errs {
+		if errors.Is(err, sentinel) {
+			sawSentinel = true
+		}
+	}
+	if !sawSentinel {
+		t.Fatal("errors.Is could not reach the error-valued panic payload through ProcessorError")
+	}
+}
+
 // nilChannelSource models a broken Source that returns nil channels from Read.
 type nilChannelSource struct{}
 

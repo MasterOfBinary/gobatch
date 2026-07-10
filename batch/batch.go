@@ -347,7 +347,16 @@ func (b *Batch[T]) Done() <-chan struct{} {
 // sendErr forwards err to the error channel without risking a permanent block:
 // if the buffer is full and nobody is draining it, a canceled context frees the
 // sender. It reports whether the error was delivered.
+//
+// The non-blocking attempt comes first so that a canceled context never
+// preempts a send that would succeed immediately — cancellation only escapes
+// a send that would actually block.
 func (b *Batch[T]) sendErr(ctx context.Context, err error) bool {
+	select {
+	case b.errs <- err:
+		return true
+	default:
+	}
 	select {
 	case b.errs <- err:
 		return true
@@ -444,33 +453,28 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 			// wg.Done so (deferred-LIFO) recover runs first and wg.Done still
 			// fires, letting the pipeline complete. The panic is surfaced as a
 			// ProcessorError via a context-aware send.
+			//
+			// A completion flag detects the panic instead of recover()'s
+			// return value: under this module's Go 1.18 semantics recover()
+			// returns nil for panic(nil), which would otherwise be swallowed.
+			panicked := true
 			defer func() {
-				if r := recover(); r != nil {
-					b.sendErr(ctx, &ProcessorError{Err: fmt.Errorf("processor panic: %v", r)})
+				if !panicked {
+					return
 				}
-			}()
-			for _, proc := range b.processors {
-				// Skip nil processors (although they should have been filtered out in Go)
-				if proc == nil {
-					continue
-				}
-
+				r := recover()
 				var err error
-				items, err = proc.Process(ctx, items)
-				if err != nil {
-					if !b.sendErr(ctx, &ProcessorError{Err: err}) {
-						return
-					}
+				// Preserve error identity for error-valued panics so
+				// errors.Is/errors.As reach the original through ProcessorError.
+				if e, ok := r.(error); ok {
+					err = fmt.Errorf("processor panic: %w", e)
+				} else {
+					err = fmt.Errorf("processor panic: %v", r)
 				}
-			}
-
-			for _, item := range items {
-				if item.Error != nil {
-					if !b.sendErr(ctx, &ProcessorError{Err: item.Error}) {
-						return
-					}
-				}
-			}
+				b.sendErr(ctx, &ProcessorError{Err: err})
+			}()
+			b.processBatch(ctx, items)
+			panicked = false
 		}(batch)
 	}
 
@@ -482,6 +486,32 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 	// while they are being closed here.
 	close(b.done)
 	close(b.errs)
+}
+
+// processBatch runs one batch through the processor chain and forwards
+// per-item errors to the error channel. It returns early only when an error
+// send fails, which sendErr guarantees can happen solely in the wedged state
+// (error buffer full and context canceled) — continuing then would produce
+// more errors that cannot be delivered.
+func (b *Batch[T]) processBatch(ctx context.Context, items []*Item[T]) {
+	// Nil processors were filtered out in Go, so every proc is callable.
+	for _, proc := range b.processors {
+		var err error
+		items, err = proc.Process(ctx, items)
+		if err != nil {
+			if !b.sendErr(ctx, &ProcessorError{Err: err}) {
+				return
+			}
+		}
+	}
+
+	for _, item := range items {
+		if item.Error != nil {
+			if !b.sendErr(ctx, &ProcessorError{Err: item.Error}) {
+				return
+			}
+		}
+	}
 }
 
 // maxPreallocCap bounds the capacity that waitForItems will pre-allocate for a
