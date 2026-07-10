@@ -109,6 +109,53 @@ func TestCancelUnblocksWedgedProcessor(t *testing.T) {
 	}
 }
 
+// TestCancelUnblocksWedgedItemErrorSend verifies the same guarantee for the
+// per-item error forwarding loop: if items come back from the processors with
+// their Error field set and the sends wedge on a full, undrained error buffer,
+// cancelling the context must let the goroutine exit.
+func TestCancelUnblocksWedgedItemErrorSend(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: 1})).
+		WithBufferConfig(BufferConfig{ErrorBufferSize: 1})
+
+	items := make([]any, 1000)
+	for i := range items {
+		items[i] = i
+	}
+	src := &sliceSource{items: items}
+
+	itemErr := errors.New("item failed")
+	proc := &markItemsErrProcessor{err: itemErr}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	_, err := b.Go(ctx, src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: Done() did not close within 2s after cancel; " +
+			"the wedged item-error send was not unblocked by context cancellation")
+	}
+}
+
+// markItemsErrProcessor sets Error on every item and reports no stage error.
+type markItemsErrProcessor struct {
+	err error
+}
+
+func (p *markItemsErrProcessor) Process(ctx context.Context, items []*Item[any]) ([]*Item[any], error) {
+	for _, item := range items {
+		item.Error = p.err
+	}
+	return items, nil
+}
+
 // alwaysErrProcessor returns a processor-wide error for every batch.
 type alwaysErrProcessor struct {
 	err error
@@ -305,6 +352,41 @@ func TestDoneRace(t *testing.T) {
 	<-b.Done()
 	close(stop)
 	<-done
+}
+
+// nilChannelSource models a broken Source that returns nil channels from Read.
+type nilChannelSource struct{}
+
+func (nilChannelSource) Read(context.Context) (<-chan any, <-chan error) {
+	return nil, nil
+}
+
+// TestNilChannelSourceReportsError verifies that a Source returning nil
+// channels surfaces an error on the error channel and the pipeline still
+// completes instead of hanging.
+func TestNilChannelSourceReportsError(t *testing.T) {
+	b := New[any](NewConstantConfig(&ConfigValues{}))
+
+	errs, err := b.Go(context.Background(), nilChannelSource{})
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	var sawInvalidSource bool
+	for err := range errs {
+		if containsStr(err.Error(), "invalid source implementation") {
+			sawInvalidSource = true
+		}
+	}
+	if !sawInvalidSource {
+		t.Fatal("expected an error reporting the nil source channels")
+	}
+
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done() did not close within 2s for a nil-channel source")
+	}
 }
 
 // TestSourceErrorMessage covers SourceError.Error formatting.

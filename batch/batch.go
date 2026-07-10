@@ -344,6 +344,18 @@ func (b *Batch[T]) Done() <-chan struct{} {
 	return done
 }
 
+// sendErr forwards err to the error channel without risking a permanent block:
+// if the buffer is full and nobody is draining it, a canceled context frees the
+// sender. It reports whether the error was delivered.
+func (b *Batch[T]) sendErr(ctx context.Context, err error) bool {
+	select {
+	case b.errs <- err:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // doReader reads items from the Source and forwards them to the batch processor.
 //
 // It starts the Source.Read goroutine, then listens for data and errors.
@@ -360,10 +372,7 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 	// The send to b.errs is context-aware so a cancelled context cannot wedge
 	// the reader if the error buffer is full and nobody is draining it.
 	if out == nil || errs == nil {
-		select {
-		case b.errs <- errors.New("invalid source implementation: returned nil channel(s)"):
-		case <-ctx.Done():
-		}
+		b.sendErr(ctx, errors.New("invalid source implementation: returned nil channel(s)"))
 		close(b.items)
 		return
 	}
@@ -394,11 +403,7 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 				errs = nil
 				continue
 			}
-			// Context-aware send: if the error buffer is full and the context
-			// is cancelled, stop reading rather than blocking forever.
-			select {
-			case b.errs <- &SourceError{Err: err}:
-			case <-ctx.Done():
+			if !b.sendErr(ctx, &SourceError{Err: err}) {
 				close(b.items)
 				return
 			}
@@ -441,10 +446,7 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 			// ProcessorError via a context-aware send.
 			defer func() {
 				if r := recover(); r != nil {
-					select {
-					case b.errs <- &ProcessorError{Err: fmt.Errorf("processor panic: %v", r)}:
-					case <-ctx.Done():
-					}
+					b.sendErr(ctx, &ProcessorError{Err: fmt.Errorf("processor panic: %v", r)})
 				}
 			}()
 			for _, proc := range b.processors {
@@ -456,11 +458,7 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 				var err error
 				items, err = proc.Process(ctx, items)
 				if err != nil {
-					// Context-aware send so a cancelled context can free this
-					// goroutine even if the error buffer is full and undrained.
-					select {
-					case b.errs <- &ProcessorError{Err: err}:
-					case <-ctx.Done():
+					if !b.sendErr(ctx, &ProcessorError{Err: err}) {
 						return
 					}
 				}
@@ -468,9 +466,7 @@ func (b *Batch[T]) doProcessors(ctx context.Context) {
 
 			for _, item := range items {
 				if item.Error != nil {
-					select {
-					case b.errs <- &ProcessorError{Err: item.Error}:
-					case <-ctx.Done():
+					if !b.sendErr(ctx, &ProcessorError{Err: item.Error}) {
 						return
 					}
 				}
