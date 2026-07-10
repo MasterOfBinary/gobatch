@@ -412,6 +412,44 @@ func TestCanceledContextStillDeliversErrorsWithBufferRoom(t *testing.T) {
 	}
 }
 
+// TestBlockedErrorSendDeliversToSlowConsumer verifies that an error send that
+// finds the buffer full blocks and then delivers once the consumer drains a
+// slot, rather than dropping — with a live (uncanceled) context, every error
+// must arrive no matter how slow the consumer is.
+func TestBlockedErrorSendDeliversToSlowConsumer(t *testing.T) {
+	const n = 3
+
+	b := New[any](NewConstantConfig(&ConfigValues{MinItems: n, MaxItems: n})).
+		WithBufferConfig(BufferConfig{ErrorBufferSize: 1})
+
+	items := make([]any, n)
+	for i := range items {
+		items[i] = i
+	}
+	src := &sliceSource{items: items}
+
+	itemErr := errors.New("slow consumer error")
+	proc := &markItemsErrProcessor{err: itemErr}
+
+	errs, err := b.Go(context.Background(), src, proc)
+	if err != nil {
+		t.Fatalf("Go returned unexpected error: %v", err)
+	}
+
+	// Drain slowly: the 1-slot buffer fills on the first send, so later sends
+	// must block until a receive frees the slot, then still deliver.
+	var got int
+	for err := range errs {
+		if containsStr(err.Error(), "slow consumer error") {
+			got++
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got != n {
+		t.Errorf("expected all %d errors delivered to a slow consumer, got %d", n, got)
+	}
+}
+
 // nilPanicProcessor panics with a nil value. Under the module's Go 1.18
 // semantics recover() returns nil for panic(nil).
 type nilPanicProcessor struct{}
