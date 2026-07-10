@@ -15,18 +15,20 @@
 //
 // A few examples:
 //
-// - MinTime = 2s. After 1s the input channel is closed. The items are processed right away.
-// - MinItems = 10, MinTime = 2s. After 1s, 10 items have been read. They are not processed until 2s has passed.
-// - MaxItems = 10, MinTime = 2s. After 1s, 10 items have been read. They are processed right away.
+//   - MinTime = 2s. After 1s the input channel is closed. The items are processed right away.
+//   - MinItems = 10, MinTime = 2s. After 1s, 10 items have been read. They are not processed until 2s has passed.
+//   - MaxItems = 10, MinTime = 2s. After 1s, 10 items have been read. They are processed right away.
 //
-// Timers and counters are relative to when the previous batch finished processing.
+// Timers and counters are relative to when the previous batch was dispatched for
+// processing. Batches are processed concurrently: collection of the next batch
+// begins immediately, without waiting for the previous batch to finish processing.
 // Each batch starts a new MinTime/MaxTime window and counts new items from zero.
 //
 // Processors can be chained together. Each processor receives the output items
 // from the previous processor:
 //
 //	b.Go(ctx, source, processor1, processor2, processor3)
-
+//
 // Basic usage:
 //
 //	cfg := NewConstantConfig(&ConfigValues{MinItems: 1})
