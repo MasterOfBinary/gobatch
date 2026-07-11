@@ -85,6 +85,7 @@ type BufferConfig struct {
 type Batch[T any] struct {
 	config       Config
 	bufferConfig BufferConfig
+	cancelMode   CancelMode
 	src          Source[T]
 	processors   []Processor[T]
 	items        chan *Item[T]
@@ -127,6 +128,32 @@ func (b *Batch[T]) WithBufferConfig(config BufferConfig) *Batch[T] {
 	}
 
 	b.bufferConfig = config
+	return b
+}
+
+// WithCancelMode sets how the Batch reacts to context cancellation.
+//
+// The default (zero value) is CancelDrain, which keeps processing items
+// already read from the Source and relies on the Source to stop producing and
+// close its channels. CancelStop instead makes the Batch stop reading promptly
+// when the context is canceled; items already buffered in the pipeline are
+// still processed, but items not yet read from the Source may be dropped.
+//
+// Example:
+//
+//	b := batch.New[any](config).WithCancelMode(batch.CancelStop)
+//
+// This must be called before Go(). Panics if called after Go() has started to
+// prevent data races and confusion.
+func (b *Batch[T]) WithCancelMode(m CancelMode) *Batch[T] {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.used {
+		panic("batch: WithCancelMode cannot be called after Go() has started")
+	}
+
+	b.cancelMode = m
 	return b
 }
 
@@ -231,8 +258,16 @@ type Processor[T any] interface {
 // create a new Batch with New. Use errors.Is to test the returned error.
 //
 // Context cancellation:
-//   - Go does not immediately stop processing when the context is canceled.
-//   - Any items already read from the Source are still processed to avoid data loss.
+//   - The reaction to a canceled context is configurable via WithCancelMode.
+//   - The default, CancelDrain, does not immediately stop reading when the
+//     context is canceled; it relies on the Source to stop producing and close
+//     its channels, and any items already read from the Source are still
+//     processed to avoid data loss.
+//   - CancelStop instead stops reading promptly on cancellation. Items already
+//     buffered in the pipeline are still processed, but items not yet read from
+//     the Source may be dropped.
+//   - In both modes, internal error sends remain context-aware, so a full,
+//     undrained error channel cannot deadlock the pipeline on cancellation.
 //
 // Example:
 //
@@ -253,7 +288,10 @@ type Processor[T any] interface {
 // Important:
 //   - The Source must close its channels when reading is complete.
 //   - Processors must check for context cancellation and stop early if needed.
-//   - All items that have already been read will be processed even if the context is canceled.
+//   - Items already read into the pipeline are processed even when the context
+//     is canceled. Under the default CancelDrain this includes everything the
+//     Source eventually produces; under CancelStop it covers only the items
+//     buffered before cancellation (see WithCancelMode).
 func (b *Batch[T]) Go(ctx context.Context, s Source[T], procs ...Processor[T]) (<-chan error, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -390,9 +428,27 @@ func (b *Batch[T]) doReader(ctx context.Context) {
 	// assigned, and a single-use Batch runs doReader exactly once, so the
 	// counter needs no synchronization (no atomic, no lock).
 	var nextID uint64
+
+	// stopCh is active only in CancelStop mode. In CancelDrain mode it stays
+	// nil, and a receive on a nil channel blocks forever, so the select below
+	// behaves exactly as it did before WithCancelMode existed: the reader waits
+	// on the Source and relies on it to close its channels. In CancelStop mode
+	// stopCh is ctx.Done(), so a canceled context promptly closes b.items and
+	// stops reading even if the Source never stops on its own.
+	var stopCh <-chan struct{}
+	if b.cancelMode == CancelStop {
+		stopCh = ctx.Done()
+	}
 	var outClosed, errsClosed bool
 	for !outClosed || !errsClosed {
 		select {
+		case <-stopCh:
+			// CancelStop only: stop reading promptly on cancellation. Items
+			// already buffered in b.items are still processed by doProcessors;
+			// items not yet read from the Source may be dropped.
+			close(b.items)
+			return
+
 		case data, ok := <-out:
 			if !ok {
 				outClosed = true
