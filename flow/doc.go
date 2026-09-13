@@ -16,9 +16,9 @@
 // keeps its invocation open until it finishes. Callback-owned children require
 // their own recovery and join; recovering the callback cannot guard its children.
 //
-// Each callback runs inside the shared panic boundary. PanicError aliases the
-// same type as batch.PanicError, including legacy panic(nil) handling and bounded
-// protected diagnostics. Error formatting omits both panic value and stack.
+// Each callback runs inside flow's panic boundary. PanicError covers legacy
+// panic(nil) handling and bounded protected diagnostics. Error formatting omits
+// both panic value and stack.
 // Recovery is not rollback and cannot handle fatal runtime failures. Goexit in
 // a Parallel branch reports failure and joins through deferred cleanup. Execute
 // and Sequence run on the caller's goroutine; Goexit there unwinds that goroutine

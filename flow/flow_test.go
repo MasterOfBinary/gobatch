@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -186,6 +187,38 @@ func TestParallelCancellationIsParentOwned(t *testing.T) {
 	}
 }
 
+// Wrapping any context would break callers that store request-scoped values or
+// compare the context they passed to the callback.
+func TestCallbacksReceiveOriginalCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for name, compose := range map[string]func(flow.Step) flow.Step{
+		"execute":  func(step flow.Step) flow.Step { return step },
+		"sequence": func(step flow.Step) flow.Step { return flow.Sequence(step) },
+		"parallel": func(step flow.Step) flow.Step { return flow.Parallel(step, step) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			wantCalls := 1
+			if name == "parallel" {
+				wantCalls = 2
+			}
+			seen := make(chan context.Context, wantCalls)
+			step := func(got context.Context) error {
+				seen <- got
+				return nil
+			}
+			if err := flow.Execute(ctx, compose(step)); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			for i := 0; i < wantCalls; i++ {
+				if got := <-seen; got != ctx || got.Err() != context.Canceled {
+					t.Fatalf("callback context = %v (err %v); want original canceled parent", got, got.Err())
+				}
+			}
+		})
+	}
+}
+
 func TestEmptyAndNilSteps(t *testing.T) {
 	for _, step := range []flow.Step{flow.Sequence(), flow.Parallel()} {
 		if err := flow.Execute(context.Background(), step); err != nil {
@@ -307,7 +340,17 @@ func TestBatchStepDrainsAndJoinsBeforeDependent(t *testing.T) {
 			entered, release := make(chan struct{}), make(chan struct{})
 			var once sync.Once
 			defer once.Do(func() { close(release) })
-			var values []int
+			var (
+				values   []int
+				valuesMu sync.Mutex
+			)
+			sortedValues := func() []int {
+				valuesMu.Lock()
+				defer valuesMu.Unlock()
+				got := append([]int(nil), values...)
+				sort.Ints(got)
+				return got
+			}
 			var failures []error
 			dependent := false
 			writeErr := errors.New("write failed")
@@ -322,7 +365,9 @@ func TestBatchStepDrainsAndJoinsBeforeDependent(t *testing.T) {
 									close(entered)
 									<-release
 								}
+								valuesMu.Lock()
 								values = append(values, item.Data)
+								valuesMu.Unlock()
 							}
 							if fail {
 								return items, writeErr
@@ -341,7 +386,7 @@ func TestBatchStepDrainsAndJoinsBeforeDependent(t *testing.T) {
 						default:
 							return errors.New("batch not joined")
 						}
-						if !reflect.DeepEqual(values, []int{0, 1, 2, 3}) {
+						if !reflect.DeepEqual(sortedValues(), []int{0, 1, 2, 3}) {
 							return errors.New("incomplete batch")
 						}
 						return nil
@@ -363,8 +408,8 @@ func TestBatchStepDrainsAndJoinsBeforeDependent(t *testing.T) {
 			} else if err != nil || !dependent {
 				t.Fatalf("err=%v dependent=%v", err, dependent)
 			}
-			if !reflect.DeepEqual(values, []int{0, 1, 2, 3}) {
-				t.Errorf("unfinished batch: %v", values)
+			if got := sortedValues(); !reflect.DeepEqual(got, []int{0, 1, 2, 3}) {
+				t.Errorf("unfinished batch: %v", got)
 			}
 		})
 	}

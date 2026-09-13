@@ -38,7 +38,7 @@ func ExampleExecute_batchDependency() {
 		input <- 5
 		close(input)
 		// Every invocation owns a fresh Batch and drains/joins it before returning.
-		b := batch.New[int](nil).WithExecutionConfig(batch.ExecutionConfig{ProcessorFailurePolicy: batch.StopChain})
+		b := batch.New[int](batch.NewConstantConfig(&batch.ConfigValues{MinItems: 2}))
 		failures := batch.RunBatchAndWait[int](ctx, b, &source.Channel[int]{Input: input},
 			&processor.Transform[int]{Func: func(v int) (int, error) { values = append(values, v); return v, nil }},
 		)
