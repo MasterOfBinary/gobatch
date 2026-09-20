@@ -1,7 +1,8 @@
 # GoBatch redesign: batching, request coalescing, and in-process flow
 
-Status: revision 2 (2026-09-20). Revision 1 was not approvable. Three
-independent reviews (adversarial, consumer-fit, Go API) are under
+Status: revision 3 (2026-09-20). Revision 1 was not approvable. Revision 2
+closed the data-model and naming blockers; a second review round found
+remaining scheduler and shutdown holes. Reports are under
 [reviews/](reviews/). [REVIEWS.md](REVIEWS.md) lists every finding that
 changed this text.
 
@@ -99,10 +100,10 @@ Go floor **1.25** (oldest CI toolchain). `iter` for sources,
 `testing/synctest` for wait tests. The 1.18 floor is dropped.
 
 Options are `With…`. Invalid options fail at `New` / `NewLoader` /
-`Compile` with an error. No public panic. `MinItems <= 0` at
-construction means the default 1; a negative `MinItems` is
-`ErrInvalidPolicy`. That is a documented zero meaning, not a clamp of
-`-3`.
+`Compile` with an error. No public panic. `MinItems == 0` at construction means the default 1. `MinItems < 0`,
+`MaxItems < 0`, and any duration `< 0` (`MinWait`, `MaxWait`,
+`WithHandlerTimeout`, `WithShutdownBudget`) are `ErrInvalidPolicy`.
+Zero on a duration means “none”, not a clamp of `-1`.
 
 ## 5. Package `batch`
 
@@ -138,9 +139,13 @@ debounce-from-last-item.
 
 `SetPolicy` uses the same reject rules as `New` / `NewLoader`. After
 `Close` or after `Run` has returned it returns `ErrClosed`. During `Run`
-it is allowed: shrinking `MaxItems` below `len(forming)` immediately
-cuts groups of the new max in queue order; wait clocks stay on the
-current forming group's first item.
+it is allowed: it stores the policy and wakes the `Run` loop. Only the
+`Run` loop cuts. Shrinking `MaxItems` below `len(forming)` causes that
+loop to cut groups of the new max in queue order before pulling the
+next item. Wait clocks stay on the current forming group's first item.
+If released slots are already `W`, further cuts wait for a slot — they
+do not grow a third buffer. An observer must not call `SetPolicy` on
+the same instance.
 
 ### 5.2 Scheduler (Batcher and Loader share this machine)
 
@@ -176,23 +181,26 @@ goroutines started before the first pull. No goroutine per queued item.
 
 ### 5.3 How a Batcher cuts vs how a Loader cuts
 
-Same machine, two cut rules.
+Same machine as 5.2. Cut is independent of a free worker. A cut group
+parks in a released slot (≤ `W`) until a worker is free.
 
-**Batcher.** When a worker is free and forming is non-empty and a Policy
-predicate holds, cut `min(len(forming), MaxItems or len(forming))` in
-queue order. Zero Policy: when a worker is free, cut everything forming
-(the greedy drain). A burst of four items and four free workers is one
-group of four unless `MaxItems` is smaller.
+**Batcher.** When a Policy predicate holds, cut
+`min(len(forming), MaxItems or len(forming))` in queue order. Zero
+Policy: cut everything forming as soon as forming is non-empty (greedy
+drain). A burst of four items is one group of four unless `MaxItems` is
+smaller, even if four workers are idle.
 
-**Loader.** When `k` workers are free and forming is non-empty:
+**Loader.** When forming is non-empty:
 
 - if a linger / `MaxItems` / flush / close predicate holds, cut one
   group of `min(len(forming), MaxItems or len(forming))`;
-- else cut up to `k` groups of one (light load: one call per `Do`).
+- else if `k` workers are free (not merely idle released slots), cut
+  up to `k` groups of one (light load: one call per `Do`);
+- else leave forming as-is so later arrivals coalesce.
 
-While no worker is free, arrivals stay in forming and coalesce until
-`MaxItems`, `MaxWait`, flush, or close. That is the dataloader shape
-without a MinWait stall.
+That is the dataloader shape without a MinWait stall. `MaxItems` /
+`MaxWait` still cut while all workers are busy; those groups occupy
+released slots.
 
 `NewLoader` and `SetPolicy` on a Loader reject `MinItems > 1` and
 `MinWait != 0`.
@@ -210,7 +218,8 @@ func (b *Batcher[T]) Flush()
 func (b *Batcher[T]) Close()
 func (b *Batcher[T]) SetPolicy(p Policy) error
 func (b *Batcher[T]) Stats() Stats
-func (b *Batcher[T]) Wait() // join leftover handlers after a budgeted Run return
+func (b *Batcher[T]) Wait() // until Run has returned (or never started) and no handlers remain
+func (b *Batcher[T]) Started() <-chan struct{} // closed once the loop accepts Add
 
 func WithPolicy(p Policy) Option
 func WithWorkers(n int) Option
@@ -228,9 +237,12 @@ error.
 - After `Close` or after `Run` has returned: `ErrClosed`.
 - Before `Run`: accepts into the inbound queue; if the queue is full,
   returns `ErrNotRunning` immediately (does not wait for `Run`).
-- During `Run`, queue full: blocks until space, `ctx.Err()`, or
-  `ErrClosed`. When `ctx.Err()` and `ErrClosed` both apply, `ctx.Err()`
-  wins.
+- During `Run`, queue full: blocks until space, the waiter's
+  `ctx.Err()`, `ErrClosed`, or abort (`Run`'s ctx). Abort returns
+  `Run`'s `ctx.Err()` and does **not** accept the item. A successful
+  `Add` (`nil`) means the item is accepted; abort will not later drop
+  it silently. When several of those apply, the waiter's `ctx.Err()`
+  wins, then abort, then `ErrClosed`.
 - A handler must not call `Add` on the same Batcher in a way that needs
   a worker or `Run` to make progress. That returns `ErrReentry`.
 
@@ -278,9 +290,12 @@ func (l *Loader[In, Out]) Flush()
 func (l *Loader[In, Out]) Close()
 func (l *Loader[In, Out]) SetPolicy(p Policy) error
 func (l *Loader[In, Out]) Stats() Stats
-func (l *Loader[In, Out]) Wait()
+func (l *Loader[In, Out]) Wait() // until Run has returned (or never started) and no handlers remain
+func (l *Loader[In, Out]) Started() <-chan struct{}
 
 func WithHandlerTimeout(d time.Duration) Option // Loader only; 0 = none; default 0
+// Default 0 is a deliberate exception to #71's "finite timeout": a
+// default deadline would invent persist failure. Redeploy recipes set one.
 ```
 
 `calls` is enqueue order, the same as a Batcher slice.
@@ -295,8 +310,10 @@ the slice (a copy of the struct is a no-op that returns false).
 
 - Before `Run`, or after `Run` has returned: `ErrNotRunning` /
   `ErrClosed`. Does not queue a waiter.
-- After `Close` during a running drain: accepted if the loop still
-  takes work; otherwise `ErrClosed`.
+- After `Close`: `ErrClosed`. Drain does not accept new `Do`s. That
+  is what makes “inbound and forming empty” a reachable condition.
+- Queue full during `Run`: same wait rules as `Add` (space, waiter
+  ctx, abort, `ErrClosed`).
 - Waiter's `ctx` ending: `Do` returns `ctx.Err()`; the call stays in
   its group; a later settle is discarded. The caller does not know
   whether the handler acted. A caller that must know uses a context
@@ -327,15 +344,25 @@ Admission, `Close`, and `Run` ctx are the same mutex.
 
 | Trigger | Unaccepted waiters | Accepted, handler not invoked | Handler invoked |
 |---|---|---|---|
-| `Close` (drain) | `ErrClosed` | formed under Policy until inbound and forming are empty; last incomplete group is released even if `< MinItems` | waited for |
-| `Run` ctx cancel (abort) | `ctx.Err()` | Batcher: dropped. Loader: settled `ctx.Err()` | handler ctx cancelled; waited up to budget |
-| `Close` ∪ cancel | abort wins | abort | abort |
+| `Close` (drain) | `ErrClosed` | formed under Policy until inbound and forming are empty; last incomplete group is released even if `< MinItems` | waited for (budget starts when nothing remains to dispatch) |
+| `Run` ctx cancel (abort) | `Run`'s `ctx.Err()`; item not accepted | Batcher: dropped. Loader: settled `ctx.Err()` | handler ctx cancelled; budget starts now |
+| `Close` ∪ cancel while work remains | abort wins | abort | abort |
+| `Close` then `Wait` then cancel | n/a | n/a | already finished; cancel is a no-op |
 | Batcher handler error | abort of the rest | dropped | waited; `Run` returns `*GroupError` |
 | Loader handler error | none | none | unanswered in *that* group fail; Loader continues |
-| Budget expiry | already classified | already classified | `Run` returns `*ShutdownError`; those handlers still run; `Wait` joins them |
+| Budget expiry | already `ErrClosed` / abort | already classified | handler ctx cancelled if not already; every still-unsettled `Do` is settled `*ShutdownError`; `Run` returns `*ShutdownError{Pending}`; late handler `Complete` is ignored; `Wait` joins the goroutines |
+
+The budget clock starts once: when abort is latched, or when `Close`
+has left nothing to dispatch and at least one handler is still running.
+Default 0 waits forever. That is a deliberate exception to “`#95`
+defaults to a finite grace”: a default timeout invents failure. Redeploy
+recipes must set `WithShutdownBudget`. The *mechanism* is what `#71` /
+`#95` require.
 
 `Close` before `Run`: latches drain. A later `Run` drains what was
 accepted and returns. `Add`/`Do` after that `Close` return `ErrClosed`.
+
+`Wait` is always safe. It does not require a budgeted return.
 
 Started means the handler function has been invoked.
 
@@ -413,6 +440,10 @@ and an immutable view of declared dependency outputs. It returns an
 owned result. It does not mutate `in`. If `In` is a pointer, mutating
 it is a user bug; the library does not copy.
 
+`View.Get` returns the same `any` the producer returned. If that value
+holds a slice, map, or pointer, two consumers share the heap. Mutating
+it is a user bug. Deep-copy if you must detach.
+
 There is no optional-edge engine, no dynamic `After`, no retry.
 
 `ForEach` and `Do` inside a node body do **not** take executing-node
@@ -457,10 +488,21 @@ func (g *Graph[In]) Nodes() []string // compile order
 
 False is not a failure. No Else edge; write a second `If`.
 
-**Dispatch.** A node is runnable iff the run is not cancelled, every
-dep has `StatusSuccess`, and no dep is an `If` whose predicate was
-false. Otherwise it is skipped with the matching sentinel. Ready nodes
-**wait** for an executing slot; they do not fail and they do not skip.
+**Dispatch.** One goroutine per run pulls a ready list. There is no
+goroutine per waiting node.
+
+A node is **runnable** iff every dep has `StatusSuccess` and no dep is
+an `If` whose predicate was false.
+
+- If the run is cancelled (caller ctx or runner shutdown) before it
+  becomes runnable: `StatusCanceled`.
+- If it is runnable and the run is cancelled before the function is
+  invoked: `StatusCanceled`.
+- If a dep Failed or was Skipped: `StatusSkipped` with
+  `ErrSkipDependency` (or `ErrSkipCondition` when the blocking dep is
+  a false `If`).
+- Ready nodes wait on the run's ready list for an executing slot.
+  They do not fail and they do not skip.
 
 A node must not call `flow.Run` on the `Runner` executing it
 (`ErrReentry`).
@@ -477,8 +519,8 @@ func WithShutdownBudget(d time.Duration) RunnerOption // 0 = wait forever; defau
 
 func Run[In any](ctx context.Context, r *Runner, g *Graph[In], in In) (*Result, error)
 
-func (r *Runner) Close() // stop admission; does not cancel in-flight runs
-func (r *Runner) Wait()  // join leftover runs after a budgeted return
+func (r *Runner) Close()
+func (r *Runner) Wait() // until no admitted run remains (always safe)
 
 type Status int
 const (
@@ -515,9 +557,18 @@ type.
 - admitted: `(*Result, err)` and `Result.Nodes` has every compiled id
 - cancel after admit: `(res, ctx.Err())`
 - node failure: `(res, *GraphError)`; independent branches still filled
+- failure and cancel in one run: `Result.Status` is Failed;
+  `err` is `*GraphError` (Canceled nodes are in `Result.Nodes` and in
+  `GraphError.Nodes`)
+- budget expiry: `(res, *ShutdownError)`; unfinished nodes are
+  `StatusCanceled` in that `Result`. The `Result` is immutable after
+  return. Late node returns are ignored.
 
 Aggregate `Result.Status`: any Failed → Failed; else any Canceled →
 Canceled; else Success. Skipped does not fail the run.
+
+`Error()` on `*GraphError` uses `errors.Join` of `First` and every
+value in `Nodes` so `errors.Is` walks them. There is no `Unwraps`.
 
 A node that returns `ctx.Err()` while the run is not cancelled is
 Failed, not Canceled. Ready-not-started nodes on cancel are Canceled.
@@ -526,11 +577,15 @@ Panic in a node or predicate is recovered to that node's Failed
 (`*PanicError` wrapping `ErrPanic`). Capacity is released. The process
 does not die.
 
-`Close` stops admission atomically. It does not cancel runs. To shut
-down: cancel run contexts, wait for those `Run` calls, then `Close`.
-`WithShutdownBudget` applies when a `Run`'s ctx is already cancelled
-and a node ignores it: `Run` returns `*ShutdownError`, `Wait` joins.
-The runner does not close Loaders.
+`Close` stops admission atomically. If any runs are in flight it
+starts the runner budget (default 0 = wait forever). After a non-zero
+budget it cancels a child context each admitted `Run` derived for its
+nodes (the caller's ctx is not cancelled). That is close-admission,
+then grace, then cancel — `#98`. `Wait` joins. The runner does not
+close Loaders.
+
+A caller may still cancel `runCtx` first (abort). Redeploy recipes set
+`WithShutdownBudget` on the runner and on each Loader.
 
 ```go
 type GraphError struct {
@@ -538,8 +593,7 @@ type GraphError struct {
 	Nodes map[string]error // Failed and Canceled only
 }
 func (e *GraphError) Error() string
-func (e *GraphError) Unwrap() error // First
-func (e *GraphError) Unwraps() []error
+func (e *GraphError) Unwrap() error // First; Error uses errors.Join
 
 type PanicError struct {
 	Node  string
@@ -599,6 +653,7 @@ type Proposal struct {
 }
 
 procCtx, stop := context.WithCancel(context.Background())
+// stop is registered first so it runs last: after Close+Wait, cancel is a no-op.
 defer stop()
 
 decodeL, _ := batch.NewLoader(decodeBulk, batch.WithPolicy(batch.Policy{MaxItems: 32, MaxWait: 20 * time.Millisecond}))
@@ -610,9 +665,20 @@ go decodeL.Run(procCtx)
 go metaL.Run(procCtx)
 go priceL.Run(procCtx)
 go persistL.Run(procCtx)
+<-decodeL.Started()
+<-metaL.Started()
+<-priceL.Started()
+<-persistL.Started()
+
 defer func() {
-	decodeL.Close(); metaL.Close(); priceL.Close(); persistL.Close()
-	decodeL.Wait(); metaL.Wait(); priceL.Wait(); persistL.Wait()
+	decodeL.Close()
+	metaL.Close()
+	priceL.Close()
+	persistL.Close()
+	decodeL.Wait()
+	metaL.Wait()
+	priceL.Wait()
+	persistL.Wait()
 }()
 
 g, err := flow.New[Input]().
@@ -637,12 +703,16 @@ g, err := flow.New[Input]().
 	}, "evidence").
 	Compile()
 
+runCtx, stopRun := context.WithCancel(context.Background())
+defer stopRun()
 runner, err := flow.NewRunner(flow.WithMaxConcurrentRuns(8), flow.WithMaxExecutingNodes(32))
 res, err := flow.Run(runCtx, runner, g, Input{Token: tok})
 ```
 
-Shutdown order: cancel `runCtx`s, wait those `Run`s, `Runner.Close`,
-cancel `procCtx` or `Loader.Close` each, `Wait` each.
+Drain shutdown (this snippet): `Runner.Close`; `runner.Wait`; each
+`Loader.Close`; each `Loader.Wait`; then the defers' `stop`/`stopRun`
+are no-ops. Abort shutdown: `stopRun()` / `stop()` first, then Close
+and Wait. Do not Close and cancel while work remains if you meant drain.
 
 Type assertions at the join are the cost of a registry-free graph. The
 join is ordinary Go; that is the explicit join `#98` asked for.
@@ -796,7 +866,10 @@ Verify an external module with `GOWORK=off`.
 Delete `processor` and `source`. Rewrite docs.
 
 Tests under `synctest`: policy table; greedy Batcher vs light-load
-Loader; invalid policy; `MinItems <= 0` default vs negative reject;
+Loader; cut while workers busy (released ≤ W); invalid policy;
+`MinItems == 0` default vs negative reject; negative durations
+rejected; `Add` abort does not return nil then drop; `Do` after
+`Close` is `ErrClosed`; `Started` before first `Do`;
 drain vs abort with the two-context sample; `Add`/`Do` before `Run`;
 `Add` after `Run` returned; full-queue backpressure; formed-not-started
 ≤ `W`; worker bound; `SetPolicy` cut and Loader reject; unanswered

@@ -1,15 +1,17 @@
 # Review record
 
-[PROPOSAL.md](PROPOSAL.md) went through one review round with three
-independent reviewers. Full reports: [reviews/](reviews/).
+[PROPOSAL.md](PROPOSAL.md) went through two review rounds. Full
+reports: [reviews/](reviews/).
 
 ## Reviewers
 
-| Report | Brief | Verdict on rev 1 |
+| Report | Brief | Verdict |
 |---|---|---|
-| [01-adversarial-r1.md](reviews/01-adversarial-r1.md) | Break the design | Not approvable for `batch` or `flow` |
+| [01-adversarial-r1.md](reviews/01-adversarial-r1.md) | Break rev 1 | Not approvable |
 | [02-consumer-fit-r1.md](reviews/02-consumer-fit-r1.md) | Official issues + consumers | Placement yes, contracts no |
-| [03-go-api-r1.md](reviews/03-go-api-r1.md) | Signatures, inference, names | Changes required before implementation |
+| [03-go-api-r1.md](reviews/03-go-api-r1.md) | Signatures, inference, names | Changes required |
+| [04-adversarial-r2.md](reviews/04-adversarial-r2.md) | Break rev 2 | Scheduler and shutdown still open |
+| [05-consumer-fit-r2.md](reviews/05-consumer-fit-r2.md) | Re-check issues | Conditional pass; lifecycle not closed |
 
 ## Revision 2: findings that changed the design
 
@@ -48,7 +50,32 @@ DAG, no Promise/Watermark/retry. Policy clocks from the first item.
 Max < min is rejected. Do not put this library on capture / Helius /
 normalizer maps / recorder sequencing. No shims. Go 1.25.
 
-## Still open after revision 2
+## Revision 3: findings that changed the design
+
+| Finding | Source | Disposition |
+|---|---|---|
+| Two schedulers (cut only when worker free vs cut≠dispatch) | adversarial r2 1 | 5.3 restated on the 5.2 machine: cut is independent of a free worker |
+| `Add` abort returns nil then drops | adversarial r2 2 | Blocked `Add` sees abort as `Run`'s `ctx.Err()`; `nil` means accepted |
+| `Do` during drain refills inbound | adversarial r2 3 | `Do` after `Close` is always `ErrClosed` |
+| Budgeted `flow.Run` vs immutable `Result` | adversarial r2 4 | Expiry fills `Result` with Canceled; late returns ignored |
+| Budget clock unspecified | adversarial r2 5 | Starts on abort, or when Close has nothing left to dispatch |
+| `SetPolicy` cuts from the wrong goroutine | adversarial r2 6 | Stores + wakes `Run`; only `Run` cuts |
+| 6.5 `ErrNotRunning` race | adversarial r2 7 | `Started()`; example waits before `Do` |
+| `Do` full-queue unspecified | adversarial r2 8 | Same wait rules as `Add` |
+| Negative durations silently mean “none” | adversarial r2 9, consumer r2 5 | `< 0` is `ErrInvalidPolicy`; `== 0` means none / default |
+| Failure + cancel, two `err` values | adversarial r2 10 | Failed wins; `err` is `*GraphError` |
+| `Wait` only after budgeted return | adversarial r2 11, consumer r2 1 | `Wait` always joins `Run` + handlers |
+| 6.5 Close ∪ cancel | consumer r2 1 | Defers: Close+Wait first, `stop` last; abort recipe is cancel first |
+| Budget expiry does not settle `Do` | consumer r2 2, adversarial r2 Adv7 | Expiry settles every still-unsettled `Do` with `*ShutdownError` |
+| Default infinite budget vs `#95` | consumer r2 3 | Mechanism required; default 0 is a house-rule exception; redeploy sets it |
+| `#98` Close does not cancel | consumer r2 4 | `Runner.Close` stops admission, then grace, then cancels node children |
+| `#71` finite handler timeout | consumer r2 6 | Option exists; default 0 documented as the exception |
+| `View` heap sharing | consumer r2 7 | Written: same `any`, mutating slices/maps/pointers is a user bug |
+| Goroutine per waiting node | consumer r2 8 | One dispatcher per run; ready list, not a goroutine per node |
+| `GraphError.Unwraps` | adversarial r2 12 | Removed; `Error` uses `errors.Join` |
+
+## Still open after revision 3
 
 Honesty tag number. Optional later `WithCoalesce`. `View.Get` type
-assertions vs generated joins.
+assertions vs generated joins. Whether a production default shutdown
+budget should be non-zero (kept 0 so a deadline never invents failure).
