@@ -1,0 +1,146 @@
+[
+  {
+    "id": "user-advocate-1",
+    "lens": "user-advocate",
+    "claim": "Running roughly 10 unattended cloud services as a solo evenings-and-weekends builder turns the portfolio's real job (joyful side projects) into a maintenance fleet, contradicting the stated 'fun, not chores' value.",
+    "severity": "major",
+    "rationale": "Tokens expire, scrapers rot, free tiers change terms, and dependencies need bumps; every always-on service is a recurring obligation for one person. The presence of error-digester on the slate is tacit admission the fleet will break faster than its sole operator patches it. The builder's actual job-to-be-done is joy plus utility, not ops; a 10-service fleet serves the proxy 'have 10 projects'.",
+    "evidence": [],
+    "what_would_resolve": "Tier the final 10: cap always-on cloud services at roughly 4-5, run the rest as on-demand CLIs or cron jobs, and adopt an explicit 'will I still use this in month 3' retention test as a cull criterion."
+  },
+  {
+    "id": "user-advocate-2",
+    "lens": "user-advocate",
+    "claim": "For low-volume candidates (mood-journal, workout-logger, toastmasters-ops, game-session-stats, gear-price-watcher) the 'must genuinely exercise gobatch' constraint optimizes for the library rather than the user, making micro-batching ceremony where a simple cron-plus-digest would serve the builder better.",
+    "severity": "major",
+    "rationale": "A handful of events per day degenerates min/max-count windows into 'timer fires, flush 2 items'. Dogfooding gobatch is a legitimate secondary job, but at toy volumes it adds latency and complexity without user-facing benefit and produces fake dogfooding signal because real batching pressure never occurs. The constraint risks distorting designs away from what actually serves the user.",
+    "evidence": [],
+    "what_would_resolve": "For each finalist, write one sentence naming the concrete user-facing benefit batching provides (cost, rate limits, digest coherence) plus expected event volume; keep candidates where batching is load-bearing (llm-micro-batcher, comic-render-queue, error-digester, photo backfill, email-triage at volume) and redesign or cut those where the honest answer is that a cron job serves better."
+  },
+  {
+    "id": "user-advocate-3",
+    "lens": "user-advocate",
+    "claim": "mood-journal solves 'summarize my moods' while the user's real job is sustaining the capture habit; without a prompting loop and a privacy posture he trusts, entries stop within weeks and the weekly vibe report has nothing to report.",
+    "severity": "major",
+    "rationale": "Abandonment is the dominant failure mode of journaling tools, and a passive Discord/Slack listener provides no habit scaffold. Routing mental-health one-liners through chat platforms and third-party LLM APIs also invites self-censorship, which quietly defeats the wellness job even when the pipeline works perfectly.",
+    "evidence": [],
+    "what_would_resolve": "Add an explicit habit loop (a scheduled gentle prompt, deliberately streak-free) and a stated privacy posture (private channel, optional redaction or local storage before LLM calls), and define success as 'still capturing in week 6' rather than report quality."
+  },
+  {
+    "id": "user-advocate-4",
+    "lens": "user-advocate",
+    "claim": "dj-library-intel as a cloud dashboard of retrospective genre/BPM/key stats risks being a vanity artifact, because the DJ's actual jobs (set prep, deciding what to play or buy next) happen at the laptop where Serato's files live.",
+    "severity": "major",
+    "rationale": "Serato session and history data is local to the DJ machine and only updates when he plays, so an unattended cloud service has nothing to ingest most of the time and is not present at prep time. Stats that do not feed a prep decision get viewed twice and then forgotten.",
+    "evidence": [],
+    "what_would_resolve": "Anchor the design in a prep-time decision it answers (for example 'tracks in this key/BPM range I have not played in 90 days' or library gaps worth buying), and choose ingestion that matches laptop locality (a local watcher or CLI sync) before assuming a cloud-resident service."
+  },
+  {
+    "id": "user-advocate-5",
+    "lens": "user-advocate",
+    "claim": "workout-logger's weekly digest should answer the GVT user's one real question, namely 'did I earn the next weight increase and what do I lift next session', rather than generic volume stats.",
+    "severity": "minor",
+    "rationale": "German Volume Training has explicit progression rules (complete 10x10, then increase load), so the decision the user actually makes each session is what keeps a tracker in use past week two; the quick-message capture design is otherwise well matched to the sweaty-hands gym context.",
+    "evidence": [],
+    "what_would_resolve": "Make the digest (and ideally an on-demand bot reply) emit a next-session prescription per lift plus a pace trend for the 2.4 km runs, derived from the logged sets."
+  },
+  {
+    "id": "user-advocate-6",
+    "lens": "user-advocate",
+    "claim": "llm-micro-batcher presumes personal LLM traffic worth batching, but the builder's own workloads are sporadic digest-style calls already batched at the app layer, and providers' native discounted batch APIs already serve the cost job, leaving a proxy with no daily user.",
+    "severity": "major",
+    "rationale": "Interactive calls cannot absorb batching latency, and the slate's other LLM consumers (mood-journal, error-digester, email-triage) each make a few large calls per day or week rather than streams. The 'possibly sellable' label compounds the risk: external users would have to put a solo-maintained v0 proxy in their critical path, a pain nobody has validated.",
+    "evidence": [],
+    "what_would_resolve": "Quantify one week of actual cross-project LLM and embedding call volume and latency tolerance; build only if batching demonstrably saves money or unblocks rate limits versus provider batch APIs (embeddings backfills such as photo-organizer tagging are the most plausible justifying workload), and treat sellability as unvalidated until one external user asks for it."
+  },
+  {
+    "id": "user-advocate-7",
+    "lens": "user-advocate",
+    "claim": "comic-render-queue's durable user value is the queue itself (submit many generation jobs, get results without babysitting), while fully-unattended nightly auto-comics is novelty that decays into muted slop within weeks because the joy of AI comics is in prompting and curation.",
+    "severity": "major",
+    "rationale": "Auto-generated daily-content channels are reliably fun for days and then ignored; the builder's creative interest is the loop, not an uncurated artifact. Conflating the queue with the auto-comic risks judging a genuinely useful tool by its weakest feature.",
+    "evidence": [],
+    "what_would_resolve": "Ship the queue as the product (batched submissions, retries, overnight runs of his prompt backlog) and make auto mode curated, with him seeding a weekly theme and the system rendering variants he picks from, plus an explicit kill-switch rule such as retiring auto mode if he stops opening outputs for two weeks."
+  },
+  {
+    "id": "user-advocate-8",
+    "lens": "user-advocate",
+    "claim": "toastmasters-ops is the slate's most chore-prone candidate: its real users are other club members who must change behavior, it competes with entrenched club tooling (easySpeak, Free Toast Host, spreadsheets), and once the club depends on its agendas the builder owns an obligation rather than a toy.",
+    "severity": "major",
+    "rationale": "Serving a group converts a personal project into unpaid ops with social cost on failure, directly against the 'stays fun' value. Adoption by non-technical members is historically where club tools die, and the project's utility evaporates if he changes clubs or roles.",
+    "evidence": [],
+    "what_would_resolve": "Keep it only if scoped to artifacts he alone produces and consumes in an officer role he currently holds (for example he pastes RSVPs in and it drafts the agenda and reminder text), with zero member-facing adoption required; otherwise cut or park it."
+  },
+  {
+    "id": "user-advocate-9",
+    "lens": "user-advocate",
+    "claim": "discord-meme-digest only delights if his server generates enough reaction volume weekly; on a quiet server the chaos report is empty or repetitive and the joy dies fast.",
+    "severity": "minor",
+    "rationale": "The format's fun depends entirely on input liveliness, which is outside the builder's control, and a 'zero memes this week' post is worse than silence.",
+    "evidence": [],
+    "what_would_resolve": "Check a month of actual server reaction volume before building, and design for sparse weeks (skip the post below a threshold or widen the window) so the digest only appears when it has material."
+  },
+  {
+    "id": "user-advocate-10",
+    "lens": "user-advocate",
+    "claim": "webhook-fanin-hub is meta-infrastructure with no job-to-be-done of its own: until several sibling projects concretely need shared routing, it serves the proxy 'build my own Zapier' while Zapier, n8n, and Pipedream free tiers already cover a personal stack's real routing needs.",
+    "severity": "major",
+    "rationale": "Personal hub projects are the classic productive-feeling trap: integrations get built speculatively and then maintained forever. Every other candidate on the slate can ship without it, so it has no first user even inside a slate of 14.",
+    "evidence": [],
+    "what_would_resolve": "Defer it until at least two shipped slate projects have a named, working route they would migrate to the hub and a stated reason off-the-shelf routers cannot serve (for example batched fan-in being load-bearing); only then admit it to the final 10."
+  },
+  {
+    "id": "user-advocate-11",
+    "lens": "user-advocate",
+    "claim": "new-music-watcher duplicates Spotify Release Radar and Bandcamp follows unless it is tied to his actual DJ library and play history, which is the only thing that would make a crate-digging digest worth opening.",
+    "severity": "minor",
+    "rationale": "Generic new-release lists are already pushed to him by every platform; the user-specific job is 'new tracks that fit my sets' (BPM, key, genre, artists he actually plays), which generic feeds do not do.",
+    "evidence": [],
+    "what_would_resolve": "Source the watch-list and ranking from dj-library-intel data (artists, genres, keys he plays) so the digest is library-aware; if dj-library-intel is cut or the linkage is dropped, cut this candidate too."
+  },
+  {
+    "id": "user-advocate-12",
+    "lens": "user-advocate",
+    "claim": "photo-organizer's job is episodic (one big backlog then a trickle), making an always-on cloud service a mismatch, its dedupe is the slate's only feature that can destroy irreplaceable personal data, and the photo source may not even be programmatically reachable since Google Photos' API no longer allows third-party full-library reads.",
+    "severity": "major",
+    "rationale": "After the initial backlog run the stream dries up to a few photos per week; trust collapses permanently on one wrongly deleted photo; and if his photos live in Google Photos, the 2025 API changes restrict apps to media they created plus an interactive picker, which breaks the unattended-ingest premise outright.",
+    "evidence": [],
+    "what_would_resolve": "Confirm where the photos actually live and that unattended programmatic access exists (GCS, Drive, or local NAS yes; Google Photos no); scope it as an on-demand batch job or CLI rather than a resident service; and make dedupe strictly non-destructive (quarantine plus review list, never delete)."
+  },
+  {
+    "id": "user-advocate-13",
+    "lens": "user-advocate",
+    "claim": "game-session-stats' premise is false as stated: Elden Ring and Monster Hunter emit no session logs, so there is no event stream to batch; automatic capture means brittle memory or save readers that risk anti-cheat (EAC) consequences on his account, and the fallback is manual entry, which turns a stats toy into a logging chore he will abandon.",
+    "severity": "blocker",
+    "rationale": "The idea cannot meet its own goal without a data source. Steam's API exposes only coarse playtime, and community stat tools work via local memory reading that is unsafe in online play. A stats page fed by hand-typed sessions solves a proxy (having a dashboard) while creating the exact chore automation was supposed to remove.",
+    "evidence": [],
+    "what_would_resolve": "Before this makes the final 10, demonstrate one safe automatic capture path that produces real session events (for example offline-mode save-file diffs, or process-watch session detection combined with the Steam playtime API) and re-scope the stats page to only what that path actually yields; if no such path exists, cut the candidate."
+  },
+  {
+    "id": "user-advocate-14",
+    "lens": "user-advocate",
+    "claim": "gear-price-watcher's job is already substantially served by eBay saved-search alerts, CamelCamelCamel, and Reverb feed alerts, while the unserved sources (Facebook Marketplace, Craigslist) require scrapers that rot, producing a watcher that silently goes stale, which is worse for the user than no watcher at all.",
+    "severity": "major",
+    "rationale": "False confidence in a dead alerting tool causes missed deals, the exact harm the project exists to prevent, because he stops checking manually while alerts have quietly died. Gear-buying is also episodic, so the service idles between wants while still demanding scraper upkeep.",
+    "evidence": [],
+    "what_would_resolve": "Limit to API- or feed-backed sources (eBay, Reverb), add a visible heartbeat ('last successful poll' in every digest plus a staleness alarm), and name at least one concrete watch incumbent tools cannot express before keeping it over another candidate."
+  },
+  {
+    "id": "user-advocate-15",
+    "lens": "user-advocate",
+    "claim": "email-triage as a read-only daily digest adds a second thing to read without removing inbox work, since he will keep checking Gmail anyway because one missed important email breaks trust permanently, and unattended Gmail API access on a personal account typically hits 7-day OAuth token expiry in testing mode, turning 'runs unattended' into a weekly re-auth chore.",
+    "severity": "major",
+    "rationale": "Triage tools only pay off when the user trusts them enough to stop double-processing, a one-strike bar for misclassification. Gmail's restricted-scope rules make durable unattended access awkward for a hobby app (verification, or IMAP app-password workarounds), and Gmail's own tabs and priority inbox already do a free version of this job.",
+    "evidence": [],
+    "what_would_resolve": "Define the action that actually removes inbox work (auto-label or archive low-stakes classes with an undo trail, never touching anything plausibly important), prove a token strategy that survives months unattended (verified app or IMAP app password), and run a two-week pilot measuring whether he genuinely stops re-reading the inbox; otherwise cut."
+  },
+  {
+    "id": "user-advocate-16",
+    "lens": "user-advocate",
+    "claim": "error-digester is the slate's strongest job-to-be-done fit (he genuinely needs to know when his toys break), but a daily LLM-summarized batch can hide a fully-down service for up to 24 hours and LLM paraphrases can blur the actual error.",
+    "severity": "minor",
+    "rationale": "Digesting is the right default for toy-fleet noise, yet down-detection is the one case where latency matters, and summaries are only trusted when raw evidence is one click away.",
+    "evidence": [],
+    "what_would_resolve": "Include raw error samples and counts alongside the LLM summary, and add a severity bypass (for example the first error from a long-silent service, or an error-rate spike, pings immediately) while keeping the daily digest for everything else."
+  }
+]

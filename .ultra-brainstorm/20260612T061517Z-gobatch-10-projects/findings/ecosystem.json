@@ -1,0 +1,110 @@
+[
+  {
+    "id": "ecosystem-1",
+    "lens": "ecosystem",
+    "claim": "dj-library-intel depends entirely on Serato's proprietary, undocumented binary formats (database V2, .crate, .session history), readable only via community reverse-engineering, which can silently break on any Serato update.",
+    "severity": "major",
+    "rationale": "There is no official Serato API or export contract; community parsers (Python serato-tools, Rust triseratops) lag format changes and no mature Go parser exists, so ingestion is either a hand-rolled reverse-engineered parser (substantial scope) or an FFI/sidecar dependency. Commercial incumbents (Lexicon, Mixed In Key) already provide library stats if utility alone were the goal, so the build is justified by fun only if parsing stays cheap to maintain.",
+    "evidence": [],
+    "what_would_resolve": "Validate an existing maintained parser against a fixture corpus of his real _Serato_ files with golden tests before committing, and define a fallback ingestion path (e.g. CSV export from Serato's history panel) for when the binary format shifts."
+  },
+  {
+    "id": "ecosystem-2",
+    "lens": "ecosystem",
+    "claim": "llm-micro-batcher's 'possibly sellable' label is unrealistic: native provider batch APIs (OpenAI Batch, Anthropic Message Batches at ~50% discount), array-input embedding endpoints, and entrenched free proxies (LiteLLM, OpenRouter, Helicone, Portkey) already own every plausible buyer.",
+    "severity": "major",
+    "rationale": "The cost-saving half is solved by the providers themselves and the routing/rate-limit half by widely adopted OSS with large communities; a solo v0 side project has no distribution or trust wedge against free. As personal infrastructure and the flagship gobatch demo it is excellent (online micro-batching of embedding calls into single array requests is a real niche the async 24h batch APIs do not cover), but as a product it competes with free incumbents on every axis.",
+    "evidence": [],
+    "what_would_resolve": "Reframe the candidate as personal-only infrastructure plus gobatch showcase, and drop 'sellable' unless a concrete, written-down gap versus LiteLLM and the native provider batch APIs is validated."
+  },
+  {
+    "id": "ecosystem-3",
+    "lens": "ecosystem",
+    "claim": "toastmasters-ops is the only candidate whose success depends on third parties (his club) adopting it, in a niche already served free by entrenched Toastmasters tooling (easy-Speak, FreeToastHost) that many districts standardize on.",
+    "severity": "major",
+    "rationale": "Club officers rotate annually, members are non-technical, and switching costs away from incumbent club tooling are social rather than technical; if the club already runs easy-Speak the project is dead on arrival, and when he leaves the officer role it becomes an orphaned obligation, the opposite of the 'stays fun, not a chore' constraint.",
+    "evidence": [],
+    "what_would_resolve": "Confirm before keeping: his club does not use (or actively dislikes) easy-Speak/FreeToastHost, and he holds a role (e.g. VPE or frequent Toastmaster) where producing agendas is already his personal job, so the tool pays off even with zero adoption by others."
+  },
+  {
+    "id": "ecosystem-4",
+    "lens": "ecosystem",
+    "claim": "new-music-watcher is squeezed from both sides: Spotify's own Release Radar and Muspy-style trackers already deliver the generic weekly new-release digest, while the differentiated DJ crate-digging version depends on sources with no accessible API (Bandcamp's API closed years ago, Beatport's is partner-gated) atop a Spotify Web API that has been removing hobby-dev access since late 2024.",
+    "severity": "major",
+    "rationale": "Spotify's November 2024 dev-mode endpoint removals and tightened extended-quota policy signal a platform hostile to small apps; a dev-mode app works for his own account today but sits on a deprecation trajectory, and the sources a DJ actually digs (Beatport, Bandcamp, label stores) are reachable only via ToS-violating scraping.",
+    "evidence": [],
+    "what_would_resolve": "Enumerate sanctioned feeds (MusicBrainz, label/artist RSS, Spotify dev-mode followed-artists endpoints for his own account) and confirm they cover enough of his real crate-digging sources to beat simply checking Release Radar; otherwise cull."
+  },
+  {
+    "id": "ecosystem-5",
+    "lens": "ecosystem",
+    "claim": "photo-organizer's most natural data source is structurally closed: since the March 2025 Google Photos API changes third-party apps cannot read a user's existing library (only app-created items or one-off Picker selections), and the local-files version is already solved by free, actively developed OSS (Immich, PhotoPrism) plus Google Photos' native search and dedupe.",
+    "severity": "major",
+    "rationale": "If the plan assumed 'point it at my Google Photos,' the platform now forbids it outright; if it targets local/GCS files, Immich already provides ML tagging, duplicate detection, and a polished UI for zero dollars, leaving only a thin custom-taxonomy wedge to justify the build.",
+    "evidence": [],
+    "what_would_resolve": "Pin the data source to files he fully controls (local disk or GCS) and name at least one tagging/automation behavior he wants that Immich demonstrably does not offer; otherwise deploy Immich and give this slot to another candidate."
+  },
+  {
+    "id": "ecosystem-6",
+    "lens": "ecosystem",
+    "claim": "game-session-stats has no sanctioned data source for its named titles: Elden Ring and Monster Hunter expose no logs or API, Steam's Web API yields only coarse playtime and achievements, and live in-game stat extraction means memory-reading that Easy Anti-Cheat treats as ban-worthy for online play.",
+    "severity": "blocker",
+    "rationale": "The premise assumes a stream of session events to batch, but these platforms emit none; the community tooling that does extract stats (save editors, memory readers, overlay mods) is reverse-engineered, ToS-gray, and risks the account he actually plays on, making the project unsafe and unbuildable as stated for unattended automation.",
+    "evidence": [],
+    "what_would_resolve": "Redefine the source before keeping: manual quick-log via his own Discord bot (making it a workout-logger sibling), end-screen screenshot OCR, offline-only save parsing, or swapping to games with real APIs (e.g. Bungie/Destiny, OSRS RuneLite); absent a concrete sanctioned source, cull."
+  },
+  {
+    "id": "ecosystem-7",
+    "lens": "ecosystem",
+    "claim": "gear-price-watcher as an unattended cloud scraper runs straight into retailer anti-bot walls and ToS prohibitions (Amazon, Sweetwater, Guitar Center) from exactly the datacenter IPs that get blocked first, while free incumbents (CamelCamelCamel/Keepa for Amazon, eBay saved-search alerts, Reverb's native watchlist with price-drop notifications) already cover most gear watching.",
+    "severity": "major",
+    "rationale": "Scraping bot-protected retail sites from GCP/Vercel IPs is the most operationally fragile and ToS-exposed pattern on the slate and degrades into proxy-rotation maintenance, a chore rather than joy; meanwhile the music-gear incumbent (Reverb) both exposes a public API and already ships the alert feature, and Amazon's sanctioned PA-API is gated behind Associates sales quotas.",
+    "evidence": [],
+    "what_would_resolve": "Restrict the design to sources with sanctioned APIs or feeds (eBay Browse API, Reverb API, RSS) and verify those cover the gear he actually watches; if his real sources require scraping protected retailers, cull."
+  },
+  {
+    "id": "ecosystem-8",
+    "lens": "ecosystem",
+    "claim": "email-triage on his consumer Gmail account collides with Google's restricted-scope OAuth regime: an unverified app in testing mode gets refresh tokens that expire roughly every 7 days, and production use of gmail.readonly requires app verification including a paid CASA security assessment, so the 'unattended daily digest' breaks weekly by design.",
+    "severity": "major",
+    "rationale": "This is the canonical personal-Gmail-automation trap; the sanctioned escape hatches are IMAP with an app password (still allowed on consumer accounts with 2FA but on Google's long-term deprecation radar) or paying for Workspace to mark the app internal, and meanwhile Gmail itself is absorbing the feature via Gemini inbox summaries and priority triage.",
+    "evidence": [],
+    "what_would_resolve": "Choose the auth architecture before committing (IMAP+app-password with a documented migration plan, or a Workspace internal app) and confirm the digest adds value over Gmail's native Gemini triage; if neither holds, cull."
+  },
+  {
+    "id": "ecosystem-9",
+    "lens": "ecosystem",
+    "claim": "comic-render-queue's nightly unattended job sits on the fastest-churning API surface on the slate: image-generation providers deprecate models and endpoints within months (Stability endpoint shuffles, Vertex Imagen version sunsets), which silently breaks scheduled runs.",
+    "severity": "minor",
+    "rationale": "This is survivable churn rather than an existential threat, but for a job nobody watches at 3 a.m., a retired model ID means weeks of missing comics before anyone notices unless deprecation is handled deliberately.",
+    "evidence": [],
+    "what_would_resolve": "Include a provider-abstraction seam plus failure/deprecation alerting (which error-digester could supply) in the design, pin models by version, and calendar a quarterly sunset check."
+  },
+  {
+    "id": "ecosystem-10",
+    "lens": "ecosystem",
+    "claim": "webhook-fanin-hub rebuilds a commodity (self-hosted n8n, Pipedream, and val.town all do personal webhook routing free), so its keep-rationale must rest on the one thing they lack natively: batched fan-in semantics.",
+    "severity": "minor",
+    "rationale": "As shared infrastructure for the other candidates and the purest gobatch exercise it earns its slot, but without the batching framing it is strictly worse than deploying n8n for an evening, and scope creep toward generic workflow features would re-enter a fight it cannot win.",
+    "evidence": [],
+    "what_would_resolve": "Write the one-paragraph 'why not n8n' (count/time batch windows, per-item error tracking, Go-native processors) into the project README before building, anchoring scope to the differentiator."
+  },
+  {
+    "id": "ecosystem-11",
+    "lens": "ecosystem",
+    "claim": "error-digester overlaps free incumbents native to his stack: GCP Error Reporting auto-aggregates Cloud Run/GKE errors with notifications at zero cost and Sentry's free tier ships Slack alerts and AI summaries, leaving only the LLM daily-digest voice and gobatch dogfooding as the wedge.",
+    "severity": "minor",
+    "rationale": "That wedge is legitimate for a personal-infra joy project, but rebuilding the collection/grouping layer that Error Reporting provides for free would turn it into a chore and duplicate a solved problem.",
+    "evidence": [],
+    "what_would_resolve": "Design it to ride on top of existing collection (Cloud Logging sinks / GCP Error Reporting or Sentry webhooks feeding the gobatch pipeline) rather than bespoke instrumentation in each toy, keeping only the digesting layer custom."
+  },
+  {
+    "id": "ecosystem-12",
+    "lens": "ecosystem",
+    "claim": "Slate-wide, platform risk cleanly partitions the candidates: those consuming data Vaughn owns or emits (mood-journal, workout-logger, dj-library-intel local files, comic-render-queue, webhook-fanin-hub, error-digester, llm-micro-batcher, discord-meme-digest on his own server) are insulated, while every fragile candidate (new-music-watcher, photo-organizer, gear-price-watcher, email-triage, game-session-stats) depends on a third party that has recently closed or gated access.",
+    "severity": "minor",
+    "rationale": "Spotify, Google Photos, Gmail OAuth, Bandcamp, Beatport, and retail anti-bot walls all moved in the same restrictive direction during 2024-2026; weighting the final ten toward own-data candidates minimizes the odds that unattended services rot when a platform turns a key.",
+    "evidence": [],
+    "what_would_resolve": "Apply an explicit 'own-data first' criterion in the cull, requiring any kept third-party-data candidate to name its sanctioned API/feed and a documented fallback."
+  }
+]

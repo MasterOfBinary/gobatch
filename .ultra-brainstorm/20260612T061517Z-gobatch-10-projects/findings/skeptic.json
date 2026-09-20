@@ -1,0 +1,119 @@
+[
+  {
+    "id": "skeptic-1",
+    "lens": "skeptic",
+    "claim": "At personal event volumes (roughly 1-50 events/day for most candidates), count/time-window micro-batching solves no real problem, and a periodic cron that pulls history from the source of record (Discord, Gmail, Firestore, RSS) is a materially simpler alternative that delivers the same digests for at least 9 of the 14 candidates.",
+    "severity": "major",
+    "rationale": "The slate inverts need and tool: the constraint 'must genuinely exercise gobatch's batching' forces always-on streaming daemons onto problems that are naturally daily/weekly scheduled jobs. Micro-batching exists to amortize per-operation cost under load; at single-digit daily event rates every window closes nearly empty, so the gobatch usage is decorative while the always-on process adds cost, deployment surface, and failure modes a cron would not have.",
+    "evidence": [],
+    "what_would_resolve": "For each keeper, state the realistic events/day and the concrete reason a scheduled pull is insufficient (true rate-limit coalescing, bulk-write economics, or genuine real-time need); where none exists, either reframe the candidate as a cron whose internal fan-out uses gobatch honestly, or relax the gobatch requirement for that candidate."
+  },
+  {
+    "id": "skeptic-2",
+    "lens": "skeptic",
+    "claim": "Ten unattended cloud services is a quota, not a need: nothing in the brief requires the final number to be 10, and padding to it forces keeping weak candidates that a solo evenings/weekends dev will then have to maintain.",
+    "severity": "major",
+    "rationale": "A fleet of ~10 deployed daemons means ongoing deploys, OAuth token expiry, third-party API breakage, dependency updates, and billing surprises multiplied by ten. For a builder who explicitly wants projects to stay fun and not become chores, fleet maintenance is the most predictable way the whole plan fails; the marginal 9th and 10th projects add ops load while delivering the least value by construction.",
+    "evidence": [],
+    "what_would_resolve": "Drop the fixed quota (keep 6-8 strong candidates instead), or cap always-on deployments at 4-5 and require each finalist to declare its run mode (deployed daemon vs scheduled job vs local CLI) with an estimated monthly maintenance budget that sums to something a hobbyist will actually pay."
+  },
+  {
+    "id": "skeptic-3",
+    "lens": "skeptic",
+    "claim": "mood-journal, workout-logger, discord-meme-digest, and email-triage are the same product (messages in, batch classify, periodic LLM digest out) wearing four costumes; one multi-source digest service gets 80%+ of the combined value at a quarter of the ops.",
+    "severity": "major",
+    "rationale": "Building four separate deployments of the identical ingest-batch-summarize shape quadruples hosting, secrets, and upkeep without adding capability. A single pipeline with per-source adapters and per-source processors is simpler to run and is also a stronger demonstration of gobatch (heterogeneous sources feeding shared batching) than four near-identical toys.",
+    "evidence": [],
+    "what_would_resolve": "Consolidate the digest-shaped candidates into one service with pluggable sources, counting it as one slate slot; keep a candidate standalone only if it has a genuinely different data shape or output, and justify that difference explicitly."
+  },
+  {
+    "id": "skeptic-4",
+    "lens": "skeptic",
+    "claim": "webhook-fanin-hub is a platform for an audience of one: a generic routing hub built for hypothetical future flows when three tiny Cloud Functions or a free n8n/Pipedream/Val.town setup covers every flow he actually has today.",
+    "severity": "major",
+    "rationale": "Personal Zapier-lites are the canonical YAGNI overbuild: the routing abstraction, processor registry, and config surface are infrastructure costs paid up front for flexibility that a solo user with a handful of static flows never exercises. Mature free alternatives already exist, and per-flow functions are simpler to write, debug, and abandon.",
+    "evidence": [],
+    "what_would_resolve": "Enumerate the concrete webhook flows it would route in month one; if there are fewer than ~5 with meaningful fan-in volume that existing free tools cannot handle, cull it and implement the real flows as individual functions."
+  },
+  {
+    "id": "skeptic-5",
+    "lens": "skeptic",
+    "claim": "photo-organizer is redundant with products he likely already uses (Google Photos does ML tagging, search, and near-dupe handling; Immich/PhotoPrism exist for self-hosting) and a photo library is a one-shot backfill plus a trickle, not a stream, so it is also the wrong shape for the slate.",
+    "severity": "major",
+    "rationale": "The 80% alternative already runs automatically on his phone for free, while a DIY rebuild incurs real Vision API costs across a full library and the well-known fate of organizer projects: one big migration run, then abandonment. Its batching need is a single backfill, not an ongoing pipeline, so it neither needs to exist nor exercises the library in a sustained way.",
+    "evidence": [],
+    "what_would_resolve": "Name a specific capability gap versus Google Photos/Immich that he actually feels at least weekly (e.g., DJ-flyer OCR into a searchable index); if none survives scrutiny, cull."
+  },
+  {
+    "id": "skeptic-6",
+    "lens": "skeptic",
+    "claim": "gear-price-watcher duplicates free incumbents (Keepa/CamelCamelCamel, eBay saved-search alerts, retailer wishlists) and any coverage beyond them requires scraping marketplaces, which is an anti-bot maintenance treadmill, the exact opposite of unattended.",
+    "severity": "major",
+    "rationale": "Price-drop alerting is a solved consumer problem with zero-effort alternatives covering ~90% of cases. The residual 10% (niche music-gear marketplaces) tends to lack APIs, so the project's steady state is babysitting broken scrapers for a purchase he makes a few times a year, a guaranteed chore.",
+    "evidence": [],
+    "what_would_resolve": "Identify target marketplaces that (a) existing alert services do not cover and (b) expose a stable public API or feed; if that intersection is empty, cull."
+  },
+  {
+    "id": "skeptic-7",
+    "lens": "skeptic",
+    "claim": "game-session-stats assumes an input stream that does not exist: Elden Ring and Monster Hunter emit no session logs, so the project as stated cannot be built until a data-capture mechanism is proven, and the fallback (manual entry) turns play time into data entry.",
+    "severity": "blocker",
+    "rationale": "The entire pipeline premise (logs -> batches -> stats page) rests on a source these games do not provide; on console there is effectively no programmatic access at all, and on PC capture requires save-file parsing, overlay mods, or OCR, each a substantial project in itself. A candidate whose Source[T] is imaginary should not occupy a slate slot.",
+    "evidence": [],
+    "what_would_resolve": "Before keeping it, prototype a capture path on his actual platform that emits real session events (e.g., a save-parser diff or overlay mod producing death/hunt events); if he plays on console or the prototype exceeds a weekend, cull."
+  },
+  {
+    "id": "skeptic-8",
+    "lens": "skeptic",
+    "claim": "llm-micro-batcher's premise is weak at personal scale: with hobbyist request concurrency the time window almost always closes with a batch of one, provider-native batch APIs and existing gateways (LiteLLM, OpenRouter, Helicone, Cloudflare AI Gateway) already cover the cost/rate-limit story, and the 'possibly sellable' angle enters a crowded commodity market.",
+    "severity": "major",
+    "rationale": "Batching pays off only when requests co-occur inside the window; one person's scattered LLM calls rarely do, so the proxy mostly adds a hop, an availability dependency, and key-handling surface to save pennies per month. Where batching genuinely wins for individuals (bulk embeddings, overnight jobs), providers' own batch endpoints with ~50% discounts already exist and are simpler than running a proxy.",
+    "evidence": [],
+    "what_would_resolve": "Instrument one week of his real LLM/embedding traffic: if in-window concurrency rarely exceeds 1 and projected monthly savings are under ~$5, reframe the project as an offline bulk-job runner (where gobatch fits honestly) and drop the proxy and the sellable framing."
+  },
+  {
+    "id": "skeptic-9",
+    "lens": "skeptic",
+    "claim": "email-triage re-implements what Gmail already ships (Priority Inbox, filters, tabs, and expanding native Gemini triage) while a hobby daemon holding full-mailbox OAuth and occasionally misclassifying important mail has asymmetric downside for marginal upside.",
+    "severity": "major",
+    "rationale": "Native features get most of the value for zero maintenance, and the costs of the DIY version are real: broad OAuth scope on personal email handled by unattended hobby code, LLM spend on every inbound message, and the high price of one missed important email. The simpler alternative is not just adequate, it is the safer default.",
+    "evidence": [],
+    "what_would_resolve": "Run a two-week read-only pilot on a low-stakes filtered subset (e.g., newsletters only) and keep the project only if its digest demonstrably beats native filters by enough to justify the scope, spend, and upkeep."
+  },
+  {
+    "id": "skeptic-10",
+    "lens": "skeptic",
+    "claim": "error-digester is garnish on a solved problem: GCP Error Reporting and Sentry's free tier already aggregate, dedupe, group, and Slack-notify errors across services, and its value is circularly dependent on first deploying the rest of the fleet.",
+    "severity": "major",
+    "rationale": "The hard parts (collection, grouping, dedupe, alert routing) are exactly what mature free tools do automatically for GCP workloads; the only novel part is an LLM daily summary, which could be a 50-line cron over those tools' APIs rather than a standalone ingestion service. Building bespoke observability for toy projects also inverts priorities: the toys are the point, not their telemetry.",
+    "evidence": [],
+    "what_would_resolve": "Wire one existing project into Sentry or GCP Error Reporting for a week; keep error-digester only if a concrete gap remains that a thin LLM-summary cron over those tools would not close more simply."
+  },
+  {
+    "id": "skeptic-11",
+    "lens": "skeptic",
+    "claim": "toastmasters-ops duplicates existing club tooling (easy-Speak, FreeToastHost, or a Google Form plus Sheet) and, worse, creates software other people depend on, converting a hobby into an unpaid ops duty with a weekly deadline.",
+    "severity": "major",
+    "rationale": "RSVP-to-agenda volume is ~15 events per week, trivially handled by tools clubs already use; batching it is decorative. The deeper risk is social lock-in: once the club relies on his bot, every outage is a personal obligation, which directly violates the stated 'stays fun, not chores' criterion in a way none of the purely personal candidates do.",
+    "evidence": [],
+    "what_would_resolve": "Confirm the club genuinely lacks workable tooling AND rescope the project to outputs only he consumes (e.g., his own role-prep and speech-timing digest); if it must serve the whole club to be useful, cull."
+  },
+  {
+    "id": "skeptic-12",
+    "lens": "skeptic",
+    "claim": "dj-library-intel's data is local Serato files that change only after gigs, so it is naturally an after-gig local CLI or one-shot analysis, not an unattended cloud service; forcing the cloud shape adds file-sync plumbing for zero value.",
+    "severity": "minor",
+    "rationale": "The idea itself fits the persona well, but session history lives on the DJ laptop and updates a few times a month, so cloud-resident streaming infrastructure has nothing to stream; a local run that parses new sessions and emits stats (optionally exporting a static dashboard) gets 100% of the value with none of the deployment.",
+    "evidence": [],
+    "what_would_resolve": "Keep the candidate but declare it a local CLI/scheduled local job (gobatch batching the file-parse and aggregation fan-out), with at most a static published dashboard, and drop the cloud-daemon framing."
+  },
+  {
+    "id": "skeptic-13",
+    "lens": "skeptic",
+    "claim": "new-music-watcher overlaps strong existing tools (Spotify Release Radar, Beatport follows, MusicHarbor), so it should be kept only for sources those demonstrably miss.",
+    "severity": "minor",
+    "rationale": "For mainstream releases the off-the-shelf alternatives already deliver weekly digests for zero effort; the defensible niche is DJ-specific crate sources (Bandcamp labels, niche feeds) that those tools ignore, and the project's worth depends entirely on that uncovered list being non-trivial.",
+    "evidence": [],
+    "what_would_resolve": "Before building, list the specific artists/labels/feeds his current tools miss; keep the project scoped to exactly those sources, and cull if the list is short enough that following them manually suffices."
+  }
+]

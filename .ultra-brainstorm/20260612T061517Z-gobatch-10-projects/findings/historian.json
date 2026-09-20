@@ -1,0 +1,124 @@
+[
+  {
+    "id": "historian-1",
+    "lens": "historian",
+    "claim": "Slate-level: the sole maintainer has twice abandoned gobatch for multi-year stretches (2018-2021, 2021-2024), and a 10-service fleet built on it inherits that dormancy risk.",
+    "severity": "major",
+    "rationale": "Repo history shows 87 commits in 2017, then 3 in 2018, zero in 2019-2020, 4 in 2021 (v0.1.0 tagged 2021-01-29), zero in 2022-2023, and 2 in 2024 (v0.1.1 tagged 2024-07-18, a 3.5-year gap) before the 2025-2026 revival. The classic solo-dev 'own platform + fleet of consumers' pattern fails exactly this way: when the platform layer stalls again, every deployed service freezes on whatever snapshot it pinned, and migrations never happen. The brief's premise multiplies maintenance by 10 unattended services on top of the historically intermittent foundation.",
+    "evidence": [
+      "git tags: v0.1.0 (2021-01-29), v0.1.1 (2024-07-18), v0.2.0 (2025-04-24), v0.5.0 (2026-02-15)",
+      "git log --format='%ad %an' --date=format:%Y commit-per-year counts (87 in 2017, 0 in 2019-2020 and 2022-2023)"
+    ],
+    "what_would_resolve": "Decouple fleet from platform velocity: pin every project to a tagged gobatch release, require each project to remain operable against a frozen dependency, and forbid any candidate whose core feature depends on future gobatch work."
+  },
+  {
+    "id": "historian-2",
+    "lens": "historian",
+    "claim": "llm-micro-batcher's core mechanism is request-reply batching, which gobatch's own README lists under 'Future Roadmap' as not yet supported.",
+    "severity": "major",
+    "rationale": "README.md's roadmap names 'Sync-like Batching: Support for request-reply patterns where batched operations appear synchronous to the caller' as future work. A proxy that batches embedding/LLM requests and returns each result to its awaiting caller is precisely that pattern; the current pipeline is strictly one-way (Source -> batches -> Processors -> error channel) with no response routing back to callers. The flagship 'possibly sellable' candidate is therefore built on the one capability the library's own history acknowledges it lacks, meaning the hard part (correlation, per-caller response delivery, timeout semantics) is all hand-rolled outside gobatch.",
+    "evidence": [
+      "README.md:342-344 (Future Roadmap: Sync-like Batching)",
+      "batch/batch.go:256 (Go returns only (<-chan error, error); no result path)"
+    ],
+    "what_would_resolve": "Either implement the roadmap's sync-like batching in gobatch first and build the proxy on it, or re-scope llm-micro-batcher to one-way workloads (e.g., bulk embedding backfill, fire-and-forget enrichment) where the existing pipeline genuinely fits."
+  },
+  {
+    "id": "historian-3",
+    "lens": "historian",
+    "claim": "Slate-level: master today lacks processor panic recovery, leaks timers, and can block on undrained error sends; the fixes already exist but sit on the unmerged fix/engine-hardening and feat/cancel-mode branches.",
+    "severity": "major",
+    "rationale": "Unmerged branch fix/engine-hardening contains 'recover panics from user processors' (5d57097), 'stop leaking timers in waitForItems' (b1b94bf), 'make internal error sends respect context cancellation' (0dac7a7), and 'guard Done() read with the mutex' (5197c64) -- i.e., on current master one panicking processor (a flaky LLM call, malformed scraped HTML) kills the whole daemon, and helpers.go itself warns undrained errs can deadlock. This engine class of bug is recurrent here: v0.4.0 fixed a 100%-CPU busy loop in doReader, exactly the failure that silently burns cloud free tiers in unattended deployment. Building 10+ always-on services before landing the known hardening repeats the repo's own documented failure history. Shutdown semantics are also still in flux (feat/cancel-mode introduces WithCancelMode drain-vs-stop), so SIGTERM behavior on Cloud Run may change under the fleet.",
+    "evidence": [
+      "branch fix/engine-hardening: 5d57097, b1b94bf, 0dac7a7, 5197c64, 60fa63a (unmerged to master)",
+      "branch feat/cancel-mode: ebece2a WithCancelMode (unmerged)",
+      "CHANGELOG.md:49 (v0.4.0 'Critical: Fixed a busy loop in doReader that consumed 100% CPU')",
+      "batch/helpers.go:12 ('leaving errs undrained can deadlock once the buffer fills')"
+    ],
+    "what_would_resolve": "Land fix/engine-hardening and the cancel-mode decision, cut a tagged release (v0.6.0) with an updated CHANGELOG, and make that tag the floor for all fleet projects before any service is deployed unattended."
+  },
+  {
+    "id": "historian-4",
+    "lens": "historian",
+    "claim": "The engine's recurring bug regime is exactly low-volume/idle-period semantics, and the slate's trust-critical candidates (mood-journal, workout-logger, plus all weekly-digest pipelines) live entirely in that regime.",
+    "severity": "major",
+    "rationale": "Three separate historical bugs all cluster on the trickle/idle workload shape: v0.2.0 shipped with a known issue where trailing items under MinItems were silently never processed when the source was exhausted (fixed 0.2.1); v0.4.0 fixed MaxTime timer logic that broke latency guarantees after idle periods; and days ago #66 fixed Filter silently dropping errored items. A few mood drops or workout sets per day with long idle gaps is precisely the historically buggy regime, and the historical failure mode is silent data loss -- which, in industry experience with journaling/fitness apps, is the one defect users never forgive and the fastest path to the builder himself abandoning the habit.",
+    "evidence": [
+      "CHANGELOG.md:119 (0.2.1 fix: items under MinItems not processed at source exhaustion)",
+      "CHANGELOG.md:175-177 (v0.2.0 Known Issues section documenting the same)",
+      "CHANGELOG.md:50 (v0.4.0 MaxTime timer restart after idle)",
+      "commit e895eb5 fix(processor): preserve errored items through Filter (#66)"
+    ],
+    "what_would_resolve": "Add a low-volume idle-soak test to gobatch CI (items < MinItems with multi-window idle gaps, asserting zero loss), and adopt a persist-raw-before-batch rule for journaling/fitness candidates so gobatch is never the only holder of unpersisted user entries."
+  },
+  {
+    "id": "historian-5",
+    "lens": "historian",
+    "claim": "No polling/ticker/cron source has ever existed in gobatch's history, and the cron-shaped candidates (new-music-watcher, gear-price-watcher, email-triage, dj-library-intel, photo-organizer) risk name-dropping the library rather than exercising it.",
+    "severity": "major",
+    "rationale": "The full git history contains no attempt at a scheduler, poll, or ticker source; shipped sources have only ever been Channel, Error, and Nil, and the brief itself concedes gobatch is 'not a scheduler.' Poll-then-process candidates already hold a complete list in memory when the 'batch' begins, so count/time windows degenerate into a for-loop wrapper -- the well-worn industry regret of wrapping a cron job in streaming machinery (the 'Kafka for ten events a day' pattern), which historically ends with the framework being deleted from the project. These five candidates fail the brief's own 'genuinely exercise batching, not name-drop' criterion as currently stated.",
+    "evidence": [
+      "source/ directory: only channel.go, error.go, nil.go ever shipped",
+      "git log --all --grep over retry/poll/ticker/cron/schedule: no matching feature commits",
+      "README.md:66-73 (use cases are stream/queue shaped, not poll shaped)"
+    ],
+    "what_would_resolve": "For each polling candidate, name the genuine continuous stream and window policy that gobatch would manage (e.g., many feeds fanned into one rate-limited sink with MaxTime flush) before keeping it; cull or redesign any candidate whose batching reduces to iterating an already-fetched list."
+  },
+  {
+    "id": "historian-6",
+    "lens": "historian",
+    "claim": "Slate-level: every example and test in the repo's entire history is run-to-completion, so the always-on daemon regime that 13 of 14 candidates require has never been exercised in the library's own corpus.",
+    "severity": "minor",
+    "rationale": "All examples close their source channels, drain errors, and wait on Done(); the recent breaking change #64 made Batch explicitly single-use (second Go returns ErrBatchUsed), moving the API further toward one-shot job semantics. Long-running unattended services need a supervised pattern (never-closing source, restart loop constructing a fresh Batch after failure, SIGTERM drain) that no example or test in the project's history demonstrates, so each of the 10 projects would independently invent it.",
+    "evidence": [
+      "batch/batch.go:223-230 (single-use contract, ErrBatchUsed)",
+      "batch/single_use_test.go",
+      "example_test.go and batch/example_*.go (all run-to-completion with closed sources)",
+      "README.md:323 (single-use documentation)"
+    ],
+    "what_would_resolve": "Add one canonical long-running daemon example to gobatch (never-closing source, supervised re-New on failure, graceful shutdown) and have all fleet projects share that pattern."
+  },
+  {
+    "id": "historian-7",
+    "lens": "historian",
+    "claim": "error-digester monitors a fleet of gobatch-based services through a pipeline built on the same gobatch engine, a classic common-mode monitoring failure.",
+    "severity": "minor",
+    "rationale": "Industry history is consistent: alerting built on the same stack it monitors goes dark exactly when the shared layer fails. This repo has had engine-level failure classes (100%-CPU busy loop fixed in v0.4.0, undrained-errs deadlock warning in helpers.go), and an engine regression that takes down the toys would likely take down the digester reporting on them.",
+    "evidence": [
+      "CHANGELOG.md:49 (busy-loop class of engine failure)",
+      "batch/helpers.go:12 (deadlock warning)"
+    ],
+    "what_would_resolve": "Give error-digester a dead-man switch outside the gobatch path (e.g., an independent scheduled heartbeat ping that alerts when the digester goes silent)."
+  },
+  {
+    "id": "historian-8",
+    "lens": "historian",
+    "claim": "email-triage repeats a well-documented graveyard: unattended personal Gmail tools historically die on restricted-scope OAuth verification or testing-mode refresh tokens expiring every 7 days.",
+    "severity": "major",
+    "rationale": "Gmail read scopes are Google 'restricted' scopes: publishing an app requires security verification (historically including CASA assessment), while leaving it in testing mode expires refresh tokens after 7 days for external apps -- fatal for a cloud service that must run unattended. A long line of personal Gmail-triage side projects in industry practice stalled or were abandoned at exactly this step, independent of any code quality. This is a premise-level constraint for the candidate, not an implementation detail.",
+    "evidence": [],
+    "what_would_resolve": "Validate a survivable auth path before committing the candidate: a Workspace 'internal' app, IMAP with an app password, or acceptance of periodic manual re-auth -- demonstrated with a token that survives unattended for more than 7 days."
+  },
+  {
+    "id": "historian-9",
+    "lens": "historian",
+    "claim": "dj-library-intel depends on reverse-engineered Serato binary session/history formats, a niche with a history of parsers breaking on Serato updates and being abandoned.",
+    "severity": "minor",
+    "rationale": "Serato exposes no public API; community parsers for its session/database files are reverse-engineered, version-sensitive, and frequently unmaintained. The candidate's effort therefore concentrates in fragile format archaeology rather than batching, and a Serato app update can silently break ingestion. Combined with its one-shot file-ingest shape (see historian-5), the gobatch role here is thin.",
+    "evidence": [],
+    "what_would_resolve": "Spike-parse the builder's actual current Serato library files end-to-end (sessions plus history) before keeping the candidate, and pin the supported Serato version explicitly."
+  },
+  {
+    "id": "historian-10",
+    "lens": "historian",
+    "claim": "comic-render-queue assumes 'retries', but no retry primitive has ever existed in gobatch, and re-enqueueing failed items into one's own bounded source channel is a known deadlock pattern in this engine.",
+    "severity": "minor",
+    "rationale": "History shows per-item errors flow through the pipeline (and even that was buggy until #66), but nothing has ever re-driven failed items; the helpers documentation already warns that bounded internal buffers block when not drained, which is exactly the hazard of a naive feedback loop from a failure processor back into the source channel. The capability gap is fillable (retry inside the processor, or a separate retry batch run), but it must be designed rather than assumed.",
+    "evidence": [
+      "batch/helpers.go:12 (bounded-buffer blocking warning)",
+      "git log --all --grep retry/backoff: no retry feature commits",
+      "commit e895eb5 (#66) errored-item passthrough only recently fixed"
+    ],
+    "what_would_resolve": "Choose and prototype an explicit retry topology for comic-render-queue (in-processor bounded retry with backoff, or a persisted dead-letter list fed to a fresh Batch run) instead of an in-pipeline feedback loop."
+  }
+]

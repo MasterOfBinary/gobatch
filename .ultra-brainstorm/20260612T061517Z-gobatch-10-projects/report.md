@@ -1,0 +1,521 @@
+All 10 sha256 checksums verified against the manifest, and all blind-lens findings carry empty evidence arrays, so nothing is rejected. Clustering 112 findings across the 10 lenses and applying the promotion gate yields the following report.
+
+```json
+{
+  "clusters": [
+    {
+      "cluster_id": "C1",
+      "title": "gear-price-watcher: solved by incumbents, rest is a scraping treadmill",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "operator", "user-advocate", "estimator", "ecosystem", "cost", "compliance"],
+      "source_finding_ids": ["skeptic-6", "operator-10", "user-advocate-14", "estimator-9", "ecosystem-7", "cost-7", "compliance-6"],
+      "max_severity": "major",
+      "summary": "gear-price-watcher duplicates free incumbents (Keepa/CamelCamelCamel, eBay saved-search alerts, Reverb's native watchlist), and any coverage beyond them means scraping anti-bot retail marketplaces from datacenter IPs: a ToS-breaching, ban-prone maintenance treadmill whose failures are ambiguous ('no results' looks identical to 'no deals'), so the watcher silently goes stale and creates false confidence that causes the exact missed deals it exists to prevent. Paid scraping infrastructure (~$30-50/mo) would exceed the hobby value outright.",
+      "what_would_resolve": "Restrict the design to sources with sanctioned free APIs/feeds (eBay Browse API, Reverb API, RSS), verify those cover the gear actually watched, and name at least one concrete watch incumbents cannot express; instrument fetch status and parsed-item counts separately from matches, stamp every digest with 'data as of <last successful poll>' plus a staleness alarm; if his real sources require scraping protected retailers, cull.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C2",
+      "title": "email-triage: Gmail restricted-scope OAuth breaks 'unattended' by design",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["operator", "historian", "estimator", "ecosystem", "compliance", "decomposer"],
+      "source_finding_ids": ["operator-5", "historian-8", "estimator-7", "ecosystem-8", "compliance-2", "decomposer-9"],
+      "max_severity": "major",
+      "summary": "email-triage's premise collides with Google's restricted-scope OAuth regime on a consumer Gmail account: an unverified app in testing mode gets refresh tokens that expire roughly every 7 days (the service silently dies weekly), publishing requires restricted-scope verification including a CASA-grade security assessment unrealistic for a solo hobby app, and Gmail watch/push adds Pub/Sub renewal infrastructure gobatch does nothing for. This is the canonical graveyard for unattended personal Gmail tools and a premise-level constraint, not an implementation detail.",
+      "what_would_resolve": "Choose a survivable auth architecture before the candidate can enter the final 10 (IMAP with an app password, a Workspace internal app, auto-forwarding to a self-controlled mailbox, or an explicitly accepted weekly re-auth ritual) and prove it with a 30-day unattended token spike; keep v1 read-only and single-user with a daily 'triage ran, N processed' heartbeat.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C3",
+      "title": "game-session-stats: the data source does not exist",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "user-advocate", "estimator", "ecosystem", "decomposer"],
+      "source_finding_ids": ["skeptic-7", "user-advocate-13", "estimator-5", "ecosystem-6", "decomposer-4"],
+      "max_severity": "blocker",
+      "summary": "game-session-stats assumes session logs that Elden Ring and Monster Hunter do not emit: there is no API, Steam exposes only coarse playtime, console offers no programmatic access at all, and PC capture means save-file reverse engineering, overlays, or memory reading that Easy Anti-Cheat treats as ban-worthy on the account he actually plays. The acquisition layer is an unsolved local-agent sub-project larger than the stats page, contradicts the cloud-unattended constraint, and the manual-entry fallback turns play into a logging chore. As stated the candidate cannot be built.",
+      "what_would_resolve": "Before it can occupy a slate slot, a one-evening-to-one-weekend spike proving one safe end-to-end capture path on his actual platform (offline save-file diffs, process-watch session detection plus Steam playtime, end-screen OCR, or a manual quick-log bot rescope), with the stats page re-scoped to what that path actually yields; absent that, cull.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C4",
+      "title": "Slate-wide: micro-batching is decorative at personal event volumes",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "user-advocate", "historian", "decomposer", "cost"],
+      "source_finding_ids": ["skeptic-1", "user-advocate-2", "historian-5", "decomposer-8", "cost-8"],
+      "max_severity": "major",
+      "summary": "At 1-50 events/day, count/time windows close nearly empty, so for most candidates (mood-journal, workout-logger, toastmasters-ops, discord-meme-digest, gear-price-watcher, new-music-watcher, email-triage, dj-library-intel, photo-organizer, game-session-stats) the 'must genuinely exercise gobatch' constraint forces always-on streaming ceremony onto naturally cron-shaped jobs: poll-then-process candidates already hold the full list in memory so batching degenerates to a for-loop wrapper, gobatch has never shipped a polling/ticker source, and claimed cost savings are phantom on per-op-billed backends (Firestore per write, LLM APIs per token). The constraint optimizes for the library instead of the user and produces fake dogfooding signal.",
+      "what_would_resolve": "For each finalist, one written line stating expected events/day, the concrete batching benefit (rate-limit coalescing, round-trip reduction, digest/context chunking - never dollars on per-op backends), and where batching occurs (ingest vs digest side); reframe cron-shaped candidates as scheduled jobs whose internal fan-out honestly uses gobatch, or relax the constraint for them.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C5",
+      "title": "llm-micro-batcher: weak personal-scale premise, 'sellable' unrealistic",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "user-advocate", "cost", "ecosystem", "estimator"],
+      "source_finding_ids": ["skeptic-8", "user-advocate-6", "cost-3", "ecosystem-2", "estimator-13"],
+      "max_severity": "major",
+      "summary": "llm-micro-batcher presumes co-occurring LLM traffic that one hobbyist does not generate (windows close with a batch of one), and its cost premise is partly false: client-side coalescing of synchronous calls does not reduce per-token price - the real ~50% savings live in provider async batch APIs, while embedding endpoints already accept arrays. Free incumbents (LiteLLM, OpenRouter, Helicone, native batch endpoints) own every plausible buyer, and the sellable version (auth, billing, multi-tenancy, abuse controls) shares almost no code with the personal one.",
+      "what_would_resolve": "Instrument one week of real cross-project LLM/embedding traffic; keep only if batching demonstrably saves money or unblocks rate limits versus provider batch APIs (bulk embedding backfills are the plausible workload); reframe as personal-only infrastructure and gobatch showcase with the value prop pinned to a real mechanism, and drop the sellable framing until one external user validates a written gap versus the incumbents.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C6",
+      "title": "Fleet on v0 gobatch: every breaking change multiplies by ten",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["operator", "historian", "decomposer", "estimator"],
+      "source_finding_ids": ["operator-13", "historian-1", "decomposer-5", "estimator-2"],
+      "max_severity": "major",
+      "summary": "All ten finalists would depend on a v0 library whose own maintainer intentionally breaks compatibility on master (the latest commit is a breaking change to the core Go/New surface, with more stacked behind unlanded PRs) and who has twice abandoned the project for multi-year stretches. Each gobatch API change fans out as forced migration across up to ten deployed services, or the fleet pins stale snapshots and drifts apart - either way the slate multiplies the cost of instability the builder himself creates, attacking the 'stays fun' goal.",
+      "what_would_resolve": "Decide the dependency policy before fan-out: tag gobatch releases and pin every project to a tag; either declare a v0.x freeze of the core Batch/Source/Processor/Config surface or route all projects through one small shared adapter module that absorbs breakage in exactly one place; batch upgrades as a scheduled periodic fleet pass (optionally 2-3 canary projects tracking master); forbid candidates whose core feature depends on future gobatch work.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C7",
+      "title": "In-memory batch windows silently lose data; persist-before-batch needed",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["operator", "estimator", "decomposer", "historian"],
+      "source_finding_ids": ["operator-3", "estimator-4", "decomposer-2", "historian-4"],
+      "max_severity": "major",
+      "summary": "gobatch buffers items in memory with no persistence, retry, or scheduler, and a Batch is single-use; any restart, redeploy, or scale-down (routine on cheap infrastructure) drops the in-flight window. For human-typed mood-journal and workout-logger entries that is permanent, undetectable loss that destroys trust, and gobatch's own bug history (trailing items under MinItems silently unprocessed, MaxTime timer breakage after idle, Filter dropping errored items) clusters exactly in this low-volume/idle regime. Daily/weekly cadence is scheduling plus durable accumulation, both outside the library's scope, so digest candidates secretly need a durable buffer that is in nobody's design.",
+      "what_would_resolve": "Adopt one slate-wide reference architecture before building: persist raw events durably at ingest (Firestore write or Pub/Sub publish) before or alongside batching, cap gobatch windows at seconds-to-minutes, let Cloud Scheduler own cadence with aggregation re-streaming stored rows through gobatch, and implement SIGTERM graceful drain - or write down explicit per-project acceptance of at-most-once loss; add a low-volume idle-soak loss test to gobatch CI.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C8",
+      "title": "photo-organizer: source closed, problem already solved, costs unpriced",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "estimator", "ecosystem", "cost"],
+      "source_finding_ids": ["skeptic-5", "estimator-10", "ecosystem-5", "cost-5"],
+      "max_severity": "major",
+      "summary": "photo-organizer's most natural source is structurally closed (since the 2025 Google Photos API changes, third-party apps cannot read a user's existing library), the local-files version is already solved free by Immich/PhotoPrism and Google Photos' native search/dedupe, the workload is a one-shot backfill plus a trickle rather than a stream, and the backfill bill swings 100x+ by API choice (roughly $45-150 on Cloud Vision for a 30-100k library vs a few dollars on a cheap multimodal model) with accidental re-runs unbounded.",
+      "what_would_resolve": "Pin where the photos actually live and confirm unattended programmatic access exists (local disk, NAS, GCS, Drive - not Google Photos); name at least one tagging/automation behavior felt at least weekly that Immich/Google Photos demonstrably lack; run a 1k-photo pilot to price the full pass with results cached by content hash and cheap-first filtering (EXIF/perceptual-hash locally, vision API only on survivors); rescope as an on-demand batch job, or deploy Immich and give the slot away.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C9",
+      "title": "webhook-fanin-hub: a platform for an audience of one",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "user-advocate", "estimator", "ecosystem"],
+      "source_finding_ids": ["skeptic-4", "user-advocate-10", "estimator-8", "ecosystem-10"],
+      "max_severity": "major",
+      "summary": "webhook-fanin-hub is meta-infrastructure with no job-to-be-done of its own: free incumbents (n8n, Pipedream, Val.town, Zapier tiers) already cover a personal stack's routing, every other candidate can ship without it, and the gap between a two-weekend version and a pleasant one is the largest on the slate (routing config, per-destination auth, retries, replay, debugging tooling grow open-endedly). Its only honest wedge is batched fan-in semantics, which nothing yet needs.",
+      "what_would_resolve": "Defer it until at least two shipped slate projects have a named, working route needing batched fan-in that off-the-shelf routers cannot serve; if then kept, write the one-paragraph 'why not n8n' (count/time windows, per-item error tracking, Go-native processors) into the README and enforce a hard v1 scope: static config file, at most ~5 known sources and destinations, no UI, no DSL, no replay.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C10",
+      "title": "toastmasters-ops: other people's dependency turns hobby into obligation",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "user-advocate", "ecosystem", "operator"],
+      "source_finding_ids": ["skeptic-11", "user-advocate-8", "ecosystem-3", "operator-12"],
+      "max_severity": "major",
+      "summary": "toastmasters-ops is the only candidate whose success depends on third parties: it competes with entrenched free club tooling (easy-Speak, FreeToastHost, or a Form plus Sheet), club members must change behavior for it to matter, and once the club relies on its agendas and reminders every outage is a personal obligation with hard weekly deadlines and social cost - the slate's most chore-prone candidate, orphaned the moment he changes role or club.",
+      "what_would_resolve": "Keep only if (a) the club demonstrably lacks or dislikes incumbent tooling and (b) it is scoped to artifacts he alone produces and consumes in an officer role he currently holds (paste RSVPs in, get agenda and reminder drafts out) with zero member-facing adoption required; schedule sends with slack time and post-send delivery verification; otherwise cull or park.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C11",
+      "title": "new-music-watcher: incumbents cover mainstream, differentiated sources lack APIs",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "user-advocate", "ecosystem", "estimator"],
+      "source_finding_ids": ["skeptic-13", "user-advocate-11", "ecosystem-4", "estimator-14"],
+      "max_severity": "major",
+      "summary": "new-music-watcher is squeezed from both sides: Spotify Release Radar, Beatport follows, and MusicHarbor already push generic weekly release digests for zero effort, while the differentiated DJ crate-digging sources have no accessible API (Bandcamp's closed years ago, Beatport's is partner-gated, Spotify has been removing hobby-dev access since late 2024), pushing the project toward scraping and its maintenance tail. It is only worth opening if tied to his actual library and play history.",
+      "what_would_resolve": "List the specific artists/labels/feeds his current tools demonstrably miss, verify each has a sanctioned API or RSS feed (MusicBrainz, label/artist RSS, Spotify dev-mode endpoints for his own account) and commit to dropping sources that lack one; make ranking library-aware by sourcing the watch-list from dj-library-intel data; cull if the uncovered list is short enough to follow manually or if dj-library-intel linkage is dropped.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C12",
+      "title": "llm-micro-batcher: open relay for paid keys without a declared trust boundary",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["security", "compliance", "operator"],
+      "source_finding_ids": ["security-1", "compliance-3", "operator-9"],
+      "max_severity": "blocker",
+      "summary": "As stated, llm-micro-batcher is an internet-facing proxy holding the builder's upstream LLM keys with no described per-caller auth or spend boundary - an open relay where anyone finding the URL gets key-equivalent spending power. It also centralizes the whole fleet's LLM traffic into a single point of failure, and the sell/shared path makes things worse: GDPR-style processor obligations (DPA, named sub-processors, retention, breach duties), cross-customer prompt commingling inside shared batched upstream calls, custody of other people's keys, and de facto 24/7 on-call for paying users' request path.",
+      "what_would_resolve": "Decide the tenancy and exposure posture before building (personal-only is the sane default): per-caller authentication, hard per-caller and global spend/rate caps with automatic shutoff, upstream keys never logged or echoed, per-client fallback direct to providers when the proxy is unhealthy, errors that distinguish proxy from upstream faults; if a sell path is ever pursued, pre-commit per-tenant isolation or per-tenant keys, minimal prompt logging with stated retention, a DPA template - or ship it as self-hosted software instead of an operated service.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C13",
+      "title": "No viable runtime plan: always-on windows vs free scale-to-zero tiers",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["operator", "cost", "estimator"],
+      "source_finding_ids": ["operator-4", "cost-1", "cost-2", "estimator-3"],
+      "max_severity": "major",
+      "summary": "Time-window batching requires a long-lived always-on process, which the slate's assumed free/cheap hosting does not provide: Cloud Run's request-based billing throttles CPU between requests so batch timers do not fire reliably, scale-to-zero kills in-flight windows, Discord/Slack gateway bots need a persistent socket, and Vercel functions are request-scoped. Running ~10 services on warm instances instead costs roughly $50-150+/mo versus near $0 consolidated. This unresolved architecture decision (service-per-project vs one fleet host) changes which candidates are even viable and must precede the cull.",
+      "what_would_resolve": "A one-page fleet hosting plan chosen before culling: consolidate the pipelines into one fleet-host binary on a single always-warm runtime (always-free e2-micro, one small node, or one Cloud Run service with CPU always allocated and min-instances=1) with a written monthly cost cap (e.g. <= $20/mo); each keeper names its hosting mode and how window semantics survive it, with per-project serverless reserved for genuinely request-shaped candidates.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C14",
+      "title": "Ten unattended services is a quota that becomes a maintenance fleet",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "user-advocate", "estimator"],
+      "source_finding_ids": ["skeptic-2", "user-advocate-1", "estimator-1"],
+      "max_severity": "major",
+      "summary": "Nothing requires the final number to be 10; padding to it keeps the weakest candidates while each deployed service realistically costs 1-4 hours/month to keep alive (tokens, API drift, dependency bumps, billing surprises) - 10-40 hours/month of pure upkeep for a solo evenings-and-weekends builder whose stated goal is joy, not ops. Solo portfolios historically stall at roughly 3-5 concurrently maintained live services; fleet maintenance is the most predictable way the whole plan fails.",
+      "what_would_resolve": "Drop the fixed quota (6-8 strong candidates is fine) or tier the final 10: cap always-on cloud services at roughly 4-5 and run the rest as on-demand CLIs or scheduled jobs; require each finalist to declare its run mode and an estimated monthly maintenance budget that sums to something a hobbyist will actually pay; roll out in staggered waves with a 'will I still use this in month 3' retention test as a cull criterion.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C15",
+      "title": "Uncapped paid-API spend in unattended pipelines (worst: comic-render-queue)",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["operator", "cost", "security"],
+      "source_finding_ids": ["operator-8", "cost-4", "security-7"],
+      "max_severity": "major",
+      "summary": "comic-render-queue runs nightly retries against paid image-generation APIs while the operator sleeps - a poison prompt or partial outage plus a retry loop burns money unattended, and at typical prices ($0.02-0.08/image, multi-panel, multi-candidate, retry multipliers) it is likely the fleet's dominant line item ($10-60+/mo, unbounded without caps). The same uncapped-spend exposure applies to every externally triggerable or retry-looped LLM service on the slate (llm-micro-batcher, email-triage, mood-journal, error-digester): cost exhaustion is the realistic DoS against a hobby fleet, and batching smooths rates but caps nothing.",
+      "what_would_resolve": "Hard per-service spend caps and billing budgets with automatic shutoff, bounded retries with exponential backoff and a dead-letter path, rate limits on any externally reachable trigger, separate API keys/budgets per project; for comic-render-queue specifically, a worked monthly budget (panels x candidates x retry cap x per-image price), a max-images-per-night ceiling, and an explicit nightly-vs-on-demand decision.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C16",
+      "title": "comic-render-queue: 'retries' assume queue semantics gobatch has never had",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["historian", "decomposer", "estimator"],
+      "source_finding_ids": ["historian-10", "decomposer-7", "estimator-11"],
+      "max_severity": "major",
+      "summary": "comic-render-queue's promised retries and crash recovery require durable job state that gobatch does not provide: errored items exit via the errs channel and are dropped, no retry primitive has ever existed in the library's history, a Batch is single-use with no re-injection API, and naively feeding failures back into a bounded source channel is a documented deadlock hazard. The durable job store and retry topology are the candidate's actual core, currently hiding inside the name that promises the best gobatch fit.",
+      "what_would_resolve": "A one-page design before the candidate is locked in: name the durable job store (e.g. Firestore job docs with status/attempt fields), define the retry loop as in-processor bounded retry with backoff or a cron rescan that re-streams failed jobs through a fresh Batch, specify idempotency across restarts, and demote gobatch to rate-limit-friendly dispatch chunking.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C17",
+      "title": "dj-library-intel: reverse-engineered Serato formats are a fragile foundation",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["ecosystem", "historian", "estimator"],
+      "source_finding_ids": ["ecosystem-1", "historian-9", "estimator-6"],
+      "max_severity": "major",
+      "summary": "dj-library-intel depends entirely on Serato's proprietary, undocumented binary session/history/database formats, readable only via reverse-engineered community parsers (none mature in Go) that lag format changes and can silently break on any Serato update; plus the files live on the DJ laptop, so a laptop-to-cloud ingestion step exists that nobody has scoped. The project's effort concentrates in format archaeology rather than batching, and these two components classically blow up estimates by multiples.",
+      "what_would_resolve": "A one-evening spike running an existing OSS parser (e.g. serato-tools, triseratops) end-to-end against his real current _Serato_ files with a golden-test fixture corpus, an explicitly pinned supported Serato version, a fallback ingestion path (CSV export from Serato's history panel), and a decided laptop-to-cloud sync mechanism - all before keeping the candidate; pivot or cull if the parser landscape is dead for his version.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C18",
+      "title": "error-digester: the fleet's watcher has no watcher and an LLM on the critical path",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["operator", "user-advocate", "historian"],
+      "source_finding_ids": ["operator-2", "user-advocate-16", "historian-7"],
+      "max_severity": "major",
+      "summary": "error-digester is the fleet's de facto monitoring system, yet nothing monitors it, it is built on the same gobatch engine as the services it watches (a common-mode failure: an engine regression takes down the toys and the reporting on them together), an expired key, revoked webhook, or LLM quota hit silently blinds the operator to every project's failures at once, and daily batching means up to 24 hours of blindness even when it works - while LLM paraphrases can blur the actual error.",
+      "what_would_resolve": "Give the digester its own liveness via an external third-party dead-man's switch outside the gobatch path; a degraded mode that delivers raw error counts and samples to Slack when LLM summarization fails (LLM as enhancement, never dependency); a severity bypass that notifies immediately for urgent cases (first error from a long-silent service, error-rate spikes); raw evidence one click away from every summary.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C19",
+      "title": "photo-organizer: unattended destructive dedupe on irreplaceable photos",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["operator", "user-advocate"],
+      "source_finding_ids": ["operator-7", "user-advocate-12"],
+      "max_severity": "major",
+      "summary": "photo-organizer's dedupe is the slate's only feature that can destroy irreplaceable personal data: a hashing or heuristic bug silently deletes original photos, the loss is discovered months later when a photo is searched for - past any trash/backup rotation window - and one wrongly deleted photo permanently destroys trust in the tool. Running this unattended as designed is unsafe until the destructive path is removed.",
+      "what_would_resolve": "A non-destructive contract designed in from the start: dedupe moves files to a quarantine location with long retention and a reviewable report, hard-delete is never automated, default mode is dry-run, and a verified restore test runs before the first real pass against the library.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C20",
+      "title": "Nine candidates share one hidden chassis; consolidate before culling",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "decomposer"],
+      "source_finding_ids": ["skeptic-3", "decomposer-1"],
+      "max_severity": "major",
+      "summary": "At least nine candidates (mood-journal, workout-logger, discord-meme-digest, new-music-watcher, error-digester, email-triage, toastmasters-ops, gear-price-watcher, game-session-stats) share the identical skeleton - event ingestion, gobatch micro-batch, bulk store write, scheduled digest, LLM summarize, Slack/Discord delivery - with gobatch supplying only the thin middle sliver. Built independently, the surrounding glue gets written ~9 times; mood-journal, workout-logger, discord-meme-digest, and email-triage in particular are one product wearing four costumes, and a single multi-source digest service with pluggable adapters is both less ops and a stronger gobatch demonstration.",
+      "what_would_resolve": "Name the shared chassis explicitly as project #0 (ingest endpoint, batched store writer, cron digest runner, LLM summarizer, notifier - and decide whether webhook-fanin-hub IS that chassis), consolidate digest-shaped candidates into one slate slot with per-source adapters, keep a candidate standalone only with a justified, genuinely different data shape or output, and re-score the slate on that basis before culling to 10.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C21",
+      "title": "email-triage: duplicates Gmail's own triage and adds a second inbox",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "user-advocate"],
+      "source_finding_ids": ["skeptic-9", "user-advocate-15"],
+      "max_severity": "major",
+      "summary": "email-triage re-implements what Gmail already ships free (Priority Inbox, filters, tabs, expanding native Gemini triage), and as a read-only daily digest it adds a second thing to read without removing inbox work - he will keep checking Gmail anyway because triage tools have a one-strike trust bar and a single missed important email breaks them permanently. The downside (misclassified or buried important mail from an unattended hobby daemon) is asymmetric to the marginal upside over native features.",
+      "what_would_resolve": "Define the action that actually removes inbox work (auto-label or archive only low-stakes classes such as newsletters, with an undo trail, never touching plausibly important mail), then run a two-week read-only pilot on a filtered low-stakes subset measuring whether he genuinely stops double-processing and beats native filters by enough to justify scope, spend, and upkeep; otherwise cull.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C22",
+      "title": "dj-library-intel: local after-gig data forced into a cloud daemon shape",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "user-advocate"],
+      "source_finding_ids": ["skeptic-12", "user-advocate-4"],
+      "max_severity": "major",
+      "summary": "dj-library-intel's data is local Serato files that change only after gigs (a few times a month), so a cloud-resident streaming service has nothing to ingest most of the time and is not present at the laptop where the DJ's real jobs - set prep, deciding what to play or buy - actually happen; a retrospective cloud dashboard of genre/BPM/key stats becomes a vanity artifact viewed twice, while forcing the cloud shape adds file-sync plumbing for zero value.",
+      "what_would_resolve": "Reframe as a local CLI or scheduled local job (gobatch batching the file-parse and aggregation fan-out), anchored to a named prep-time decision it answers (e.g. 'tracks in this key/BPM range unplayed in 90 days', library gaps worth buying), with at most a static published dashboard; drop the cloud-daemon framing.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C23",
+      "title": "error-digester: rebuilds what Sentry/GCP Error Reporting do free",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["skeptic", "ecosystem"],
+      "source_finding_ids": ["skeptic-10", "ecosystem-11"],
+      "max_severity": "major",
+      "summary": "error-digester's hard parts (collection, grouping, dedupe, alert routing) are exactly what GCP Error Reporting does automatically for his stack at zero cost and what Sentry's free tier ships with Slack alerts and AI summaries; the only novel wedge is the LLM daily-digest voice plus gobatch dogfooding, which could be a thin layer (or a 50-line cron) over those tools' APIs rather than a standalone bespoke ingestion service.",
+      "what_would_resolve": "Wire one existing project into Sentry or GCP Error Reporting for a week; design error-digester to ride on top of existing collection (Cloud Logging sinks or Sentry webhooks feeding the gobatch digest pipeline), keeping only the digesting layer custom; keep the candidate only if a concrete gap remains that the thin version would not close.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C24",
+      "title": "error-digester: fleet-wide secrets and PII funneled into one store and an LLM",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["security", "compliance"],
+      "source_finding_ids": ["security-4", "compliance-8"],
+      "max_severity": "major",
+      "summary": "error-digester centralizes error payloads from every deployed toy, and stack traces and error bodies routinely embed tokens, connection strings, request content, and third parties' data (Discord messages, member contact info, email fragments); aggregating them creates a single concentrated breach target, and shipping them to an external LLM for summarization becomes an unreviewed secret-exfiltration and secondary-use channel that silently violates each sibling project's data posture.",
+      "what_would_resolve": "Redact and structure error payloads at each source (IDs rather than content), filter known PII/secret fields before any LLM call, drop raw payloads after summarization retaining only redacted summaries, use API endpoints with no-training and limited-retention terms, and treat the digester's store as a high-value asset with encryption and tight access control.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C25",
+      "title": "Platform pieces have a hidden build order that reshapes the slate",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["decomposer", "estimator"],
+      "source_finding_ids": ["decomposer-3", "estimator-12"],
+      "max_severity": "major",
+      "summary": "llm-micro-batcher, webhook-fanin-hub, and error-digester are infrastructure the other candidates either consume or duplicate, so sequencing is a hidden dependency: error-digester has zero value until several services are deployed and emit errors in a shared format (an integration tail touching every project, naturally hooked on the errs channel every gobatch pipeline returns), and llm-micro-batcher is pure retrofit rework if siblings call providers directly first. Built late they are redundant; built early they reshape every other project's decomposition.",
+      "what_would_resolve": "An explicit dependency graph and declared build order over the final 10; a standalone-vs-chassis-module decision for each of the three platform pieces made before the cull; one minimal shared error-reporting shim (a single HTTP endpoint or Pub/Sub topic plus a tiny Go client) defined day one and adopted by every project as it ships, with error-digester sequenced late.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C26",
+      "title": "A dozen unmanaged credentials across the fleet: leaks cascade, expiry decays",
+      "status": "MUST_RESOLVE",
+      "corroborating_lenses": ["security", "operator"],
+      "source_finding_ids": ["security-5", "operator-14"],
+      "max_severity": "major",
+      "summary": "The slate accumulates roughly a dozen long-lived credential surfaces (Discord and Slack tokens, Gmail OAuth, multiple LLM and image-gen keys, GCP service accounts) across fast-shipped, likely-public repos and free-tier hosts: an accidentally committed or host-compromised credential is likely and can cascade across projects if secrets are shared, while credential expiry/revocation is the dominant slow-decay failure of personal fleets, each instance presenting as a service silently stopping and twenty minutes of 'which key died' archaeology.",
+      "what_would_resolve": "One fleet-wide secret-handling pattern (runtime injection from GCP Secret Manager, never in-repo), pre-commit/CI secret scanning across all repos, strictly per-service credentials so one leak is contained, and a credential inventory with expiry/renewal notes so liveness alarms resolve to the failing secret in minutes.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C27",
+      "title": "Silent absence: dead digest pipelines look like 'nothing happened'",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["operator"],
+      "source_finding_ids": ["operator-1", "operator-11"],
+      "max_severity": "major",
+      "summary": "Most candidates' only output is a periodic digest (mood-journal, workout-logger, discord-meme-digest, new-music-watcher, error-digester, email-triage), so a dead pipeline produces no page, no error, and no output - indistinguishable from a quiet week - and breakage is discovered weeks later as missing reports and lost history; game-session-stats is worst because the gaming PC being off makes staleness the normal state.",
+      "what_would_resolve": "Adopt a mandatory shared liveness pattern before scaling past the first 2-3 projects: every batch flush pings a dead-man's switch (healthchecks.io or an uptime check), a 'zero items processed for N consecutive windows' alarm, one shared dashboard of last-success timestamps, and per-source last-seen heartbeats surfaced in the product (e.g. 'agent last seen X days ago').",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C28",
+      "title": "gobatch is not daemon-ready: unmerged hardening, no long-running pattern",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["historian"],
+      "source_finding_ids": ["historian-3", "historian-6"],
+      "max_severity": "major",
+      "summary": "Current master lacks processor panic recovery (one panicking processor kills the whole daemon), leaks timers, and can block on undrained error sends - the fixes already exist but sit on unmerged branches, shutdown semantics are still in flux, and every example and test in the repo's history is run-to-completion with a single-use Batch, so the always-on supervised regime that 13 of 14 candidates require has never been exercised and each project would independently invent the never-closing-source/restart/drain pattern.",
+      "what_would_resolve": "Land fix/engine-hardening and the cancel-mode decision, cut a tagged release as the floor for all fleet projects before any unattended deploy, and add one canonical long-running daemon example to gobatch (never-closing source, supervised re-New on failure, graceful SIGTERM drain) that all projects share.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C29",
+      "title": "webhook-fanin-hub: forged-webhook injection and SSRF",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["security"],
+      "source_finding_ids": ["security-2"],
+      "max_severity": "major",
+      "summary": "As an internet-facing receiver that routes events to processors, webhook-fanin-hub has two sharp edges: unsigned/unverified webhooks let anyone forge events that drive downstream actions, and data-driven routing destinations enable SSRF - most damagingly against the GCP metadata endpoint to steal the service-account token and take over the project.",
+      "what_would_resolve": "Mandatory per-source signature/HMAC verification on every inbound webhook, a static allowlist of egress destinations (no caller-controlled URLs), and explicit blocking of link-local, metadata, and private IP ranges.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C30",
+      "title": "webhook-fanin-hub: fire-and-forget intake means unrecoverable event loss",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["operator"],
+      "source_finding_ids": ["operator-6"],
+      "max_severity": "major",
+      "summary": "Webhook senders will not replay on your schedule, so any webhook-fanin-hub downtime, deploy, or in-memory batching loss drops events permanently by protocol design; and as sibling projects route through it, the hub becomes a correlated failure domain where one 2am breakage takes the dependent fleet with it and lost events cannot be reconstructed.",
+      "what_would_resolve": "An ack-after-persist intake design (durably write the raw event to Firestore/Pub/Sub before returning 200, gobatch downstream of the durable log), a replay mechanism over the persisted log, and an explicit dependency map of which candidates die when the hub is down.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C31",
+      "title": "email-triage: Gmail token is a master key, LLM a sink for 2FA codes",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["security"],
+      "source_finding_ids": ["security-3"],
+      "max_severity": "major",
+      "summary": "A mailbox is the recovery hub for nearly every other account, so a leaked broad-scope Gmail token from an unattended email-triage host enables full account-takeover cascades; separately, piping raw email bodies to a third-party LLM exfiltrates password-reset links, 2FA codes, financial data, and correspondents' PII to a provider whose retention the builder does not control.",
+      "what_would_resolve": "Use the narrowest workable scope (metadata/labels over full read), redact bodies before they reach the LLM, store tokens short-lived in a secret manager, and pre-write the token revocation/rotation plan for the leak case.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C32",
+      "title": "Shared GCP project or service account makes the weakest toy the fleet's front door",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["security"],
+      "source_finding_ids": ["security-6"],
+      "max_severity": "major",
+      "summary": "If the GCP-hosted toys share one project or service account, compromising the weakest service grants access to every project's Firestore data (mood, health, email-derived) and the ability to provision billable compute on the builder's account - blast radius is an architecture decision that must be made before building, not after.",
+      "what_would_resolve": "Per-project service accounts with least-privilege IAM (or separate projects), strict resource scoping, and per-project billing budgets and alerts so a single compromise cannot reach sibling projects or run up unbounded cost.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C33",
+      "title": "llm-micro-batcher needs request-reply batching gobatch explicitly lacks",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["historian"],
+      "source_finding_ids": ["historian-2"],
+      "max_severity": "major",
+      "summary": "llm-micro-batcher's core mechanism - batch requests, return each result to its awaiting caller - is precisely the 'sync-like batching' that gobatch's own README lists as unimplemented future roadmap; the current pipeline is strictly one-way with no response routing, so the hard parts (correlation, per-caller delivery, timeout semantics) would all be hand-rolled outside the library the project is meant to showcase.",
+      "what_would_resolve": "Either implement sync-like batching in gobatch first and build the proxy on it, or re-scope llm-micro-batcher to one-way workloads (bulk embedding backfill, fire-and-forget enrichment) where the existing pipeline genuinely fits.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C34",
+      "title": "mood-journal: the real job is the capture habit, not the summary",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["user-advocate"],
+      "source_finding_ids": ["user-advocate-3"],
+      "max_severity": "major",
+      "summary": "mood-journal solves 'summarize my moods' while the user's real job is sustaining the capture habit; a passive Discord/Slack listener provides no habit scaffold so entries stop within weeks, and routing mental-health one-liners through chat platforms and third-party LLM APIs invites self-censorship that quietly defeats the wellness purpose even when the pipeline works perfectly.",
+      "what_would_resolve": "Add an explicit habit loop (a scheduled gentle, deliberately streak-free prompt) and a stated privacy posture (private channel, optional redaction or local storage before LLM calls), and define success as 'still capturing in week 6' rather than report quality.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C35",
+      "title": "comic-render-queue: the queue is the product, auto-comics are decaying novelty",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["user-advocate"],
+      "source_finding_ids": ["user-advocate-7"],
+      "max_severity": "major",
+      "summary": "comic-render-queue's durable value is the queue itself (submit many generation jobs, get results without babysitting); fully-unattended nightly auto-comics are reliably fun for days and then become muted slop, because the joy of AI comics is in prompting and curation - judging the genuinely useful tool by its weakest feature risks mis-culling it.",
+      "what_would_resolve": "Ship the queue as the product (batched submissions, retries, overnight runs of his prompt backlog), make auto mode curated (he seeds a weekly theme and picks from rendered variants), and adopt a kill-switch rule such as retiring auto mode if outputs go unopened for two weeks.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C36",
+      "title": "Selling mood-journal or workout-logger enters the consumer-health-data regime",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["compliance"],
+      "source_finding_ids": ["compliance-1"],
+      "max_severity": "major",
+      "summary": "In personal mode mood-journal and workout-logger are essentially unregulated self-tracking, but offering either to others flips mood and fitness entries into consumer health data (Washington My Health My Data with its private right of action, GDPR Art. 9 explicit consent, plausibly the FTC Health Breach Notification Rule), with LLM routing then requiring disclosed processors and no-training terms - obligations a solo dev cannot casually satisfy; also, mood one-liners in an employer-controlled Slack workspace are exportable by admins.",
+      "what_would_resolve": "Mark both candidates personal-only in the slate decision and ingest via a personally controlled Discord/Slack instance; treat any future sell path as a separate product decision gated on consent flows, deletion, breach-notification readiness, and no-training LLM API terms.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C37",
+      "title": "Sensitive personal data flows to LLM/vision providers without a chosen retention posture",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["security"],
+      "source_finding_ids": ["security-8"],
+      "max_severity": "minor",
+      "summary": "mood-journal (mental-health signals), photo-organizer (private photos plus GPS EXIF revealing home/location), and email-triage (email bodies) all send sensitive personal data to third-party providers whose retention and training terms the builder does not control - a privacy posture to set deliberately rather than a reason not to build.",
+      "what_would_resolve": "Choose providers with no-retention/no-train terms (or self-host inference), strip EXIF GPS before upload, and document per project what categories of personal data leave the system.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C38",
+      "title": "Apply an own-data-first criterion to the cull",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["ecosystem"],
+      "source_finding_ids": ["ecosystem-12"],
+      "max_severity": "minor",
+      "summary": "Platform risk cleanly partitions the slate: candidates consuming data Vaughn owns or emits (mood-journal, workout-logger, dj-library-intel local files, comic-render-queue, webhook-fanin-hub, error-digester, llm-micro-batcher, discord-meme-digest on his own server) are insulated, while every fragile candidate (new-music-watcher, photo-organizer, gear-price-watcher, email-triage, game-session-stats) depends on a third party that closed or gated access during 2024-2026.",
+      "what_would_resolve": "Make 'own-data first' an explicit cull criterion, requiring any kept third-party-data candidate to name its sanctioned API/feed and a documented fallback.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C39",
+      "title": "Pin a cheap model class and token budget per LLM-digest project",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["cost"],
+      "source_finding_ids": ["cost-6"],
+      "max_severity": "minor",
+      "summary": "The LLM-digest candidates (mood-journal, discord-meme-digest, error-digester, email-triage) are each under ~$5/mo only if a small/cheap model class and token budget are pinned; habitually reaching for a frontier model over full email threads or chat history makes email-triage in particular 10-50x more expensive for zero added joy.",
+      "what_would_resolve": "A per-project default model class (Haiku/Flash-tier) and a written monthly token or dollar budget in each keeper's config, with input truncation rules for email-triage (headers/snippets, not full threads).",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C40",
+      "title": "Decide the multi-stage type-envelope pattern once, not ten ways",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["decomposer"],
+      "source_finding_ids": ["decomposer-6"],
+      "max_severity": "minor",
+      "summary": "gobatch's processor chain is strictly T-to-T, so every multi-stage candidate with stage-wise type changes (email-triage parse-classify-digest, photo-organizer EXIF-vision-dedupe) must adopt a fat envelope struct or chain separate Batches via processor.Channel into source.Channel; letting each project invent its own convention duplicates design effort and blocks extracting the shared chassis later.",
+      "what_would_resolve": "Pick the pattern once in a shared internal library (documented envelope struct, or a sanctioned two-Batch chaining idiom) and reuse it across all multi-stage candidates.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C41",
+      "title": "discord-meme-digest: friends' messages to an LLM need disclosure and consent",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["compliance"],
+      "source_finding_ids": ["compliance-5"],
+      "max_severity": "minor",
+      "summary": "discord-meme-digest harvests other users' messages and reactions and ships identifiable third-party content to an external LLM for ranking; Discord's developer terms condition message-content use on disclosure and restrict third-party sharing without consent even for a hobby bot, and expansion beyond his own server triggers verified message-content-intent territory (verification, privacy policy, data-use review).",
+      "what_would_resolve": "A pinned in-server disclosure (what is collected, that an LLM ranks it) with server-owner and member assent, stripping usernames/IDs before LLM calls, no-training API terms, and an explicit own-servers-only scope in the slate decision.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C42",
+      "title": "toastmasters-ops: member PII handling must be designed in",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["compliance"],
+      "source_finding_ids": ["compliance-4"],
+      "max_severity": "minor",
+      "summary": "toastmasters-ops is the only candidate whose baseline personal mode already processes other people's PII (member names, contact info, RSVPs) and sends them automated messages; exposure is modest, but the GDPR household exemption would not cover a club tool, and quietly piping member data through an LLM API would exceed what members reasonably expect.",
+      "what_would_resolve": "A one-time club announcement or officer sign-off covering what is stored and sent, storing only name/contact/role-RSVP, an easy opt-out and delete path, and template-generated agendas rather than sending member PII to LLM APIs (or explicit disclosure if LLMs are used).",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C43",
+      "title": "photo-organizer: keep face recognition and GPS EXIF out of any shared path",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["compliance"],
+      "source_finding_ids": ["compliance-7"],
+      "max_severity": "minor",
+      "summary": "photo-organizer is fine as a personal tool, but face-template clustering becomes regulated biometric data (Illinois BIPA with private right of action, Texas CUBI, GDPR Art. 9) the moment the tool is distributed, making it one of the highest-liability features to ever sell; GPS EXIF leaking into shared output is also a self-privacy footgun.",
+      "what_would_resolve": "Keep face features personal-only (or use perceptual hashes rather than face embeddings for dedupe), strip GPS EXIF from any shared output, and explicitly rule the face-recognition variant out of any sell path.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C44",
+      "title": "discord-meme-digest: delight depends on server reaction volume",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["user-advocate"],
+      "source_finding_ids": ["user-advocate-9"],
+      "max_severity": "minor",
+      "summary": "discord-meme-digest only delights if his server generates enough weekly reaction volume - an input outside his control; on a quiet server the chaos report is empty or repetitive, and a 'zero memes this week' post is worse than silence.",
+      "what_would_resolve": "Check a month of actual server reaction volume before building, and design for sparse weeks (skip the post below a threshold or widen the window) so the digest only appears when it has material.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C45",
+      "title": "workout-logger: digest should answer the GVT progression question",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["user-advocate"],
+      "source_finding_ids": ["user-advocate-5"],
+      "max_severity": "minor",
+      "summary": "workout-logger's weekly digest should answer the German Volume Training user's one real question - 'did I earn the next weight increase and what do I lift next session' - rather than generic volume stats; that decision-per-session is what keeps a tracker in use past week two, and the quick-message capture design otherwise fits the gym context well.",
+      "what_would_resolve": "Make the digest (and ideally an on-demand bot reply) emit a next-session prescription per lift plus a pace trend for the 2.4 km runs, derived from the logged sets.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    },
+    {
+      "cluster_id": "C46",
+      "title": "comic-render-queue: image-gen API churn silently breaks nightly runs",
+      "status": "CONSIDER",
+      "corroborating_lenses": ["ecosystem"],
+      "source_finding_ids": ["ecosystem-9"],
+      "max_severity": "minor",
+      "summary": "comic-render-queue's nightly unattended job sits on the fastest-churning API surface on the slate: image-generation providers deprecate models and endpoints within months, and for a job nobody watches at 3 a.m. a retired model ID means weeks of missing comics before anyone notices.",
+      "what_would_resolve": "A provider-abstraction seam plus failure/deprecation alerting (which error-digester could supply), models pinned by version, and a calendared quarterly sunset check.",
+      "resolution": { "state": "OPEN", "note": "", "ts": "" }
+    }
+  ],
+  "rank": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C17", "C18", "C19", "C20", "C21", "C22", "C23", "C24", "C25", "C26", "C27", "C28", "C29", "C30", "C31", "C32", "C33", "C34", "C35", "C36", "C37", "C38", "C39", "C40", "C41", "C42", "C43", "C44", "C45", "C46"],
+  "coverage": {
+    "lenses_run": ["skeptic", "operator", "user-advocate", "historian", "decomposer", "estimator", "cost", "ecosystem", "compliance", "security"],
+    "lenses_failed": [],
+    "repo_aware": true
+  },
+  "violations": []
+}
+```

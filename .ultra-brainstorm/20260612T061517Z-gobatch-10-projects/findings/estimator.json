@@ -1,0 +1,128 @@
+[
+  {
+    "id": "estimator-1",
+    "lens": "estimator",
+    "claim": "The slate prices building 10 services but not operating them: 10 unattended cloud deployments carry a recurring maintenance tax (API drift, token rotation, dependency and runtime updates, host migrations) that will consume most or all of a solo evenings-and-weekends budget.",
+    "severity": "major",
+    "rationale": "Each deployed personal service realistically costs 1-4 hours/month to keep alive even when 'done'; at 10 services that is 10-40 hours/month of pure upkeep, which crowds out new building and turns the portfolio into the chore the builder explicitly wants to avoid. Solo-dev portfolios historically stall at roughly 3-5 concurrently maintained live services.",
+    "evidence": [],
+    "what_would_resolve": "An explicit ops budget: estimate hours/month of upkeep per candidate, cap concurrently-deployed services to fit the real budget (e.g. <=5 live at any time), roll out in staggered waves, and build one shared deploy/secrets/logging template before the first project ships."
+  },
+  {
+    "id": "estimator-2",
+    "lens": "estimator",
+    "claim": "Building all 10 on a v0, API-unstable library maintained by the same person multiplies every gobatch breaking change into up to 10 dependent migrations, a churn cost nobody has priced.",
+    "severity": "major",
+    "rationale": "The builder intends to keep evolving gobatch (that is half the point), but with 10 downstream consumers each breaking change costs Nx upgrade work, or leaves the fleet pinned to stale versions, which quietly defeats the dogfooding goal either way.",
+    "evidence": [],
+    "what_would_resolve": "A dependency policy decided up front: tagged gobatch releases with all projects pinned plus a scheduled (e.g. quarterly) fleet upgrade pass, or 2-3 designated canary projects tracking master while the rest pin."
+  },
+  {
+    "id": "estimator-3",
+    "lens": "estimator",
+    "claim": "Most candidates see a handful of events per day, so the 'must genuinely exercise count/time windows' constraint forces always-on stream daemons where a cron job plus a query would do, and always-on processes are not free on the target cheap/free tiers.",
+    "severity": "major",
+    "rationale": "Weekly digests (mood-journal, workout-logger, discord-meme-digest, new-music-watcher, toastmasters-ops) are cron-shaped; recasting them as long-running batch pipelines adds an architecture layer and a hosting bill (Cloud Run min-instances or a VM), and Discord gateway bots additionally require a persistent websocket process that cannot be purely serverless. The slate silently trades free scheduled functions for paid 24/7 containers times N projects.",
+    "evidence": [],
+    "what_would_resolve": "For each candidate, a one-line expected events/day figure and an honest call on whether gobatch adds value beyond a cron; consolidate all chat-gateway ingestion into one shared always-on bot host with per-project processors, and price that single host explicitly."
+  },
+  {
+    "id": "estimator-4",
+    "lens": "estimator",
+    "claim": "Long batch windows (daily/weekly digests) held in gobatch's in-memory pipeline lose all buffered items on any crash or redeploy, so nearly every digest-style candidate secretly needs a durable buffer that is in nobody's estimate.",
+    "severity": "major",
+    "rationale": "The safe pattern is persist-immediately (short-window coalesced writes to Firestore) plus scheduled aggregation, which shrinks gobatch's role to seconds-scale write coalescing; designs that instead stretch in-memory windows to days discover data loss in production and retrofit persistence, the classic hidden subsystem.",
+    "evidence": [],
+    "what_would_resolve": "A standard slate-wide pattern documented before building: ingest -> gobatch short-window batch -> durable store immediately, with aggregation reading the store on a schedule; confirm no design keeps items in memory longer than minutes."
+  },
+  {
+    "id": "estimator-5",
+    "lens": "estimator",
+    "claim": "game-session-stats assumes 'Elden Ring/Monster Hunter logs' exist, but neither game emits accessible logs or offers an API, so the data-acquisition layer (memory-reading overlays, save-file reverse engineering, or manual entry) is an unsolved sub-project larger than the stats page itself.",
+    "severity": "blocker",
+    "rationale": "Community extraction tools are PC-only, fragile across game patches, and require a local agent shipping data to the cloud; on console there is no path at all. As stated the project cannot meet its own premise, and realistic effort is dominated by a component the one-line description does not mention.",
+    "evidence": [],
+    "what_would_resolve": "A one-evening spike proving an end-to-end data path (e.g. an existing overlay or save-parser exporting one real session to Firestore) on the builder's actual platform before this candidate enters the final 10; failing that, cull it or downgrade to manual entry."
+  },
+  {
+    "id": "estimator-6",
+    "lens": "estimator",
+    "claim": "dj-library-intel depends on parsing Serato's undocumented proprietary session/history formats and on getting files off the DJ laptop, two components that classically blow up estimates by multiples.",
+    "severity": "major",
+    "rationale": "Serato formats are reverse-engineered by a small set of community parsers that break across Serato versions, and the source data lives only on a local machine, so the project also needs an upload agent or manual sync step nobody has scoped; together these dwarf the 'stats dashboard' that sounds like the whole project.",
+    "evidence": [],
+    "what_would_resolve": "A one-evening spike running an existing OSS Serato parser against the builder's current real history files, plus a decided laptop-to-cloud ingestion mechanism; if the parser landscape is dead or broken for his Serato version, cull or pivot to manual CSV export."
+  },
+  {
+    "id": "estimator-7",
+    "lens": "estimator",
+    "claim": "email-triage's Gmail access is gated by Google's restricted-scope OAuth regime: unverified external apps in testing mode get refresh tokens that expire roughly every 7 days, and full verification requires a security review wildly out of proportion for a personal tool.",
+    "severity": "major",
+    "rationale": "'Just read my Gmail' is a notorious estimate trap; without choosing an auth path up front the unattended service silently dies weekly, and the workable fixes (IMAP plus app password, or a paid Workspace internal app) each change the design.",
+    "evidence": [],
+    "what_would_resolve": "Pick the auth path before committing (IMAP plus app-password avoids OAuth verification entirely) and run a 30-day unattended spike proving credentials survive without manual re-auth."
+  },
+  {
+    "id": "estimator-8",
+    "lens": "estimator",
+    "claim": "webhook-fanin-hub is a platform masquerading as a weekend project: routing config, per-destination auth, retries, replay, and debugging tooling make 'personal Zapier-lite' open-ended in a way no other candidate is.",
+    "severity": "major",
+    "rationale": "General-purpose routing hubs grow a config DSL, a management UI, and per-integration maintenance; the gap between the two-weekend version and the version that is actually pleasant to use is the largest on the slate, and it competes for the same time budget as five other projects.",
+    "evidence": [],
+    "what_would_resolve": "A hard v1 scope cut written down before keeping it: a static config file routing <=5 known sources to <=5 known destinations, no UI, no DSL, no replay; if that reduced version is not still attractive, cull it."
+  },
+  {
+    "id": "estimator-9",
+    "lens": "estimator",
+    "claim": "gear-price-watcher's 'batch-poll listings' implies scraping marketplaces, the single most maintenance-intensive archetype on the slate (anti-bot countermeasures, layout churn, IP blocks), which contradicts the unattended set-and-forget premise.",
+    "severity": "major",
+    "rationale": "Scrapers are not built once, they are rented with ongoing labor: each target site breaks on its own schedule, and an unattended watcher fails silently, meaning the alerting it exists for quietly stops working; this converts a 'small' project into a perpetual tax.",
+    "evidence": [],
+    "what_would_resolve": "Enumerate target marketplaces and commit to official API or affiliate-feed sources only (e.g. eBay and Reverb expose APIs); if the gear he actually watches lives on API-less sites, either budget explicit monthly fix-it time or cull."
+  },
+  {
+    "id": "estimator-10",
+    "lens": "estimator",
+    "claim": "photo-organizer has no priced data-acquisition path or API bill: Google Photos API changes effective 2025 block third-party access to a user's full existing library, and vision-tagging tens of thousands of photos has a real per-image cost.",
+    "severity": "major",
+    "rationale": "If the library lives in Google Photos the obvious integration is largely closed off; the alternatives (local NAS/folder agent, GCS upload bucket) change it from a cloud-run service into a local-plus-cloud hybrid, and nobody has multiplied library size by vision-API price to see whether the first full pass costs more than a year of hosting.",
+    "evidence": [],
+    "what_would_resolve": "Choose the acquisition path first (where the photos actually live and how bytes reach the pipeline) plus a back-of-envelope cost of N photos times per-image vision price, with a cheap-first design (EXIF and perceptual-hash locally, vision API only on survivors); re-scope or cull if the numbers are ugly."
+  },
+  {
+    "id": "estimator-11",
+    "lens": "estimator",
+    "claim": "comic-render-queue needs durable job state, retries with backoff, and crash recovery -- queue semantics the brief itself says gobatch does not provide -- so a persistence subsystem is hiding inside the candidate whose name promises the best gobatch fit.",
+    "severity": "major",
+    "rationale": "Nightly unattended image generation against rate-limited, intermittently failing APIs requires job records that survive restarts; with gobatch as the only machinery, in-flight prompts vanish on crash and retries have nowhere to live, so the real design is a Firestore-backed job store with gobatch demoted to dispatch batching -- fine, but a different and larger build than estimated.",
+    "evidence": [],
+    "what_would_resolve": "A one-page design naming where job state lives (e.g. Firestore job docs with status and attempt counts), how retries and idempotency work across restarts, and a nightly spend cap, agreed before the candidate is locked into the 10."
+  },
+  {
+    "id": "estimator-12",
+    "lens": "estimator",
+    "claim": "error-digester only becomes useful after the rest of the fleet exists and is instrumented to ship structured errors to it, so its value lands last and its estimate must include touching every other project.",
+    "severity": "minor",
+    "rationale": "Cross-cutting observability projects always carry an integration tail across N consumers; building it early yields an empty digest, and building the reporting shim ad hoc per project multiplies the work.",
+    "evidence": [],
+    "what_would_resolve": "Sequence it late and define one minimal shared error-reporting shim (a single HTTP endpoint or Pub/Sub topic plus a tiny Go client) that every other project adopts as it ships."
+  },
+  {
+    "id": "estimator-13",
+    "lens": "estimator",
+    "claim": "llm-micro-batcher's 'possibly sellable' tag hides a 5-10x gap: the sellable version needs auth, billing, multi-tenancy, abuse controls, and support that the personal version shares almost no code with.",
+    "severity": "minor",
+    "rationale": "Treating commercialization as an increment is a classic estimate error; if the sellable ambition leaks into v1 it bloats a genuinely good personal-fit project, and providers' own batch APIs also narrow the sellable wedge.",
+    "evidence": [],
+    "what_would_resolve": "Build the personal version with zero multi-tenant code and write explicit go/no-go criteria for a separately-estimated commercial phase."
+  },
+  {
+    "id": "estimator-14",
+    "lens": "estimator",
+    "claim": "new-music-watcher's effort scales with how many artist-feed sources sit behind real APIs: Spotify works in dev mode, but Bandcamp and several niche crate-digging sources have no public API, pushing the project toward scraping and its maintenance tail.",
+    "severity": "minor",
+    "rationale": "The per-source acquisition cost, not the digest, is the project; each API-less source added later converts a finished project back into an unfinished one.",
+    "evidence": [],
+    "what_would_resolve": "List the actual sources he digs from, verify each has an official API or RSS feed, and commit to dropping (not scraping) sources that lack one."
+  }
+]

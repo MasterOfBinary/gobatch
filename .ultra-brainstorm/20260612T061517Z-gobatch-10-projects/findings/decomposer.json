@@ -1,0 +1,116 @@
+[
+  {
+    "id": "decomposer-1",
+    "lens": "decomposer",
+    "claim": "This is not 14 projects: at least nine candidates (mood-journal, workout-logger, discord-meme-digest, new-music-watcher, error-digester, email-triage, toastmasters-ops, gear-price-watcher, game-session-stats) share one identical hidden skeleton -- event ingestion -> gobatch micro-batch -> bulk store write -> scheduled digest -> LLM summarize -> Slack/Discord delivery -- and gobatch supplies only the thin middle sliver of it.",
+    "severity": "major",
+    "rationale": "gobatch is a zero-dependency, pure-stdlib library (go.mod declares no requires); it ships exactly one production source (source.Channel) and three generic processors (Transform/Filter/Channel). Everything else each digest candidate needs -- Discord/Slack bot or webhook ingestion, Firestore persistence, cron scheduling, LLM client with batching-aware prompts, delivery/notification, deploy scaffolding -- is glue outside the library. Built independently, that glue gets written ~9 times by one evenings-and-weekends dev; the slate silently contains one chassis project wearing nine costumes, and the chassis is the true critical path that decides whether any of them ship.",
+    "evidence": [
+      "/Users/vaughn/dev/gobatch/go.mod",
+      "/Users/vaughn/dev/gobatch/source/channel.go",
+      "/Users/vaughn/dev/gobatch/processor/transform.go",
+      "/Users/vaughn/dev/gobatch/README.md"
+    ],
+    "what_would_resolve": "Name the shared chassis explicitly as project #0 (ingest endpoint + batched store writer + cron digest runner + LLM summarizer + notifier, with gobatch at its core), decide whether webhook-fanin-hub IS that chassis, and re-score the nine digest candidates as thin content layers on it before culling to 10."
+  },
+  {
+    "id": "decomposer-2",
+    "lens": "decomposer",
+    "claim": "The weekly/nightly/daily cadence at the heart of most candidates is scheduling plus durable accumulation, both explicitly outside gobatch's scope; an in-memory MaxTime window spanning hours or days on scale-to-zero free tiers loses all in-flight items on every restart.",
+    "severity": "major",
+    "rationale": "Batch buffers items in an in-memory channel (batch.go:296 `b.items = make(chan *Item[T], itemBuf)`) with no persistence, no retry, and no scheduler anywhere in the library (grep for retry/ticker/persist over non-test Go files returns nothing). A Batch is also single-use (batch.go:57, ErrBatchUsed at batch.go:262-264), and waitForItems ignores its context parameter (batch.go:484), so a long window cannot even be cancelled cleanly mid-collection. Each digest candidate therefore decomposes into two distinct deployables: (a) an ingestion path using seconds-scale gobatch windows that flushes to a durable store, and (b) a cron-triggered one-shot job (Cloud Scheduler + RunBatchAndWait, helpers.go:72) that re-streams stored rows through gobatch to chunk LLM/API calls. Candidates designed instead as always-on daemons holding week-long windows fail the cheap-tier constraint and the durability requirement simultaneously. This architectural fork determines cost, correctness, and whether gobatch genuinely fits each candidate.",
+    "evidence": [
+      "/Users/vaughn/dev/gobatch/batch/batch.go",
+      "/Users/vaughn/dev/gobatch/batch/helpers.go",
+      "/Users/vaughn/dev/gobatch/batch/config.go"
+    ],
+    "what_would_resolve": "A one-page reference architecture adopted slate-wide: gobatch windows capped at seconds-to-minutes; cadence owned by Cloud Scheduler / Cloud Run jobs; accumulation owned by Firestore; each candidate's design doc states which of its two halves (ingest vs digest) actually exercises gobatch."
+  },
+  {
+    "id": "decomposer-3",
+    "lens": "decomposer",
+    "claim": "llm-micro-batcher, webhook-fanin-hub, and error-digester are infrastructure the other candidates either consume or duplicate, so build order is a hidden dependency: built late they are redundant, built early they reshape every other project.",
+    "severity": "major",
+    "rationale": "error-digester has zero value until several other services are deployed AND emit errors in a shared format -- and the natural hook is the errs channel every gobatch pipeline already returns (Go returns <-chan error; SourceError/ProcessorError wrapping in batch/errors.go), which means a common errs-to-reporter adapter must be designed before the other services ship, not after. llm-micro-batcher only pays off if mood-journal, email-triage, discord-meme-digest, and comic-render-queue route their LLM calls through it; if each calls APIs directly first, retrofitting the proxy is pure rework. webhook-fanin-hub overlaps almost entirely with the shared ingestion chassis from decomposer-1. These three are platform pieces masquerading as peer candidates; culling or keeping them changes the decomposition of the other eleven.",
+    "evidence": [
+      "/Users/vaughn/dev/gobatch/batch/batch.go",
+      "/Users/vaughn/dev/gobatch/batch/errors.go",
+      "/Users/vaughn/dev/gobatch/batch/helpers.go"
+    ],
+    "what_would_resolve": "An explicit dependency graph over the final 10 with a declared build order, plus a standalone-vs-chassis-module decision for each of llm-micro-batcher, webhook-fanin-hub, and error-digester made before the cull, including the shared error-emission format every service will adopt on day one."
+  },
+  {
+    "id": "decomposer-4",
+    "lens": "decomposer",
+    "claim": "game-session-stats' critical path is data acquisition, not batching -- Elden Ring and Monster Hunter expose no logs or API, so the real project is a local watcher on the gaming PC, which contradicts the cloud-run-unattended constraint and reduces gobatch to a footnote; dj-library-intel and photo-organizer carry milder versions of the same hidden local-agent dependency (Serato files and photo libraries live on personal machines).",
+    "severity": "major",
+    "rationale": "gobatch's one production source reads from an in-process Go channel (source/channel.go); there is no file-watcher, uploader, or remote-ingest source in the library, so any candidate whose data originates on a local machine needs a second deployable (local agent or manual export step) before the cloud pipeline has anything to batch. For game-session-stats the acquisition layer (save-file parsing / process monitoring / overlay tooling) is essentially the entire project and has no obvious credible path; for dj-library-intel and photo-organizer a periodic local export is plausible but must be scoped as a real component, and both are closer to one-shot bulk runs (RunBatchAndWait over a finite file set) than unattended cloud services.",
+    "evidence": [
+      "/Users/vaughn/dev/gobatch/source/channel.go",
+      "/Users/vaughn/dev/gobatch/batch/helpers.go"
+    ],
+    "what_would_resolve": "For each local-data candidate, a one-paragraph answer to 'where does the data physically originate and what ships it to the cloud?'; cull or reframe game-session-stats unless a concrete acquisition mechanism is named, and reclassify dj-library-intel / photo-organizer as scheduled bulk jobs with a defined local export step."
+  },
+  {
+    "id": "decomposer-5",
+    "lens": "decomposer",
+    "claim": "All ten finalists will depend on a v0 library whose single maintainer is the same person actively breaking it, so every gobatch API change fans out as forced maintenance across N deployed services -- the slate multiplies the cost of the instability the builder himself creates.",
+    "severity": "major",
+    "rationale": "CLAUDE.md states 'GoBatch is a version 0 release... Compatibility may be broken at any time on the master branch', and the most recent history proves it is exercised: commit ba2a756 is a breaking change to the core Go/New surface ('feat(batch)!: single-use Batch + Go returns (<-chan error, error)'), with more stacked breaking work queued behind unlanded PRs. One hobby service tracking an unstable dep is fine; ten unattended cloud services pinned to it turn each library improvement into a ten-repo upgrade chore, which directly attacks the 'stays fun, not chores' goal. The critical-path decision is whether to freeze the surface or insulate consumers before fan-out, not after.",
+    "evidence": [
+      "/Users/vaughn/dev/gobatch/CLAUDE.md",
+      "ba2a756 feat(batch)!: single-use Batch + Go returns (<-chan error, error); inline item IDs (#64)",
+      "/Users/vaughn/dev/gobatch/batch/batch.go"
+    ],
+    "what_would_resolve": "Either declare a v0.x freeze of the core Batch/Source/Processor/Config surface (tag it) before building the 10, or route every project through one small shared internal adapter module that wraps gobatch, so future breaking changes are absorbed in exactly one place."
+  },
+  {
+    "id": "decomposer-6",
+    "lens": "decomposer",
+    "claim": "The Processor chain is strictly T-to-T (TransformFunc is func(T) (T, error); Process maps []*Item[T] to []*Item[T]), so every multi-stage candidate with stage-wise type changes (email-triage parse->classify->digest, photo-organizer EXIF->vision->dedupe) must adopt a fat envelope struct or chain separate Batches via processor.Channel into source.Channel -- a pattern worth deciding once, not ten ways.",
+    "severity": "minor",
+    "rationale": "There is no type-changing map in the library (processor/transform.go:11, batch/batch.go:213), so each project independently inventing its envelope convention duplicates design effort and makes the shared chassis from decomposer-1 harder to extract later. This is routine design guidance for an otherwise sound approach.",
+    "evidence": [
+      "/Users/vaughn/dev/gobatch/processor/transform.go",
+      "/Users/vaughn/dev/gobatch/processor/channel.go",
+      "/Users/vaughn/dev/gobatch/batch/batch.go"
+    ],
+    "what_would_resolve": "Pick the pattern once in the shared internal lib (documented envelope struct, or a sanctioned two-Batch chaining idiom via processor.Channel -> source.Channel) and reuse it across all multi-stage candidates."
+  },
+  {
+    "id": "decomposer-7",
+    "lens": "decomposer",
+    "claim": "comic-render-queue's promised 'retries' require a durable job queue and re-enqueue path that gobatch does not provide -- errored items are reported on the errs channel and exit the pipeline, and a single-use Batch has no re-injection API -- so the retry/job store is the project's actual core and should be scoped as such.",
+    "severity": "minor",
+    "rationale": "doProcessors forwards item errors as ProcessorError and drops the items (batch.go:431-435); nothing in the library re-queues failures, and grep confirms no retry mechanism exists. Feeding failures back into the source channel of a long-lived run is feasible, but durable retry across restarts (the case that matters for nightly unattended image-gen jobs against flaky APIs) means persisting job state outside gobatch. The idea is sound; the scoping just needs to put the job store, not the batcher, at the center.",
+    "evidence": [
+      "/Users/vaughn/dev/gobatch/batch/batch.go",
+      "/Users/vaughn/dev/gobatch/batch/errors.go"
+    ],
+    "what_would_resolve": "comic-render-queue's design names its durable job store (e.g. Firestore job docs with status/attempt fields) and defines the retry loop as cron-rescan -> re-stream failed jobs through a fresh Batch, with gobatch handling only rate-limit-friendly chunking."
+  },
+  {
+    "id": "decomposer-8",
+    "lens": "decomposer",
+    "claim": "For the sparsest candidates (mood-journal at a few events per day, workout-logger, toastmasters-ops), ingestion-side batching is vestigial -- the 'genuinely exercises gobatch' constraint is only honestly met at the digest/chunking step, and the cull scoring should evaluate them on that basis.",
+    "severity": "minor",
+    "rationale": "With 1-5 items per day, any count/time window (config.go ConfigValues) degenerates to batches of one; the genuine gobatch exercise for these candidates is the cron-side pattern of streaming 30-200 stored rows through MinItems/MaxItems windows to chunk LLM-context or bulk-write calls (RunBatchAndWait, helpers.go:72). That is a legitimate use, but if the slate's constraint is read as requiring meaningful ingestion-side batching, these candidates fail it and the scoring would be dishonest.",
+    "evidence": [
+      "/Users/vaughn/dev/gobatch/batch/config.go",
+      "/Users/vaughn/dev/gobatch/batch/helpers.go"
+    ],
+    "what_would_resolve": "Amend the constraint to state where batching must occur (ingestion, digest, or either), and annotate each sparse candidate with the specific gobatch window configuration it will genuinely run."
+  },
+  {
+    "id": "decomposer-9",
+    "lens": "decomposer",
+    "claim": "email-triage's critical path is Gmail access infrastructure, not batching: an unpublished personal OAuth app's refresh tokens expire every 7 days in testing mode, and Gmail watch/push requires a Pub/Sub topic with periodic watch renewal -- a hidden operational dependency that decides whether 'unattended' is achievable.",
+    "severity": "minor",
+    "rationale": "Nothing in gobatch helps here (zero-dependency library, channel-only source), so the entire Gmail auth + watch-renewal subsystem is bespoke glue, and its known traps (testing-mode token expiry forcing weekly manual re-auth unless the app is published or uses an alternative access path) directly conflict with the unattended-cloud goal. Well-trodden territory, but it should be on the critical path estimate before this candidate is ranked.",
+    "evidence": [
+      "/Users/vaughn/dev/gobatch/go.mod",
+      "/Users/vaughn/dev/gobatch/source/channel.go"
+    ],
+    "what_would_resolve": "A named auth strategy for unattended personal Gmail access (published OAuth app in production mode, or periodic-poll with a long-lived credential approach) written into the candidate before scoring it against the others."
+  }
+]

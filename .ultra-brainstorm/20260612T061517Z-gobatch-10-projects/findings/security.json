@@ -1,0 +1,74 @@
+[
+  {
+    "id": "security-1",
+    "lens": "security",
+    "claim": "llm-micro-batcher is an internet-facing proxy holding the builder's upstream LLM provider keys, and as stated has no described auth/quota trust boundary, making it an open relay for paid keys.",
+    "severity": "blocker",
+    "rationale": "An exposed endpoint that forwards to upstream providers using the builder's API keys is, without per-caller authentication and hard spend caps, an open relay: anyone who finds the URL gets key-equivalent spending power on the builder's accounts, and any logging/echo path risks leaking the key itself. The 'possibly sellable' framing multiplies this: a multi-tenant version would also custody other people's keys, turning a personal toy into a high-value breach target. This is the single most damaging abuse path in the slate and the trust boundary is not described as defended.",
+    "evidence": [],
+    "what_would_resolve": "Decide single-tenant vs multi-tenant before building; require per-caller authentication, enforce hard per-caller and global spend/rate caps with automatic shutoff, ensure upstream keys are never returned to or logged for clients, and document the endpoint's threat model."
+  },
+  {
+    "id": "security-2",
+    "lens": "security",
+    "claim": "webhook-fanin-hub is an internet-facing receiver that routes events to processors, exposing it to forged/unsigned-webhook injection and SSRF to arbitrary destinations.",
+    "severity": "major",
+    "rationale": "A 'Zapier-lite' router accepting events from the internet has two sharp edges: (1) if it does not verify per-source signatures, anyone can forge events to drive downstream actions; (2) if routing destinations are data-driven, an attacker can point egress at internal addresses, most damagingly the GCP metadata endpoint (169.254.169.254) to steal the service-account token and take over the whole project. Either path is decision-changing for an unattended service.",
+    "evidence": [],
+    "what_would_resolve": "Mandatory per-source signature/HMAC verification on every inbound webhook, a static allowlist of egress destinations (no caller-controlled URLs), and explicit blocking of link-local/metadata/private IP ranges."
+  },
+  {
+    "id": "security-3",
+    "lens": "security",
+    "claim": "email-triage requires a broad Gmail OAuth token on an unattended host and streams full email bodies to a third-party LLM, making the token a master key and the LLM a sink for 2FA codes and PII.",
+    "severity": "major",
+    "rationale": "A mailbox is the recovery hub for nearly every other account, so a leaked broad-scope Gmail token from an unattended cloud service enables full account-takeover cascades, not just email reading. Separately, piping raw bodies to an LLM exfiltrates password-reset links, 2FA codes, financial data, and correspondents' PII to a provider whose retention the builder does not control.",
+    "evidence": [],
+    "what_would_resolve": "Use the narrowest scope that works (metadata/labels over full read where possible), redact bodies before they reach the LLM, store the token short-lived in a secret manager, and pre-write a token-revocation/rotation plan for the leak case."
+  },
+  {
+    "id": "security-4",
+    "lens": "security",
+    "claim": "error-digester centralizes error payloads from every deployed toy (which the brief notes may contain secrets) and forwards them to a third-party LLM, turning observability into a secret-exfiltration and single-point-of-breach risk.",
+    "severity": "major",
+    "rationale": "Error payloads and stack traces routinely carry tokens, connection strings, request bodies, and PII. Aggregating them from the whole fleet into one store creates a concentrated high-value target, and summarizing them via an external LLM ships those secrets off-platform. An unattended digester thus becomes the most efficient way to breach every other project at once.",
+    "evidence": [],
+    "what_would_resolve": "Scrub/redact secrets at each source before they enter the batch, drop raw payloads after summarization (retain only redacted summaries), and treat the digester's store as a high-value asset with encryption and tight access control."
+  },
+  {
+    "id": "security-5",
+    "lens": "security",
+    "claim": "The slate as a whole spreads long-lived secrets for the builder's real accounts across ~10-14 fast-shipped, free-tier, likely-public-repo services, making an accidentally committed credential or one compromised host highly likely and cascading.",
+    "severity": "major",
+    "rationale": "A scrappy solo dev shipping many side projects to public GitHub (gobatch itself is public) and free tiers maximizes the chance of a token landing in git history or a weak-default host. With one maintainer and no monitoring, such a leak can persist undetected; if secrets are shared or similar across projects, one leak compromises the fleet.",
+    "evidence": [],
+    "what_would_resolve": "Adopt a single secret-handling pattern (runtime injection via a secret manager, never in-repo), enable pre-commit/CI secret scanning across all repos, and ensure each service uses its own credentials so one leak is contained."
+  },
+  {
+    "id": "security-6",
+    "lens": "security",
+    "claim": "If the GCP-hosted toys share one project or service account, compromise of the weakest service grants access to every project's Firestore data and the ability to spin up billable resources.",
+    "severity": "major",
+    "rationale": "Blast radius is an architecture decision made before building. A shared service account or project means the security of the whole fleet equals that of its weakest member; a single SSRF or leaked key then exposes all Firestore data (mood/health/email-derived) and lets an attacker provision compute (e.g. crypto-mining) on the builder's billing.",
+    "evidence": [],
+    "what_would_resolve": "Per-project GCP service accounts with least-privilege IAM (or separate projects), strict resource scoping, and per-project billing budgets/alerts so a single compromise cannot reach other projects or run up unbounded cost."
+  },
+  {
+    "id": "security-7",
+    "lens": "security",
+    "claim": "Services that call paid LLM/image-gen APIs and are externally triggerable or retry-looped (llm-micro-batcher, comic-render-queue, email-triage, mood-journal, error-digester) have no described spend ceiling, so abuse or a runaway loop converts directly into an unbounded bill.",
+    "severity": "major",
+    "rationale": "Cost-exhaustion is the realistic 'DoS' against an unattended hobby fleet: an attacker who can trigger work (exposed endpoint, forged webhook) or a misbehaving retry loop on image-gen APIs spends real money with no human watching. Batching rate-smooths but does not cap total spend.",
+    "evidence": [],
+    "what_would_resolve": "Hard per-service billing budgets with automatic shutoff, bounded retries with backoff and a dead-letter path, and rate limits on any externally reachable trigger."
+  },
+  {
+    "id": "security-8",
+    "lens": "security",
+    "claim": "Sensitive personal data flows to third-party LLM/vision providers without controlled retention: mood-journal (mental-health signals), photo-organizer (private photos plus GPS EXIF), and email bodies.",
+    "severity": "minor",
+    "rationale": "These projects send the builder's (and correspondents') sensitive data to external APIs whose retention/training terms he does not control; EXIF geotags in particular leak home/location data alongside images. This is a privacy posture to set deliberately rather than a reason not to build.",
+    "evidence": [],
+    "what_would_resolve": "Choose providers with no-retention/no-train terms (or self-host inference), strip EXIF GPS before upload, and document what categories of personal data leave each system."
+  }
+]

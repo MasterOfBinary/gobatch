@@ -1,0 +1,128 @@
+[
+  {
+    "id": "operator-1",
+    "lens": "operator",
+    "claim": "Slate-wide, the dominant failure mode is silent absence: most candidates' only output is a periodic digest (mood-journal, workout-logger, discord-meme-digest, new-music-watcher, error-digester, email-triage), so when a pipeline dies nothing pages anyone and breakage is discovered weeks later as missing reports and lost history.",
+    "severity": "major",
+    "rationale": "Ten unattended services with a single part-time operator and no on-call means 'no output' is indistinguishable from 'nothing happened.' Digest-shaped systems fail invisibly; by the time absence is noticed, weeks of data context or alerts are gone, and diagnosis starts from a cold trail. This undermines the slate's core premise of running unattended.",
+    "evidence": [],
+    "what_would_resolve": "Adopt a mandatory shared liveness pattern before scaling past the first 2-3 projects: every batch flush pings a dead-man's-switch (healthchecks.io/Cloud Monitoring uptime check), plus a 'zero items processed for N consecutive windows' alarm, with one shared dashboard of last-success timestamps across all projects."
+  },
+  {
+    "id": "operator-2",
+    "lens": "operator",
+    "claim": "error-digester is the fleet's de facto monitoring system but has no watcher itself and puts an LLM API on the incident-notification critical path, so a single failure (expired key, revoked Slack webhook, LLM quota exhaustion) silently blinds the operator to every other project's failures at once.",
+    "severity": "major",
+    "rationale": "Who watches the watcher is the first on-call question. Daily batching also means up to 24h notification latency for any failure it does catch, and an LLM outage or quota hit converts 'summarize my errors' into 'no error visibility at all.' Correlated loss of all failure signal is the worst possible 2am scenario because the operator does not even know to look.",
+    "evidence": [],
+    "what_would_resolve": "Design error-digester with: (1) its own liveness externally monitored by a third-party heartbeat service, (2) a degraded mode that delivers raw error counts/samples to Slack when LLM summarization fails (LLM as enhancement, never dependency), and (3) a severity threshold that bypasses the daily batch and notifies immediately."
+  },
+  {
+    "id": "operator-3",
+    "lens": "operator",
+    "claim": "gobatch batches in memory, so any process restart (Cloud Run scale-down, redeploy, pod eviction, crash) drops the in-flight window, and for mood-journal and workout-logger those are human-typed one-shot entries that are permanently lost and will not be re-entered.",
+    "severity": "major",
+    "rationale": "The brief itself notes gobatch is not a queue. On cheap/preemptible infrastructure restarts are routine, not exceptional, so the current batch window is lost regularly, not rarely. For journaling and workout data, silent loss of entries destroys trust in the tool and is undetectable after the fact (the user assumes it was saved). This is a correctness failure of the core promise, not an edge case.",
+    "evidence": [],
+    "what_would_resolve": "A stated persist-then-batch architecture for any human-originated input: append the raw event durably (Firestore write or Pub/Sub publish) at ingest time and have gobatch consume from the durable tail for aggregation, plus SIGTERM graceful-drain flushing open batches; or an explicit written acceptance of at-most-once loss per project."
+  },
+  {
+    "id": "operator-4",
+    "lens": "operator",
+    "claim": "Time-window batching requires a long-lived always-on process, which conflicts with the stated free/cheap tiers: Vercel functions are request-scoped, Cloud Run idles to zero (killing open windows), and ten services pinned at min-instances=1 is no longer cheap, so the slate currently has no viable runtime plan.",
+    "severity": "major",
+    "rationale": "This is the load-bearing operational decision for the whole slate and it is unresolved. If pipelines run on scale-to-zero infra, batch windows flush never or unpredictably and operator-3's data loss happens constantly; if everything gets a dedicated warm instance, cost violates the stated constraint and ten deployables multiply patching, secrets, and monitoring toil tenfold.",
+    "evidence": [],
+    "what_would_resolve": "A named fleet runtime decision before committing: most naturally, exploit the fact that gobatch is a library and consolidate many pipelines into one 'fleet host' binary on a single always-warm instance (one small VM, one GKE node, or one Cloud Run service with min-instances=1), with a per-month cost ceiling written down; per-project serverless only for genuinely request-shaped candidates."
+  },
+  {
+    "id": "operator-5",
+    "lens": "operator",
+    "claim": "email-triage will decay silently on Gmail OAuth mechanics (unverified apps in testing mode get 7-day refresh-token expiry) and, once the user has delegated attention to it, its failure mode is missed important email; if it also labels/archives, one bad batch classification can bury mail in a way that is hard to even detect.",
+    "severity": "major",
+    "rationale": "Personal Gmail API projects are the canonical silently-dying side project: token expiry presents as the pipeline simply stopping, weekly. The blast radius is unusually high because the tool's success means the user stops checking the inbox manually, so the system failing quietly is strictly worse than the system never existing. Mutating the mailbox unattended adds an unrecoverable-by-inspection failure class.",
+    "evidence": [],
+    "what_would_resolve": "Before building: confirm a sustainable OAuth posture (verified app, Workspace internal app, or accepted weekly re-auth ritual); v1 acts read-only (labels only, never archive/delete); a daily 'triage ran, N messages processed' heartbeat plus an unprocessed-backlog alarm so death is loud."
+  },
+  {
+    "id": "operator-6",
+    "lens": "operator",
+    "claim": "webhook-fanin-hub accepts fire-and-forget webhooks, so any downtime, deploy, or in-memory batching loss drops events unrecoverably (senders will not replay on your schedule), and as other projects route through it, it becomes a correlated failure domain for the whole fleet.",
+    "severity": "major",
+    "rationale": "Webhook intake is the one workload where availability gaps equal permanent data loss by protocol design. A personal Zapier-lite quickly becomes load-bearing plumbing; when it breaks at 2am, every dependent project breaks with it, and diagnosis means reconstructing which events were lost with no source of truth.",
+    "evidence": [],
+    "what_would_resolve": "An ack-after-persist intake design: durably write the raw event (Firestore/Pub/Sub) before returning 200, with gobatch processing downstream of the durable log; a replay mechanism for the persisted log; and an explicit dependency map of which other candidates die when the hub is down."
+  },
+  {
+    "id": "operator-7",
+    "lens": "operator",
+    "claim": "photo-organizer's dedupe is an unattended destructive operation on irreplaceable personal photos: a hashing/heuristic bug deletes originals silently and may not be noticed for months, past any recovery window.",
+    "severity": "major",
+    "rationale": "Automated deletion of unique personal data is the highest-stakes operational shape on this slate. Unlike every other candidate, recovery from a bad run may be impossible, and the failure is only discovered when a photo is searched for long after backups/trash have rotated. Running this unattended as designed is unsafe until the destructive path is removed.",
+    "evidence": [],
+    "what_would_resolve": "A non-destructive contract: dedupe moves to a quarantine location with long retention and hard-delete is never automated; default dry-run mode producing a reviewable report; a verified restore test before the first real run against the library."
+  },
+  {
+    "id": "operator-8",
+    "lens": "operator",
+    "claim": "comic-render-queue runs nightly with retries against paid image-generation APIs, so a poison prompt or partial provider outage plus a retry loop burns money unattended while the operator sleeps, a wake-up-to-a-bill failure that directly violates the cheap-tier constraint.",
+    "severity": "major",
+    "rationale": "Retry-on-paid-API is the classic unattended cost incident: each failure costs money instead of just time, the design guarantees the operator is asleep when it happens, and discovery is the next morning's bill or quota lockout (which then breaks other LLM-dependent projects sharing the account).",
+    "evidence": [],
+    "what_would_resolve": "A per-run spend cap and retry circuit breaker (bounded attempts, exponential backoff, dead-letter queue for failed prompts) designed in from the start, plus provider-side billing alerts and a separate API key/budget from other projects."
+  },
+  {
+    "id": "operator-9",
+    "lens": "operator",
+    "claim": "llm-micro-batcher centralizes all LLM traffic for the fleet, creating a single point of failure that takes down the LLM features of every other project at once and adds a proxy-vs-upstream layer to every diagnosis; if it is ever sold or shared, the builder becomes 24/7 on-call for other people's traffic with no SLO.",
+    "severity": "major",
+    "rationale": "Shared infrastructure is the highest-leverage and highest-blast-radius candidate on the slate. A solo evenings-and-weekends operator cannot honestly operate sold infrastructure on the request path of paying users; that obligation is the definition of the project becoming a chore, which the brief explicitly wants to avoid.",
+    "evidence": [],
+    "what_would_resolve": "Per-client fallback to call the provider directly when the proxy is unhealthy; error responses that distinguish proxy faults from upstream faults; and an explicit pre-commitment decision on the sellable angle (personal-only, or shipped as self-hosted software rather than an operated service)."
+  },
+  {
+    "id": "operator-10",
+    "lens": "operator",
+    "claim": "gear-price-watcher (and to a lesser degree new-music-watcher) fails ambiguously: site redesigns, bot detection, captchas, and cloud-IP bans all present as 'no results,' which is identical to the healthy 'no price drops this week' state, and unattended marketplace scraping risks bans that end the project outright.",
+    "severity": "major",
+    "rationale": "Pollers whose healthy output is usually nothing are undiagnosable without explicit instrumentation: the operator cannot tell 'no deals' from 'scraper has been returning empty parses for three weeks.' Marketplace anti-bot measures against datacenter IPs make outright breakage likely, not hypothetical, and recovery (new selectors, new IPs, ToS exposure) is recurring toil.",
+    "evidence": [],
+    "what_would_resolve": "Prefer official APIs/RSS/affiliate feeds where they exist; record fetch status and parsed-item counts separately from match results, alarming on zero-parse or selector-miss N polls in a row; stamp every digest with 'data as of <last successful poll>' so staleness is visible in the product itself."
+  },
+  {
+    "id": "operator-11",
+    "lens": "operator",
+    "claim": "game-session-stats spans two failure domains, a capture agent on a home gaming PC plus a cloud pipeline, and because the PC is usually off, staleness is the normal state, making breakage indistinguishable from 'did not play this week.'",
+    "severity": "minor",
+    "rationale": "Diagnosing across a sometimes-on home machine and a cloud service is disproportionately annoying for a low-stakes stats page, and the fleet-wide heartbeat pattern does not cleanly apply when absence of data is usually legitimate.",
+    "evidence": [],
+    "what_would_resolve": "A capture-agent last-seen heartbeat tracked separately from session data, surfaced on the stats page ('agent last seen X days ago'), so pipeline death is distinguishable from not playing."
+  },
+  {
+    "id": "operator-12",
+    "lens": "operator",
+    "claim": "toastmasters-ops is the one candidate where third parties (club members) depend on output with hard deadlines, so a silent send failure means real people show up without agendas or miss role reminders.",
+    "severity": "minor",
+    "rationale": "The blast radius extends beyond the builder, but the failure is socially loud and humanly recoverable (someone asks where the agenda is), which actually makes it operationally more detectable than the silent digests; it mainly needs slack time and confirmation built into the schedule.",
+    "evidence": [],
+    "what_would_resolve": "Post-send delivery verification (sent-count vs expected, alert on mismatch) and scheduling sends far enough before the meeting that a failure leaves time for a manual fallback."
+  },
+  {
+    "id": "operator-13",
+    "lens": "operator",
+    "claim": "All ten survivors will depend on gobatch, a v0 library whose own maintainer intentionally breaks compatibility on master, so every API break ripples into up to ten redeploys or, more likely, services pin stale versions and drift apart.",
+    "severity": "minor",
+    "rationale": "Self-inflicted dependency churn across a ten-service fleet is recurring weekend toil that erodes the 'stays fun' constraint; it is also the predictable source of 'works on three services, panics on the two I have not touched since March' incidents.",
+    "evidence": [],
+    "what_would_resolve": "Tag gobatch releases and pin each service to a tagged version; batch library upgrades as a deliberate periodic fleet maintenance pass rather than per-project ad hoc bumps (a consolidated fleet-host binary per operator-4 reduces this to one upgrade point)."
+  },
+  {
+    "id": "operator-14",
+    "lens": "operator",
+    "claim": "The slate accumulates roughly a dozen credential surfaces (Discord and Slack tokens, Gmail OAuth, multiple LLM and image-gen keys, GCP service accounts), and credential expiry or revocation is the dominant slow-decay failure of personal fleets, each instance presenting as a service silently stopping.",
+    "severity": "minor",
+    "rationale": "Each individual key is trivial; a dozen of them across ten unattended services guarantees a steady background rate of mystery outages whose diagnosis always starts with twenty minutes of 'which key died this time,' multiplying mean time to recovery for an evenings-only operator.",
+    "evidence": [],
+    "what_would_resolve": "One secret store (GCP Secret Manager) for the whole fleet plus a simple credential inventory with known expiry/renewal notes, so the heartbeat alarms from operator-1 resolve to 'which secret' in minutes rather than archaeology."
+  }
+]

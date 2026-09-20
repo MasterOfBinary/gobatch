@@ -1,0 +1,74 @@
+[
+  {
+    "id": "compliance-1",
+    "lens": "compliance",
+    "claim": "Selling mood-journal or workout-logger flips them from essentially unregulated personal self-tracking into the consumer-health-data regime (WA My Health My Data and similar state laws, GDPR Art. 9, FTC Health Breach Notification Rule), which a solo dev cannot casually satisfy.",
+    "severity": "major",
+    "rationale": "In personal mode both candidates process only the builder's own mood and fitness entries, so privacy law imposes essentially nothing (GDPR household exemption; no US law reaches self-tracking). The moment either is offered to others, mood and workout entries become 'consumer health data' under Washington's My Health My Data Act (private right of action, consent and deletion duties), special-category data under GDPR Art. 9 (explicit consent), and the app plausibly becomes a vendor of personal health records under the FTC Health Breach Notification Rule; routing that data through third-party LLM APIs then additionally requires disclosed processors and no-training terms. One personal-mode caveat: mood one-liners dropped into an employer-controlled Slack workspace are exportable by workspace admins, so the ingestion surface should be a personally controlled Discord/Slack instance.",
+    "evidence": [],
+    "what_would_resolve": "Mark both candidates personal-only in the slate decision (and run them on a personally controlled Discord/Slack); if a sell path is ever pursued, treat it as a separate product decision gated on consent flows, deletion, breach-notification readiness, and no-training LLM API terms."
+  },
+  {
+    "id": "compliance-2",
+    "lens": "compliance",
+    "claim": "email-triage as stated (an unattended cloud worker reading a consumer Gmail account via restricted Gmail API scopes and piping full email content to an LLM) collides with Google's restricted-scope OAuth rules in personal mode, and with restricted-scope verification plus Limited Use rules if it is ever sold.",
+    "severity": "major",
+    "rationale": "Gmail read scopes are 'restricted' under the Google API Services User Data Policy. A consumer (non-Workspace) OAuth app must stay in Testing status to avoid verification, and Testing-status refresh tokens for sensitive/restricted scopes expire after roughly 7 days, which breaks 'runs unattended in the cloud'; publishing without verification blocks restricted scopes, and restricted-scope verification requires an annual CASA security assessment that is not realistic for a solo hobby app. Selling it adds Limited Use obligations that constrain transferring email content to third parties (the LLM API) and prohibit use for model training, and the correspondents whose emails are processed get no say, which becomes unavoidable at the point of sale.",
+    "evidence": [],
+    "what_would_resolve": "Redesign personal-mode ingestion to avoid restricted OAuth scopes (IMAP with an app password, or auto-forwarding to a self-controlled mailbox/inbound parser), keep it strictly single-user, and drop any sell ambition for this candidate unless prepared to fund restricted-scope verification and CASA."
+  },
+  {
+    "id": "compliance-3",
+    "lens": "compliance",
+    "claim": "llm-micro-batcher is clean for personal use, but its flagged sell path makes the builder a data processor for other people's prompt data, with DPA, sub-processor, retention, and breach duties plus cross-customer prompt commingling inside shared batched API calls — a materially different obligation regime.",
+    "severity": "major",
+    "rationale": "Sold as a proxy, every customer's prompts (which routinely contain personal data and secrets) flow through his infrastructure and his upstream LLM accounts. Processor status under GDPR and state privacy laws follows automatically: customers will expect a DPA, named sub-processors (the LLM vendors), defined log retention, and breach notification. gobatch-style batching also merges multiple customers' requests into single upstream calls under one API key, so one customer's data sits in another customer's request context and in shared provider-side logs, which enterprise terms often forbid; he also inherits whatever regulated data (health, children's, payment) customers push through unless his terms prohibit it.",
+    "evidence": [],
+    "what_would_resolve": "Keep it personal-only for the slate decision, or pre-commit a sell-mode design: per-tenant isolation (no cross-customer batches, or per-tenant upstream keys), minimal or no prompt logging with stated retention, a short DPA template naming the LLM sub-processors, and terms banning regulated data."
+  },
+  {
+    "id": "compliance-4",
+    "lens": "compliance",
+    "claim": "toastmasters-ops is the only candidate whose baseline personal mode already processes other people's PII (members' names and contact info) and sends them automated messages, so member notice/consent, minimal retention, and deletion need to be designed in from the start.",
+    "severity": "minor",
+    "rationale": "Legal exposure is modest — a small club tool, non-commercial reminders fall outside anti-spam regimes like CASL/CAN-SPAM, and officer handling of member data is normal — but the GDPR household exemption would not cover a club tool, Toastmasters International has its own member-data expectations, and quietly piping member names and RSVPs through an LLM API would exceed what members reasonably expect.",
+    "evidence": [],
+    "what_would_resolve": "A one-time club announcement or officer sign-off covering what is stored and sent, storing only name, contact, and role/RSVP, an easy opt-out/delete path, and template-generated agendas rather than sending member PII to LLM APIs (or explicit disclosure if LLMs are used)."
+  },
+  {
+    "id": "compliance-5",
+    "lens": "compliance",
+    "claim": "discord-meme-digest harvests other users' messages and reactions and, for LLM ranking, ships identifiable third-party content to an external API, which Discord's Developer Terms/Policy condition on disclosure and consent even for a hobby bot, and which flips into verified message-content-intent territory if it ever leaves his own server.",
+    "severity": "minor",
+    "rationale": "In a single friends' server the realistic obligation is cheap: Discord's developer rules require using message content only as disclosed and restrict sharing user data with third parties without consent, and friends' messages are identifiable third-party content even when the output stays in-server. Unverified bots also lose the message-content privileged intent as server count grows, so any expansion or sell path means Discord verification, a privacy policy, and data-use review.",
+    "evidence": [],
+    "what_would_resolve": "A pinned in-server disclosure (what is collected and that an LLM ranks it) with server-owner and member assent, stripping usernames/IDs before LLM calls, no-training API terms, and an explicit own-servers-only scope in the slate decision."
+  },
+  {
+    "id": "compliance-6",
+    "lens": "compliance",
+    "claim": "gear-price-watcher's polling of retailer listings typically breaches retailer ToS and anti-bot terms, which at personal scale is an IP/account-ban and reliability risk rather than a legal one, but redistributing or selling the alerts would change that.",
+    "severity": "minor",
+    "rationale": "Low-rate personal scraping of public prices is not a realistic legal exposure post-Van Buren/hiQ, but it remains a contract/ToS breach with practical consequences (blocks, captchas, brittle parsers), and republishing scraped prices to other users or commercializing alerts invites actual enforcement attention from retailers.",
+    "evidence": [],
+    "what_would_resolve": "Prefer official or affiliate APIs and RSS feeds where available, keep poll rates low, honor robots.txt, and keep output strictly personal with no public republication of scraped pricing."
+  },
+  {
+    "id": "compliance-7",
+    "lens": "compliance",
+    "claim": "photo-organizer is fine as a personal tool, but if tagging/dedupe grows into face recognition and the tool were ever distributed, biometric regimes (Illinois BIPA with its private right of action, Texas CUBI, GDPR Art. 9) make it one of the highest-liability features to sell.",
+    "severity": "minor",
+    "rationale": "Processing his own photo library, including friends' faces and location EXIF, through cloud vision APIs carries no real personal-mode obligation; the trap is that face-template clustering becomes regulated biometric data the moment other people use the product, and that GPS EXIF leaking into anything shared or public is a self-privacy footgun.",
+    "evidence": [],
+    "what_would_resolve": "Keep face features personal-only (or use perceptual hashes rather than face embeddings for dedupe), strip GPS EXIF from any shared output, and explicitly rule the face-recognition variant out of any sell path."
+  },
+  {
+    "id": "compliance-8",
+    "lens": "compliance",
+    "claim": "error-digester will forward whatever lands in the sibling projects' error logs — potentially third parties' Discord messages, member contact info, or email fragments — into an external LLM and Slack, so unscrubbed logs quietly create a secondary use of other people's data collected elsewhere in the slate.",
+    "severity": "minor",
+    "rationale": "Each sibling project's data posture (for example 'member info never goes to an LLM') is only as good as its log hygiene; stack traces and error payloads routinely embed request content, and a daily LLM-written summary becomes an unreviewed re-sharing channel for that content.",
+    "evidence": [],
+    "what_would_resolve": "Redact or structure error payloads at the source (IDs rather than content), filter known PII fields before the LLM call, and use API endpoints with no-training and limited-retention terms."
+  }
+]

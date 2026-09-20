@@ -1,0 +1,74 @@
+[
+  {
+    "id": "cost-1",
+    "lens": "cost",
+    "claim": "Running ~10 keepers as separate always-on cloud services puts the slate's run-rate at roughly $50-150+/mo on the persona's default platforms (per-project Cloud Run with warm instances, or GKE Autopilot at ~$12+/mo per minimal pod), versus near $0 if the fleet is consolidated into one binary or one free-tier host.",
+    "severity": "major",
+    "rationale": "The brief itself flags 'runs unattended in the cloud' for ~10 services as a cost surface. Go daemons built on gobatch are tiny (tens of MB RSS) and trivially co-hostable; a single GCP always-free e2-micro, one small e2-small node, or one Cloud Run service with min-instances=1 can host the entire fleet for $0-15/mo. The 10x-plus bill difference is purely an architecture decision (service-per-project vs consolidated fleet host), and that decision also changes which candidates are viable on free tiers, so it should be made before the cull, not after.",
+    "evidence": [],
+    "what_would_resolve": "A one-page fleet hosting plan chosen before culling: consolidation target (e.g., single always-free e2-micro or one always-warm Cloud Run service running all pipelines), an estimated total monthly bill, and a hard fleet budget cap (e.g., <= $20/mo) that the final 10 must collectively fit."
+  },
+  {
+    "id": "cost-2",
+    "lens": "cost",
+    "claim": "gobatch's in-process time-window batching is structurally incompatible with the $0 scale-to-zero serverless path, so the 'cheap/free tier' assumption silently fails for the event-driven candidates (webhook-fanin-hub, mood-journal, workout-logger, discord-meme-digest, error-digester).",
+    "severity": "major",
+    "rationale": "Time windows require a process that stays alive (and gets CPU) between events: Cloud Run with default request-based billing throttles CPU outside requests so background batch timers do not fire reliably, scale-to-zero kills in-flight batches buffered in memory, and Discord/Slack gateway bots need a persistent socket and cannot scale to zero at all. The honest options are CPU-always-allocated/min-instances (paid, per cost-1) or a consolidated always-on host; 'genuinely exercises gobatch' therefore closes the obvious free serverless route for roughly half the slate, and each keeper needs an explicit hosting answer rather than an assumed free one.",
+    "evidence": [],
+    "what_would_resolve": "For each event-driven keeper, a named hosting mode that preserves window semantics (consolidated always-on daemon, or Cloud Run with CPU always allocated + min-instances=1) with its monthly cost attached, or an explicit decision to accept losing in-flight batches on scale-down."
+  },
+  {
+    "id": "cost-3",
+    "lens": "cost",
+    "claim": "llm-micro-batcher's core cost premise is partly false: client-side micro-batching of synchronous LLM/embedding calls does not reduce per-token price, so as stated the project saves rate-limit headroom and round trips, not dollars.",
+    "severity": "major",
+    "rationale": "Real LLM cost savings come from provider async batch APIs (OpenAI Batch / Anthropic Message Batches, ~50% off with up-to-24h turnaround), which is a different product shape (async job submission) than a low-latency batching proxy; embedding APIs already accept arrays and bill per token regardless of how requests are coalesced. The 'possibly sellable' angle compounds this: a paid proxy sits in customers' billing hot path, competes with free OSS gateways (e.g., LiteLLM), and inherits key-custody and egress costs, so its unit economics as a product are adverse unless the 50%-discount batch-API mechanism is the explicit value prop.",
+    "evidence": [],
+    "what_would_resolve": "A rewritten value prop pinned to a real discount mechanism (route deferrable work to provider batch APIs at 50% off, with async semantics) including a worked example of dollars saved per month at Vaughn's personal volumes; or reframe the project as a rate-limit/throughput tool and drop the cost-saving claim and the sellable framing."
+  },
+  {
+    "id": "cost-4",
+    "lens": "cost",
+    "claim": "comic-render-queue's 'nightly auto-comics with retries' accrues image-generation spend without per-use intent and is likely the dominant line item of the whole fleet, on the order of $10-60+/mo at typical API prices ($0.02-0.08/image) once panels, candidate generations, and retry multipliers are counted.",
+    "severity": "major",
+    "rationale": "An 8-panel nightly comic with a 1.5x retry factor is ~360 images/mo (~$15/mo at $0.04/image), and common patterns like generating 3-4 candidates per panel or higher-resolution outputs push it to $50+/mo; retries on a flaky API are an unbounded cost multiplier unless capped. The self-hosted Stable Diffusion alternative is worse in the cloud (an always-on GPU VM is $200+/mo; even on-demand T4 time adds up), so the project's keep/cull decision genuinely depends on a chosen price point and whether 'nightly' should become 'on-demand'.",
+    "evidence": [],
+    "what_would_resolve": "A worked monthly budget (panels/night x candidates/panel x retry cap x chosen API's per-image price) with a hard spend cap enforced in the queue (e.g., max N images/night and a monthly dollar ceiling), plus an explicit nightly-vs-on-demand decision."
+  },
+  {
+    "id": "cost-5",
+    "lens": "cost",
+    "claim": "photo-organizer's initial backfill is a one-time cost spike that swings 100x+ depending on API choice: vision-tagging a 30-100k photo library costs roughly $45-150 on Cloud Vision label detection ($1.50/1k images) but only a few dollars on a cheap multimodal model (Gemini-Flash-class image input).",
+    "severity": "minor",
+    "rationale": "Steady-state cost (new photos only) is pennies, so the risk is concentrated in the backfill and in accidental full re-runs of the library through the vision API during development or dedupe iterations; staging the library into GCS also adds modest storage cost. This is a capped, one-time exposure rather than a run-rate problem, hence minor, but worth pricing before pressing go.",
+    "evidence": [],
+    "what_would_resolve": "A 1k-photo pilot on the chosen API with measured cost extrapolated to the full library size, plus tag-once persistence (results cached by content hash) so dedupe and re-runs never re-bill the vision API."
+  },
+  {
+    "id": "cost-6",
+    "lens": "cost",
+    "claim": "The LLM-digest candidates (mood-journal, discord-meme-digest, error-digester, email-triage) are each under ~$5/mo only if a small/cheap model class and token budget are pinned per project; defaulting to a frontier model over full email threads or chat history makes email-triage in particular 10-50x more expensive.",
+    "severity": "minor",
+    "rationale": "Volumes are inherently small (one weekly vibe report, one daily error summary, ~30-100 emails/day classified), so with a Haiku/Flash-class model these projects are effectively free; the risk is purely the habitual reach for the biggest model plus unbounded context (full threads, full reaction history), which turns a few dollars a month across the fleet into tens of dollars for zero added joy.",
+    "evidence": [],
+    "what_would_resolve": "A per-project default model class (small/cheap) and a written monthly token or dollar budget in each keeper's config, with input truncation rules for email-triage (headers/snippets, not full threads)."
+  },
+  {
+    "id": "cost-7",
+    "lens": "cost",
+    "claim": "gear-price-watcher is only free-tier-viable if the watched marketplaces have free official APIs or feeds; if listings require headless-browser scraping or a scraping/proxy service (~$30-50/mo), the recurring cost exceeds the hobby value of the project.",
+    "severity": "minor",
+    "rationale": "Marketplaces like Reverb and eBay expose usable free APIs, in which case batch-polling from the fleet host is essentially $0; but many gear sources (boutique shops, classifieds) are scrape-hostile, and the standard workarounds (Browserless, residential proxies, scraper APIs) are subscription line items that would instantly make this the second-most-expensive project on the slate. The data-source check is cheap and should gate the keep decision.",
+    "evidence": [],
+    "what_would_resolve": "Confirm before keeping that every gear source Vaughn actually cares about is covered by a free official API/RSS feed; if any requires paid scraping infrastructure, either drop that source or cull the project."
+  },
+  {
+    "id": "cost-8",
+    "lens": "cost",
+    "claim": "Several candidates implicitly justify gobatch on cost grounds that are zero on their chosen backends: Firestore bills per document write regardless of batching (workout-logger, mood-journal), and synchronous LLM/embedding APIs bill per token regardless of request coalescing.",
+    "severity": "minor",
+    "rationale": "gobatch's real wins on these backends are round-trip reduction, rate-limit headroom, and tidy aggregation windows, not dollar savings; the volumes involved fit comfortably inside Firestore's free tier anyway. This does not threaten any project's viability, but the cull should not award points for phantom savings, and any written rationale claiming 'batching cuts the bill' on per-op-billed services should be corrected.",
+    "evidence": [],
+    "what_would_resolve": "Re-state each keeper's gobatch justification in terms of rate limits, round trips, or aggregation semantics rather than dollars, reserving cost claims for backends where batching genuinely changes billing (e.g., provider async batch APIs)."
+  }
+]
