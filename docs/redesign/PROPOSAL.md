@@ -552,11 +552,14 @@ claims. The corrected picture:
   records in order.
 - The Helius scheduler lives on the capture path, whose bytes cannot be
   rebuilt; that is the largest blast radius in the repo, not the smallest.
-- The house rule is "batching only after a measurement asks for it", and the
-  only measurement on file says keep per-record commits.
+- The house rule is "batching only after a measurement asks for it". The
+  only measurement on file is the capture journal's (3.42 records/s, 10.45 ms
+  mean commit) and it says keep per-record commits; the admission log's
+  measurement was written and never run.
 
 So the honest mapping is a validation of the library's expressiveness, not
-an adoption plan. Adoption order, if any, is 6.4, then 6.2, then never 6.1.
+an adoption plan. Adoption order, if any: 6.4 first; 6.2 is expressible but
+not adoptable in part; 6.1 never.
 
 ### 6.1 The block-metadata scheduler (`internal/helius/scheduler.go`)
 
@@ -581,15 +584,21 @@ statuses.After(sigKey(sig), []workflow.Dep{root.At(s)}, constant(sig))
 
 What this reproduces: eligibility instants, a late slot starting its own
 clock, budgets from readiness, terminal-only-for-finalized via per-kind
-classifiers, two in flight per kind, whole-group byte-identical retry when
-nothing in the group was answered, and the in-flight drain on abort. What it
-changes: batch assembly is by `MinWait`, not by slot order and first-seen
-order, so the journaled request envelopes differ; five-per-second across
-all three kinds becomes a limiter inside the RPC client; the normal end of
-the request loop is abort (abandon in-flight attempts), not drain, so the
-consumer distinguishes duration expiry from SIGINT itself. What stays in
-ShitQuant: the RPC calls, the classifiers, and journaling every request and
-response before the scheduler learns anything.
+classifiers, one fetch per slot per run, whole-group byte-identical retry
+when nothing in the group was answered, and the in-flight drain on abort.
+What it changes: batch assembly is by `MinWait`, not by slot order and
+first-seen order, so the journaled request envelopes differ; a batch's
+budget is per task, not anchored at its earliest signature; signature dedup
+is per run, not per slot; today's cap of two in flight *across* the three
+kinds, with confirmed fetches taking capacity before batches before
+finalized fetches, is lost: `Workers: 2` on three kinds is six in flight
+with no priority, so the in-flight cap, the five-per-second limiter and the
+priority all move into the RPC client; the normal end of the request loop
+is abort (abandon in-flight attempts), not drain, so the consumer
+distinguishes duration expiry from SIGINT itself. `Submit` on the reader
+goroutine must never block, so `MaxOpen` stays unset (unbounded). What
+stays in ShitQuant: the RPC calls, the classifiers, and journaling every
+request and response before the scheduler learns anything.
 
 Net effect, counted by the review: roughly 280 lines removed from the
 consumer, half of them comments pinning rulings whose tests would be
@@ -599,33 +608,53 @@ Recommendation: do not adopt here.
 ### 6.2 The normalizer's pending state (`internal/solana/normalizer.go`)
 
 ```go
-blocks := workflow.NewPromise[Block](w, "block.confirmed")            // resolved when the block record is read
-admit  := workflow.Define(w, "admit", admitFacts, workflow.KindConfig{Policy: batch.Policy{MaxItems: 1}})
+blocks := workflow.NewPromise[blockArrival](w, "block.confirmed")     // block plus its record's receipt and (capture_id, sequence)
+admit  := workflow.Define(w, "admit", admitFacts, workflow.KindConfig{Policy: batch.Policy{MaxItems: 1}}) // Workers 1
 
 // per notification record (reader goroutine, record order):
 for _, sw := range decode(rec) {                                       // decode stays on the reader; it is cheap
 	admit.After(swapKey(sw), []workflow.Dep{blocks.Handle(slotKey(sw.Slot))}, pair(sw, blocks))
 }
 // per confirmed getBlock record:
-if !blocks.Resolve(slotKey(b.Slot), b) { count(block_conflict) }       // second block ignored, first stands
+if !blocks.Resolve(slotKey(b.Slot), arrival) {                          // first block stands
+	if prior, _ := blocks.Handle(slotKey(b.Slot)).Result(ctx); prior.Hash != b.Hash { count(block_conflict) }
+}
 ```
 
-This is the swap-block join with today's semantics: a swap admitted when its
-block arrives, a late swap admitted at once, the second block ignored, and
-readiness order equal to completing-record order because everything is
-driven from the one reader goroutine. `time_unknown` is `pair` returning a
-typed error the observer counts. The finality maps (evidence read before
-the occurrence exists, most of it about transactions never admitted) and
-coverage's event-time coalescing are not joins the library should own: they
-would be pending tasks forever, reported as incomplete at close, where a map
-entry costs nothing. They stay.
+Within the admit kind this is the swap-block join with today's semantics: a
+swap admitted when its block arrives, a late swap admitted at once, a
+second block ignored and counted only when its hash differs, `time_unknown`
+as `pair` returning a typed error the observer counts, and readiness order
+equal to completing-record order: one `Resolve` is one event that readies
+the held swaps in registration order, which is notification-record order
+and swap order within a record.
+
+It cannot be adopted for the join alone. The admit handler runs on the
+kind's worker while the reader goroutine keeps admitting coverage, finality
+and retraction facts and keeps the finality and coverage maps. Today the
+block record admits the held swaps and *then* closes coverage extents, on
+one goroutine; split across two, the trade admissions and the coverage
+admission race for the recorder's lock, sequence order becomes
+schedule-dependent, and acceptance (1) fails in exactly the way "sequence
+assigned at one serialized point, never by whichever goroutine received
+the message" forbids. The normalizer's maps would need a lock for the same
+reason. The only correct shape puts every record kind through the one
+single-worker kind as dependency-free tasks in record order, which places
+the whole normalizer inside the handler: a channel to one goroutine, which
+is what the live follower already is.
+
+The finality maps (evidence read before the occurrence exists, most of it
+about transactions never admitted) and coverage's event-time coalescing are
+not joins the library should own either: they would be pending tasks
+forever, reported as incomplete at close, where a map entry costs nothing.
+And the live snapshot's "blocks awaiting swaps" count is a set of resolved
+promise keys nobody registered against, which `Stats` does not expose.
 
 Decode in parallel is possible with a sequenced step (`decode` with
-`Workers: N` feeding `pair` with `Sequence` by record sequence and
-`Workers: 1`, whose handler registers the admit tasks), but nothing has
-measured decode as a bottleneck. Recommendation: adopt only if a measurement
-asks, and then for the join alone; it removes one map and one method pair
-and adds a dependency.
+`Workers: N` feeding a `Sequence`d single-worker kind that registers the
+admit tasks), but nothing has measured decode as a bottleneck.
+Recommendation: expressible, not adoptable in part, and not worth adopting
+whole.
 
 ### 6.3 The recorder (`internal/marketdata/recorder.go`)
 
@@ -639,12 +668,14 @@ latency measurement already exists; when it asks, the change is there.
 ### 6.4 Phase 5 flush and phase 6 runners
 
 The one-second Valkey flush is `batch.Batcher[CandleUpdate]` with
-`MaxWait: 1s`, if the ticker-based first version measures badly. The phase 6
-runners are the shape the workflow is for: many per-market evaluations
-submitted when a cutoff watermark advances, fanning in to one admit kind
-with one worker, results as saved events. That is where the workflow package
-should first prove itself, on a rebuildable path, with a design document
-first as the repo requires.
+`MaxWait: 1s`, if the ticker-based first version measures badly; the phase
+outline says ticker first. Phase 6 has no design yet: its outline says
+rules read a frozen view at saved cutoffs and record cutoffs and decisions
+through the admission-log path, and the backtest runner drives the
+historical view with no wall clock. Whether that is a fan-out of
+evaluations into one single-worker admit kind is for that design document
+to decide. It is the only remaining candidate for the workflow package in
+ShitQuant, on a rebuildable path, and only after the design exists.
 
 ## 7. Deliberately absent
 
@@ -690,7 +721,8 @@ first as the repo requires.
    handler calling `After` under a full queue, abort with blocked handles.
 3. Delete `processor` and `source`; rewrite README, `doc.go`, CHANGELOG
    (0.6.0), examples; Go 1.25 in `go.mod` and CI.
-4. In ShitQuant: nothing until a measurement asks; then 6.4 first.
+4. In ShitQuant: nothing until a measurement asks; then 6.4; the workflow
+   package only if the phase 6 design calls for it.
 
 ## 10. Remaining open questions
 
