@@ -1,180 +1,129 @@
 # GoBatch redesign: batching, request coalescing, and in-process flow
 
-Status: revision 1 of a new lineage (2026-09-20). A from-scratch redesign of
-GoBatch with workflow-style fan-out. Independent subagent reviews (adversarial,
-consumer-fit, Go API) are recorded under [reviews/](reviews/) as they land.
-[REVIEWS.md](REVIEWS.md) lists what changed because of them.
+Status: revision 2 (2026-09-20). Revision 1 was not approvable. Three
+independent reviews (adversarial, consumer-fit, Go API) are under
+[reviews/](reviews/). [REVIEWS.md](REVIEWS.md) lists every finding that
+changed this text.
 
-This is not a copy of `origin/claude/library-redesign-workflow-9kjqu1`. That
-branch designed a dynamic keyed-task scheduler (`workflow` with Promise,
-Watermark, Sequence, Remember, retry). Two review rounds made that scheduler
-*expressible* and then showed ShitQuant should not adopt it on the paths that
-matter. Official issues `#97`–`#100` already chose a smaller thing: a finite
-in-process graph named `flow/`, replacing an earlier plan to use OnyxCore.
+This is a from-scratch redesign of GoBatch with workflow-style fan-out.
+It is not the dynamic keyed-task scheduler on
+`origin/claude/library-redesign-workflow-9kjqu1`. Official issues `#97`–`#100`
+already chose a finite in-process graph named `flow/`.
 
-This document takes that product decision as binding, keeps the batching
-primitive that survived those reviews, and adds only the concurrency
-composition the user's diagram actually needs.
+Private consumer repos were not readable here. ShitQuant mapping uses
+public issues plus a prior review of that tree, at path granularity only.
 
 ```
              ┌─────────────┐
              │ Flow runner │   one input, finite DAG, bounded
              └──────┬──────┘
-                    │
+                    │  owned results, explicit join
        ┌────────────┼────────────┐
        ▼            ▼            ▼
    Decode        Metadata      Prices     shared Loaders (process lifetime)
-   Loader         Loader        Loader
        │            │            │
        └────────────┼────────────┘
                     ▼
-                 Persist
-                 Loader or stream Batcher
+              evidence + persist
 ```
-
-Private consumer repos (`shitquant`, `onyxcore`, `shitlock`) were not readable
-from this environment. ShitQuant claims use the public gobatch issues plus a
-prior code-backed review of that tree. OnyxCore and shitlock are inferred and
-marked.
 
 ## 1. What the current library gets wrong
 
-v0.5 is a single `Batch[T]` that reads one `Source[T]`, groups by `Config`, and
-runs each group through a chain of `Processor[T]`. The window math is the
-product. Everything around it fights real use.
+v0.5 is a `Batch[T]` that reads one `Source[T]`, groups by `Config`, and
+runs each group through `Processor[T]`. The window math is the product.
 
 | Problem | Consequence |
 |---|---|
-| One type parameter for the whole pipeline | A stage cannot change type; multi-stage work falls back to `Batch[any]` |
-| `Source.Read` returns two channels | Every source re-implements goroutine, close, and cancellation; a nil channel is a runtime error |
-| Errors are a side channel that must be drained | An undrained `errs` deadlocks once the buffer fills; `IgnoreErrors` exists to paper over the API |
-| Per-item `*Item[T]` with an engine-assigned ID | One allocation per item; the ID is not a dedup key, an order key, or a correlation ID |
-| Each ready batch starts an unbounded goroutine | No in-flight cap; under load this is a fork bomb with a queue in front |
-| Collector ignores context (`waitForItems` takes `_`) | Cancel does not stop formation; drain and abort are the same word |
+| One `T` for the whole pipeline | Multi-stage work falls back to `Batch[any]` |
+| `Source.Read` returns two channels | Every source re-implements close and cancel |
+| Errors are a side channel that must be drained | Undrained `errs` deadlocks; `IgnoreErrors` papers over the API |
+| `*Item[T]` plus an engine ID | Allocation per item; the ID is not a correlation key |
+| Each ready batch starts an unbounded goroutine | Fork bomb under load |
+| Collector ignores context | Drain and abort are the same word |
 | `Config` is an interface for four integers | `DynamicConfig` exists only because there is no `SetPolicy` |
-| Single-use `Batch` with `Go` / `Done` / error channel | Three-step lifecycle where `Run(ctx)` plus `Close()` would do |
-| Request/reply batching is not expressible | N callers into one bulk call cannot be built on a push stream |
-| No fan-out, fan-in, or bounded parallel | Consumers hand-write `errgroup` *or* invent a hub; the official answer is a small `flow/` |
-| Silent `fixConfig` mutation | `MinItems: 0` becomes 1 with no error; invalid limits are rewritten |
-| `WithBufferConfig` panics after start | Misuse crashes the process instead of returning an error |
-| Documented Go 1.18, CI on 1.25/1.26 | The support floor is an untested claim |
-| Master is ahead of the latest tag | README documents a `Go` signature `go get` does not compile |
+| `Go` / `Done` / error channel | Three-step lifecycle where `Run` + `Close` would do |
+| Request/reply is not expressible | N callers into one bulk call cannot ride a push stream |
+| No fan-out / fan-in | Official answer is a small `flow/`, not a hub |
+| Silent `fixConfig` | `MinItems: 0` becomes 1 with no error |
+| `WithBufferConfig` panics after start | Misuse crashes the process |
+| Documented Go 1.18, CI on 1.25/1.26 | Untested floor |
+| Master is ahead of the latest tag | README does not compile under `go get` |
 
-Worth keeping: min/max items, min/max wait, and their priority. The rest is
-replaced.
+Worth keeping: min/max items, min/max wait, and their priority.
 
 ## 2. Three approaches
 
-### A. Harden v0.5 and bolt on new packages
+**A. Harden v0.5 and bolt on packages.** Smallest migration. Keeps
+must-drain channels and one `T`. Not a redesign.
 
-Keep `Source`, `Processor`, `Item`, `Go`/`Done`/error channel. Add
-`RequestBatcher` and `flow/` beside them. Land bounds, drain/abort, and a
-pin-able tag so ShitQuant can depend on today's shape.
+**B. Layered redesign (recommended).** `Batcher` + `Loader` + finite
+`flow`. Delete `source` and `processor`. Matches `#71` and `#97`–`#100`.
 
-- For: smallest migration; matches the letter of issues `#73`, `#95`, `#96`.
-- Against: the structural smells stay (must-drain channels, one `T`, unbounded
-  process goroutines unless patched in place). Two APIs forever. A "redesign
-  from scratch" that is not one.
+**C. Dynamic keyed workflow.** Previous lineage. Expressible, not
+adoptable on ShitQuant's capture or normalizer paths. `#98` forbids it
+in v1. Encroaches on OnyxCore.
 
-### B. Layered redesign (recommended)
-
-Three independently usable pieces, one lifecycle vocabulary:
-
-1. `batch.Batcher[T]` — stream window, `Run`/`Add`/`Close`, bounded workers.
-2. `batch.Loader[In, Out]` — request/reply coalescing, one outcome per `Do`.
-3. `flow` — compile a finite DAG; sequence, bounded parallel, fan-in,
-   conditions; nodes are ordinary functions that may call shared Loaders.
-
-Delete `source` and `processor`. A source is an iterator or a loop around
-`Add`. A processor is a function.
-
-- For: matches `#71`, `#97`–`#100` and the user's diagram; hard to misuse;
-  does not become a hub; leaves OnyxCore room to sit above later.
-- Against: breaking. ShitQuant cannot pin this until it ships. The current
-  master still needs an honesty tag so `go get` matches the README.
-
-### C. Dynamic keyed workflow (previous redesign lineage)
-
-`Batcher` + `Loader` + a scheduler of keyed tasks, promises, watermarks,
-sequences, Remember, and retry — the revision-3 `workflow` package.
-
-- For: can *express* a pending map and a Helius-style scheduler.
-- Against: a prior consumer-fit review showed it would change admission
-  order, land on the irreplaceable capture path, and recreate the archived
-  actor/hub/quota system. `#98` forbids dynamic graphs, automatic retries,
-  and a scheduler in v1. Encroaches on OnyxCore. High implementation risk
-  for a consumer that has a house rule: batching only after a measurement.
-
-**Recommendation: B.** Ship A-style honesty (tag, changelog, docs) in
-parallel so today's master is pin-able, then break toward B.
+**Recommendation: B**, plus a Track 0 honesty tag of *current* master so
+`go get` matches the README while B is built.
 
 ## 3. Goals and non-goals
 
 Goals:
 
-1. A stream batcher that is hard to misuse: `Run`, `Add`, `Close`; named
-   drain and abort; bounded workers and queue; policy you can replace.
-2. Request/reply batching: N concurrent `Do` calls, one handler, each caller
-   one terminal outcome. No implicit key coalescing.
-3. A small in-process flow runner for one input: validated finite graph,
-   sequence, bounded parallel, fan-in, conditions, explicit outcomes.
-4. Shared Loaders across concurrent flow runs, without the runner owning or
-   closing them.
-5. One observation vocabulary. No telemetry backend.
-6. Every rule statable in one godoc sentence. No goroutine the user did not
-   ask for.
+1. Stream batcher: `Run`, `Add`, `Close`; named drain and abort; a
+   written scheduler; bounded items and handlers.
+2. Request/reply: N `Do` calls, one handler, one terminal outcome per
+   accepted `Do`. No implicit key coalescing.
+3. Finite in-process flow: validated DAG, sequence, bounded parallel,
+   fan-in, conditions, owned results, explicit join.
+4. Shared Loaders across concurrent runs. The runner does not own them.
+5. One observation *vocabulary*, duplicated types. No telemetry backend.
 
-Non-goals (library):
-
-- Durable or distributed workflows, job databases, cron, brokers, workers, DLQ.
-- Dynamic keyed-task scheduling, promises, watermarks, reorder buffers.
-- Implicit coalescing, generic retries, priority across kinds.
-- Byte-accurate memory limits for arbitrary `T`.
-- A DSL, YAML graph, plugin/type registry, or UI.
-- Owning durability, time, or order. Those stay in the application.
-- Depending on OnyxCore, Redis, or a lock library.
+Non-goals: durable/distributed workflows; dynamic keyed tasks; promises;
+watermarks; implicit coalescing; generic retries; priority across
+loaders; byte-accurate memory limits; DSLs; UIs; depending on OnyxCore,
+Redis, or a lock library; owning durability, time, or order.
 
 ## 4. Shape
 
 ```
 github.com/MasterOfBinary/gobatch/batch    Batcher[T], Loader[In, Out], Policy
-github.com/MasterOfBinary/gobatch/flow     Graph, Runner, Sequence, Parallel, Map
+github.com/MasterOfBinary/gobatch/flow     Graph, Runner, ForEach
 ```
 
-`flow` depends on nothing in `batch`. They compose at the application:
-a node calls `Loader.Do`. `batch` depends only on the standard library.
+`flow` does not import `batch`. They compose in application code: a node
+calls `Loader.Do`. Shared words (`ErrClosed`, `Event`, `Stats`) are
+duplicated. `errors.Is(flow.ErrClosed, batch.ErrClosed)` is false.
 
-Go floor **1.25**, matching the oldest toolchain CI already tests. That gives
-`iter` for sources, 1.23+ timer `Reset` semantics, and `testing/synctest` for
-every wait test. The documented 1.18 floor is dropped in the same change.
+Go floor **1.25** (oldest CI toolchain). `iter` for sources,
+`testing/synctest` for wait tests. The 1.18 floor is dropped.
 
-`processor` and `source` are deleted.
-
-Functional options are all `With…`. Invalid options fail at `New` / `Compile`
-with an error, never a panic, never silent rewrite.
+Options are `With…`. Invalid options fail at `New` / `NewLoader` /
+`Compile` with an error. No public panic. `MinItems <= 0` at
+construction means the default 1; a negative `MinItems` is
+`ErrInvalidPolicy`. That is a documented zero meaning, not a clamp of
+`-3`.
 
 ## 5. Package `batch`
 
 ### 5.1 Policy
 
 ```go
-// Policy decides when the pending group is released to a handler.
+// A group is cut when any of these holds:
+//   - MaxItems > 0 && len(forming) >= MaxItems
+//   - MaxWait  > 0 && MaxWait elapsed since forming's first item
+//   - len(forming) >= MinItems && MinWait elapsed since that first item
+//   - flush or close is latched and forming is non-empty
 //
-// A group is released as soon as any of these holds:
-//   - MaxItems > 0 && len(group) >= MaxItems
-//   - MaxWait  > 0 && MaxWait has elapsed since the first item was queued
-//   - len(group) >= MinItems && MinWait has elapsed since the first item
-//   - Flush or Close was called and the group is non-empty
+// Cut is not dispatch. Dispatch is 5.2.
 //
-// MinItems below 1 is 1. Zero MaxItems or MaxWait means no maximum. A max
-// smaller than its min is rejected at New or SetPolicy, not clamped.
+// Zero Policy is greedy: MinItems 1, no max, no waits. MaxItems 1 is
+// one item per handler call.
 //
-// The zero Policy is greedy: a group is released as soon as one item is
-// queued and a worker is free, and it takes everything queued at that
-// moment. MaxItems 1 is therefore one item per handler call.
-//
-// MaxWait and MinWait are measured from the first item of the group. An
-// idle batcher never fires an empty timer.
+// MaxItems == 0 means "no formation max". The item bound is still
+// WithQueue (5.2). MaxWait == 0 means no linger.
+// MaxItems > 0 && MaxItems < MinItems, or MaxWait > 0 && MinWait > MaxWait,
+// is ErrInvalidPolicy. MinItems > queue is ErrInvalidPolicy.
 type Policy struct {
 	MinItems int
 	MaxItems int
@@ -183,280 +132,368 @@ type Policy struct {
 }
 ```
 
-`SetPolicy` re-evaluates the pending group under the new policy. It cannot
-raise `MaxItems` above the queue bound or disable safety limits.
+Clocks start on the first item of the current forming group. An idle
+batcher does not arm a timer. This is a hold-from-first-item, not a
+debounce-from-last-item.
 
-This is a formation policy, not an end-to-end deadline and not backpressure.
-Backpressure is a full queue: `Add` blocks.
+`SetPolicy` uses the same reject rules as `New` / `NewLoader`. After
+`Close` or after `Run` has returned it returns `ErrClosed`. During `Run`
+it is allowed: shrinking `MaxItems` below `len(forming)` immediately
+cuts groups of the new max in queue order; wait clocks stay on the
+current forming group's first item.
 
-### 5.2 Batcher
+### 5.2 Scheduler (Batcher and Loader share this machine)
+
+One inbound item queue of capacity `n` (`WithQueue`, default 1024,
+`n < 1` is an error). One worker pool of size `W` (`WithWorkers`,
+default 1, `n < 1` is an error). At most `W` handler calls. At most
+`W` cut groups waiting for a worker. There is no third buffer.
+
+```
+              Add/Do
+                 │
+                 ▼
+        inbound queue (≤ n)
+                 │  Run loop pulls
+                 ▼
+            forming group
+                 │  Policy cuts
+                 ▼
+        released slot (≤ W) ── worker free ──► handler (≤ W)
+```
+
+An item counts against `n` from the moment `Add`/`Do` accepts it until
+its group is passed to a handler. A cut group that cannot start occupies
+one of the `W` released slots; `Add`/`Do` feel that as a fuller inbound
+queue. Formed-not-started work cannot grow without bound.
+
+`Flush` and `Close` set flags the `Run` loop observes. They do not
+hand a group to a worker. They may block only if a `WithObserver`
+callback blocks; they do not wait for a worker.
+
+`Run` is the only goroutine that cuts and dispatches, plus `W` worker
+goroutines started before the first pull. No goroutine per queued item.
+
+### 5.3 How a Batcher cuts vs how a Loader cuts
+
+Same machine, two cut rules.
+
+**Batcher.** When a worker is free and forming is non-empty and a Policy
+predicate holds, cut `min(len(forming), MaxItems or len(forming))` in
+queue order. Zero Policy: when a worker is free, cut everything forming
+(the greedy drain). A burst of four items and four free workers is one
+group of four unless `MaxItems` is smaller.
+
+**Loader.** When `k` workers are free and forming is non-empty:
+
+- if a linger / `MaxItems` / flush / close predicate holds, cut one
+  group of `min(len(forming), MaxItems or len(forming))`;
+- else cut up to `k` groups of one (light load: one call per `Do`).
+
+While no worker is free, arrivals stay in forming and coalesce until
+`MaxItems`, `MaxWait`, flush, or close. That is the dataloader shape
+without a MinWait stall.
+
+`NewLoader` and `SetPolicy` on a Loader reject `MinItems > 1` and
+`MinWait != 0`.
+
+### 5.4 Batcher
 
 ```go
-// Handler processes one released group. The slice is the handler's after
-// the call. Returning an error stops the batcher: Run returns a *GroupError
-// and in-flight handlers see a cancelled context. A handler that wants to
-// continue after a failure handles it and returns nil.
 type Handler[T any] func(ctx context.Context, items []T) error
 
 func New[T any](h Handler[T], opts ...Option) (*Batcher[T], error)
 
-// Run executes until Close drains it or ctx ends. It returns nil after a
-// drain, ctx.Err() after an abort, or the *GroupError that stopped it.
-// Run panics if called twice. On any return, every in-flight handler has
-// returned, and Add returns ErrClosed from then on.
 func (b *Batcher[T]) Run(ctx context.Context) error
-
-// Add queues one item. It blocks while the queue is full. It returns
-// ctx.Err() or ErrClosed instead of queuing; when both apply, ctx.Err()
-// wins. Add before Run queues up to the queue size and then blocks until
-// Run starts or ctx ends. Add after Run has returned returns ErrClosed.
 func (b *Batcher[T]) Add(ctx context.Context, item T) error
-
-func (b *Batcher[T]) Flush()  // release the pending group now; never blocks
-func (b *Batcher[T]) Close()  // stop accepting; Run drains. Idempotent.
+func (b *Batcher[T]) Flush()
+func (b *Batcher[T]) Close()
 func (b *Batcher[T]) SetPolicy(p Policy) error
-func (b *Batcher[T]) Stats() Stats // Queued, InFlight, Groups, Items; a snapshot
+func (b *Batcher[T]) Stats() Stats
+func (b *Batcher[T]) Wait() // join leftover handlers after a budgeted Run return
 
 func WithPolicy(p Policy) Option
-func WithWorkers(n int) Option // concurrent handler calls; default 1; n < 1 is an error
-func WithQueue(n int) Option   // items Add may queue before blocking; default 1024; n < 1 is an error
+func WithWorkers(n int) Option
+func WithQueue(n int) Option
 func WithObserver(f func(Event)) Option
+func WithShutdownBudget(d time.Duration) Option // 0 = wait forever; default 0
 ```
 
-Groups go to workers in release order. A group's slice is in queue order.
-That is the only ordering promise. With `WithWorkers(1)` it is total.
+`New(nil)` returns `ErrNilHandler` and cannot infer `T` without a typed
+nil. `WithWorkers(n)` is not errgroup's `SetLimit(-1)`; `n < 1` is an
+error.
 
-Lifecycle, two words:
+**`Add`**
 
-- **Close** means drain: everything accepted is processed.
-- **Context cancellation** means abort: queued-not-started items are
-  dropped, blocked `Add` calls return, in-flight handlers see a cancelled
-  context and are waited for. A handler that must finish a side effect
-  already in flight does so under `context.WithoutCancel`. A deadline is
-  never evidence that a write failed.
+- After `Close` or after `Run` has returned: `ErrClosed`.
+- Before `Run`: accepts into the inbound queue; if the queue is full,
+  returns `ErrNotRunning` immediately (does not wait for `Run`).
+- During `Run`, queue full: blocks until space, `ctx.Err()`, or
+  `ErrClosed`. When `ctx.Err()` and `ErrClosed` both apply, `ctx.Err()`
+  wins.
+- A handler must not call `Add` on the same Batcher in a way that needs
+  a worker or `Run` to make progress. That returns `ErrReentry`.
 
-A consumer that wants "stop reading at the deadline, then drain what was
-read" uses two contexts:
+**`Run`**
 
-```go
-g, runCtx := errgroup.WithContext(cleanupCtx) // cleanup: abort
-b, err := batch.New(persist, batch.WithPolicy(batch.Policy{MaxItems: 500, MaxWait: 50 * time.Millisecond}))
-g.Go(func() error { return b.Run(runCtx) })
-g.Go(func() error {
-	defer b.Close()
-	return batch.Consume(readCtx, b, records(readCtx)) // read deadline: stop reading
-})
-return g.Wait()
-```
+- Second call returns `ErrUsed` (not a panic), including a race on the
+  first call: one wins, the other gets `ErrUsed`.
+- Returns `nil` after a drain, `ctx.Err()` after an abort that finished
+  in-flight work, `*GroupError` after a handler error, or
+  `*ShutdownError` if the budget expired.
+- Handler panic is **not** recovered. The worker goroutine crashes, as
+  current `errgroup` does. Do not recover-and-re-raise from `Run`.
+- The slice passed to a handler is the handler's. The engine will not
+  reuse the backing array.
 
-Panics in handlers are recovered in the worker and re-raised from `Run`, as
-`errgroup` does, so the stack is the handler's and the process still dies.
-
-```go
-type GroupError struct {
-	Seq uint64 // release sequence, from 1
-	Err error
-}
-
-func (e *GroupError) Unwrap() error
-
-type Group struct {
-	Seq     uint64
-	Attempt int  // always 1 on a Batcher
-	Partial bool // always false on a Batcher
-}
-
-func GroupFromContext(ctx context.Context) (Group, bool)
-
-var ErrClosed = errors.New("batch: closed")
-```
-
-### 5.3 Sources
+**`Consume`**
 
 ```go
-// Consume adds every item of seq to b and returns the first error from seq
-// or Add. It cannot interrupt seq between yields, only the Add. It does
-// not Close b.
 func Consume[T any](ctx context.Context, b *Batcher[T], seq iter.Seq2[T, error]) error
 ```
 
-`iter.Seq2[T, error]` is the whole source contract. A channel is a loop
-around `Add`. No channel adapter is exported.
+Adds every item. Returns the first error from `seq` or `Add`. Does not
+`Close` `b`. Cannot interrupt `seq` between yields.
 
-### 5.4 Loader: request/reply batching
+### 5.5 Loader
 
-This is the roadmap's "sync-like batching" and issue `#71`.
-
-A Loader is not a Batcher with a reply slot bolted on. Two rules differ:
-
-1. A lone caller must not wait for `MinItems` or `MinWait`. Those fields
-   are rejected at `NewLoader` unless `MinItems <= 1` and `MinWait == 0`.
-   Release is `MaxItems`, `MaxWait` (linger), Flush, or Close.
-2. Every accepted `Do` gets exactly one terminal outcome. A missing handler
-   answer is `ErrUnanswered`, never a zero `Out`.
+A Loader is not “a Batcher with a reply slot.” Godoc's first sentence:
+it does not coalesce by key. Equal `In` values are two operations.
 
 ```go
 type Call[In, Out any] struct {
 	In In
-	// unexported identity and reply slot
+	// unexported identity, generation, reply
 }
 
-func (c *Call[In, Out]) Complete(out Out) bool // first answer wins; later ignored and counted
+func (c *Call[In, Out]) Complete(out Out) bool
 func (c *Call[In, Out]) Fail(err error) bool
 
-// LoadHandler serves one group of calls. Calls unanswered when it returns
-// are failed with the returned error, or with ErrUnanswered if it returned
-// nil. The handler must not assume calls[i] corresponds to a particular
-// map entry; it correlates by the Call value and Call.In.
 type LoadHandler[In, Out any] func(ctx context.Context, calls []*Call[In, Out]) error
 
 func NewLoader[In, Out any](h LoadHandler[In, Out], opts ...Option) (*Loader[In, Out], error)
 func (l *Loader[In, Out]) Run(ctx context.Context) error
-func (l *Loader[In, Out]) Close()
+func (l *Loader[In, Out]) Do(ctx context.Context, in In) (Out, error)
 func (l *Loader[In, Out]) Flush()
+func (l *Loader[In, Out]) Close()
 func (l *Loader[In, Out]) SetPolicy(p Policy) error
 func (l *Loader[In, Out]) Stats() Stats
+func (l *Loader[In, Out]) Wait()
 
-// Do queues in and waits for its reply. Equal In values are distinct
-// operations; there is no implicit coalescing. If ctx ends first, Do
-// returns ctx.Err(); the call stays in its group and its reply is
-// discarded, so the caller does not know whether the handler acted on
-// it. A caller that must know uses a context that does not end.
-//
-// Do after Close or after Run has returned returns ErrClosed.
-func (l *Loader[In, Out]) Do(ctx context.Context, in In) (Out, error)
+func WithHandlerTimeout(d time.Duration) Option // Loader only; 0 = none; default 0
 ```
 
-The handler context is a lifecycle context with a finite timeout (option
-`WithHandlerTimeout`; default 30s, 0 means none). One caller's cancel does
-not cancel that context and does not fail sibling `Do`s in the same group.
+`calls` is enqueue order, the same as a Batcher slice.
 
-The zero policy with the default single worker is the dataloader shape:
-while the worker is busy, arrivals coalesce into the next call; when the
-worker is free, the first `Do` releases immediately (no MinWait). With more
-workers, light load gives one call per `Do`. That is the deliberate default.
+**Call states:** `queued | running | settled`. One `settle`. First
+wins. `*Call` is never reused; a late `Complete` on a leftover pointer
+cannot succeed a future `Do`. `Complete`/`Fail` must be the pointers in
+the slice (a copy of the struct is a no-op that returns false).
+`Fail(nil)` is `Fail(ErrUnanswered)`.
 
-Shutdown: `Close` then `Run` returns after every accepted `Do` has a
-terminal outcome. Abort (`Run`'s ctx) fails not-yet-started calls with
-`ctx.Err()`, cancels the handler context, and waits for in-flight handlers
-up to a graceful budget (`WithShutdownBudget`, default 10s). Past the
-budget, `Run` returns a `*ShutdownError` listing still-running handler
-groups; capacity is not released until those handlers return. Blocked `Do`
-waiters are failed when their call is settled, not before.
+**`Do`**
+
+- Before `Run`, or after `Run` has returned: `ErrNotRunning` /
+  `ErrClosed`. Does not queue a waiter.
+- After `Close` during a running drain: accepted if the loop still
+  takes work; otherwise `ErrClosed`.
+- Waiter's `ctx` ending: `Do` returns `ctx.Err()`; the call stays in
+  its group; a later settle is discarded. The caller does not know
+  whether the handler acted. A caller that must know uses a context
+  that does not end.
+- One waiter's cancel does not cancel the handler context and does not
+  fail sibling `Do`s.
+- A LoadHandler must not call `Do` or `Run` on the same Loader
+  (`ErrReentry` if it would block; always a mistake).
+
+**Handler context** is derived from `Loader.Run`'s ctx, plus
+`WithHandlerTimeout` if set. It is not any waiter's ctx.
+`Loader.Run`'s ctx is process-scoped and must outlive every `Do`.
+Cancelling it is process shutdown, not one enrichment ending.
+
+**Handler error** fails unanswered calls in that group with that error
+(or `ErrUnanswered` if the handler returned nil). Completed calls
+stand. `Loader.Run` **continues**. A process-lifetime coalescer does
+not die because one bulk call failed.
+
+**Missing / extra / duplicate answers.** Unanswered at handler return
+get the handler error or `ErrUnanswered` — never a zero `Out`. Extra
+`Complete`/`Fail` after settle are ignored. The library does not
+interpret a handler-built `map`; attribution is `Complete`/`Fail`.
+
+### 5.6 Lifecycle table
+
+Admission, `Close`, and `Run` ctx are the same mutex.
+
+| Trigger | Unaccepted waiters | Accepted, handler not invoked | Handler invoked |
+|---|---|---|---|
+| `Close` (drain) | `ErrClosed` | formed under Policy until inbound and forming are empty; last incomplete group is released even if `< MinItems` | waited for |
+| `Run` ctx cancel (abort) | `ctx.Err()` | Batcher: dropped. Loader: settled `ctx.Err()` | handler ctx cancelled; waited up to budget |
+| `Close` ∪ cancel | abort wins | abort | abort |
+| Batcher handler error | abort of the rest | dropped | waited; `Run` returns `*GroupError` |
+| Loader handler error | none | none | unanswered in *that* group fail; Loader continues |
+| Budget expiry | already classified | already classified | `Run` returns `*ShutdownError`; those handlers still run; `Wait` joins them |
+
+`Close` before `Run`: latches drain. A later `Run` drains what was
+accepted and returns. `Add`/`Do` after that `Close` return `ErrClosed`.
+
+Started means the handler function has been invoked.
+
+A deadline is never evidence a write failed. A handler that must finish
+a side effect already in flight uses `context.WithoutCancel`.
+
+Two-context “stop reading, then drain” — do **not** use
+`errgroup.WithContext` for this; the consume error would cancel `Run`:
 
 ```go
-var ErrUnanswered = errors.New("batch: call not answered by handler")
+runCtx, stop := context.WithCancel(cleanupCtx)
+defer stop()
+b, err := batch.New(persist, batch.WithPolicy(batch.Policy{MaxItems: 500, MaxWait: 50 * time.Millisecond}))
+done := make(chan error, 1)
+go func() { done <- b.Run(runCtx) }()
+consumeErr := batch.Consume(readCtx, b, records(readCtx))
+b.Close()
+runErr := <-done
+```
+
+`WithShutdownBudget(0)` (default) waits forever for in-flight handlers.
+A non-zero budget is how `#95` / `#71` get a finite `Run`. After a
+budgeted return, `Wait` is the only join. `ShutdownError.Pending` is
+the handler count still running; there is no group list.
+
+### 5.7 Errors and info
+
+```go
+type GroupError struct {
+	Seq uint64
+	Err error
+}
+func (e *GroupError) Error() string
+func (e *GroupError) Unwrap() error
 
 type ShutdownError struct {
 	Pending int
-	Err     error // usually context.DeadlineExceeded
+	Err     error
 }
+func (e *ShutdownError) Error() string
+func (e *ShutdownError) Unwrap() error
+
+type Info struct{ Seq uint64 }
+func InfoFromContext(ctx context.Context) (Info, bool) // handler ctx only
+
+var (
+	ErrClosed        = errors.New("batch: closed")
+	ErrUsed          = errors.New("batch: Run already called")
+	ErrNotRunning    = errors.New("batch: Run has not started")
+	ErrUnanswered    = errors.New("batch: call not answered by handler")
+	ErrReentry       = errors.New("batch: handler re-entered the same instance")
+	ErrInvalidPolicy = errors.New("batch: invalid policy")
+	ErrNilHandler    = errors.New("batch: nil handler")
+)
 ```
 
-Attribution: extra `Complete`/`Fail` after the first are ignored. Duplicate
-or unsolicited answers cannot invent a new `Do`. The library never turns a
-missing result into success.
+Structured errors are pointers. `errors.As(err, &ge)` with
+`var ge *GroupError`.
+
+`WithHandlerTimeout` and `WithShutdownBudget` passed to `New` (Batcher)
+return an error unless the Batcher also uses the budget (it does, so
+budget is shared; timeout is Loader-only and rejected by `New`).
 
 ## 6. Package `flow`
 
 ### 6.1 Model
 
-A **graph** is an immutable, validated DAG compiled from named nodes.
-A **run** is one execution of a graph against one input.
+A **graph** is an immutable snapshot compiled from named nodes.
+A **run** is one execution against one immutable input.
 A **runner** admits a bounded number of concurrent runs and a bounded
-number of executing nodes across runs.
+number of executing *named* nodes.
 
-- A node function runs **at most once** per run, after every declared
-  dependency has succeeded.
-- Failed or skipped prerequisites skip descendants. The skip reason is
-  recorded. Independent branches finish unless the run is cancelled.
-- There is no optional-edge engine, no dynamic `After` from inside a node,
-  no retry.
+A node function runs at most once per run. It receives the run input
+and an immutable view of declared dependency outputs. It returns an
+owned result. It does not mutate `in`. If `In` is a pointer, mutating
+it is a user bug; the library does not copy.
 
-Fan-out of known cardinality is `Map` (a helper) or several sibling nodes.
-Fan-out of unknown cardinality is a node body that calls `Map` or
-`Loader.Do` in a loop. Fan-in is declared dependencies.
+There is no optional-edge engine, no dynamic `After`, no retry.
 
-The user's diagram is three sibling nodes then a persist node, with each
-I/O node calling a process-lifetime Loader.
+`ForEach` and `Do` inside a node body do **not** take executing-node
+slots. The advertised bound is on named graph nodes only. A node that
+starts 10k goroutines is a user bug. `#100`: a node blocked in `Do`
+still occupies its node slot, so `WithMaxExecutingNodes` may be smaller
+than a Loader's `MaxItems`; linger is what flushes those groups. That
+is required behavior. Size the node bound for admission, the linger for
+batch formation.
 
-### 6.2 Building a graph
-
-The application owns a typed envelope. Nodes receive the same `In` (almost
-always a pointer) and write disjoint fields. The library cannot enforce
-field disjointness; a data race is a bug in the graph, and `-race` will
-see it.
+### 6.2 Building
 
 ```go
-type Node[In any] func(ctx context.Context, in In) error
+type View struct { /* immutable snapshot */ }
+func (v View) Get(id string) (any, bool)
 
-type Predicate[In any] func(ctx context.Context, in In) (bool, error)
+type Node[In any] func(ctx context.Context, in In, deps View) (any, error)
+type Predicate[In any] func(ctx context.Context, in In, deps View) (bool, error)
 
-type Builder[In any] struct{ /* unexported */ }
-
-func New[In any]() *Builder[In]
-
-// Node adds a task. deps are node IDs that must succeed first.
-// Duplicate IDs, unknown deps, or a cycle fail at Compile, not at Run.
+func New[In any]() *Builder[In] // In must be spelled
 func (b *Builder[In]) Node(id string, fn Node[In], deps ...string) *Builder[In]
-
-// If evaluates pred once after deps succeed.
-//   - pred error  → this node Failed; descendants Skipped (dependency failed)
-//   - pred false  → this node Succeeded with false; descendants Skipped (condition)
-//   - pred true   → this node Succeeded with true; descendants may run
-// False is not a failure. There is no Else edge; write a second If.
 func (b *Builder[In]) If(id string, pred Predicate[In], deps ...string) *Builder[In]
-
 func (b *Builder[In]) Compile() (*Graph[In], error)
 ```
 
-`Compile` rejects: empty graph, empty ID, duplicate ID, unknown dependency,
-self-dependency, cycle, more nodes than 256. The 256 cap is a compile-time
-constant on the builder (`DefaultMaxGraphNodes`). A runner whose
-`WithMaxGraphNodes(n)` is smaller than `len(g.Nodes())` rejects at `Run`
-with a validation error and does not admit the run. `Compile` does not run
-anything. The graph is immutable and reusable.
+`Compile` snapshots. Later `Builder` mutation does not affect the
+`*Graph`. The builder is not concurrency-safe.
+
+`Compile` rejects: empty graph, empty ID, duplicate ID, unknown
+dependency, self-dependency, cycle, more than 256 nodes, nil `fn` /
+`pred`. It does not run.
 
 ```go
-type Graph[In any] struct{ /* unexported */ }
-
-func (g *Graph[In]) Nodes() []string // stable compile order
+func (g *Graph[In]) Nodes() []string // compile order
 ```
+
+**`If`**
+
+- pred error → this node Failed; descendants Skipped (`ErrSkipDependency`)
+- pred false → this node Success, `Condition=false`; descendants Skipped (`ErrSkipCondition`)
+- pred true → this node Success, `Condition=true`; descendants may run
+
+False is not a failure. No Else edge; write a second `If`.
+
+**Dispatch.** A node is runnable iff the run is not cancelled, every
+dep has `StatusSuccess`, and no dep is an `If` whose predicate was
+false. Otherwise it is skipped with the matching sentinel. Ready nodes
+**wait** for an executing slot; they do not fail and they do not skip.
+
+A node must not call `flow.Run` on the `Runner` executing it
+(`ErrReentry`).
 
 ### 6.3 Running
 
 ```go
-type Runner struct{ /* unexported */ }
-
 func NewRunner(opts ...RunnerOption) (*Runner, error)
-func WithMaxConcurrentRuns(n int) RunnerOption // default 1; n < 1 is an error
-func WithMaxExecutingNodes(n int) RunnerOption // default 8; n < 1 is an error
-func WithMaxGraphNodes(n int) RunnerOption     // checked at Compile via Runner.Compile, or Builder default
+func WithMaxConcurrentRuns(n int) RunnerOption // default 1; n < 1 error
+func WithMaxExecutingNodes(n int) RunnerOption // default 8; n < 1 error
+func WithMaxGraphNodes(n int) RunnerOption     // default 256; checked at Run
 func WithObserver(f func(Event)) RunnerOption
-func WithShutdownBudget(d time.Duration) RunnerOption
+func WithShutdownBudget(d time.Duration) RunnerOption // 0 = wait forever; default 0
 
-// Run admits one execution. It rejects with ErrSaturated if the run bound
-// is full; it does not queue waiting runs. It returns after every started
-// node function has returned.
 func Run[In any](ctx context.Context, r *Runner, g *Graph[In], in In) (*Result, error)
 
-// Close stops admission. In-flight runs are not cancelled by Close; cancel
-// their contexts. Close is idempotent. The runner does not close Loaders
-// or other caller-owned adapters.
-func (r *Runner) Close()
+func (r *Runner) Close() // stop admission; does not cancel in-flight runs
+func (r *Runner) Wait()  // join leftover runs after a budgeted return
 
 type Status int
-
 const (
-	StatusSuccess Status = iota
+	StatusUnknown Status = iota
+	StatusSuccess
 	StatusFailed
 	StatusSkipped
 	StatusCanceled
 )
 
 type NodeOutcome struct {
-	Status Status
-	Err    error // set on Failed; skip/cancel reason on Skipped/Canceled
+	Status    Status
+	Value     any   // owned result; nil if none
+	Err       error // Failed, or skip/cancel reason
+	Condition *bool // set on If nodes only
 }
 
 type Result struct {
@@ -467,351 +504,367 @@ type Result struct {
 func (res *Result) Outcome(id string) (NodeOutcome, bool)
 ```
 
-`Run`'s error is `ctx.Err()` on cancel after admission, `*GraphError` if
-any node failed (the run still fills `Result`), `ErrSaturated` if rejected,
-or `ErrClosed` if the runner is closed. A failed node does not cancel
-independent branches. Cancel prevents new dispatch and cancels the context
-seen by running nodes.
+`Run` is a package function. A generic method on `Runner` is illegal on
+Go 1.25, and a `Runner[In]` would split the process-lifetime runner by
+type.
 
-Panic in a node or predicate is recovered to that node's Failed outcome
-(`ErrPanic`); scheduler capacity is released. The process does not die.
-This differs from `batch`, where a handler panic is a programming error
-that must surface from `Run`. A flow node is user business logic; a
-batch handler is a tight loop the library cannot continue past.
+`Run` dual-return:
 
-### 6.4 Helpers that are not a graph
+- rejected (`ErrSaturated`, `ErrClosed` before admit, graph larger than
+  the runner cap): `(nil, err)`
+- admitted: `(*Result, err)` and `Result.Nodes` has every compiled id
+- cancel after admit: `(res, ctx.Err())`
+- node failure: `(res, *GraphError)`; independent branches still filled
 
-These are `errgroup` with names, for one-shot code that does not need
-Compile. They share the cancel rule (started functions are waited for)
-and nothing else. They do not skip, do not produce `Result`, and do not
-go through a Runner.
+Aggregate `Result.Status`: any Failed → Failed; else any Canceled →
+Canceled; else Success. Skipped does not fail the run.
+
+A node that returns `ctx.Err()` while the run is not cancelled is
+Failed, not Canceled. Ready-not-started nodes on cancel are Canceled.
+
+Panic in a node or predicate is recovered to that node's Failed
+(`*PanicError` wrapping `ErrPanic`). Capacity is released. The process
+does not die.
+
+`Close` stops admission atomically. It does not cancel runs. To shut
+down: cancel run contexts, wait for those `Run` calls, then `Close`.
+`WithShutdownBudget` applies when a `Run`'s ctx is already cancelled
+and a node ignores it: `Run` returns `*ShutdownError`, `Wait` joins.
+The runner does not close Loaders.
 
 ```go
-func Sequence[In any](ctx context.Context, in In, fns ...Node[In]) error
-func Parallel[In any](ctx context.Context, in In, limit int, fns ...Node[In]) error
+type GraphError struct {
+	First error            // first Failed node, compile order
+	Nodes map[string]error // Failed and Canceled only
+}
+func (e *GraphError) Error() string
+func (e *GraphError) Unwrap() error // First
+func (e *GraphError) Unwraps() []error
 
-// Map runs fn over items with at most limit in flight. limit < 1 is an
-// error. The first fn error cancels the rest and is returned after they
-// finish. Items is a snapshot; Map does not see later appends.
-func Map[T any](ctx context.Context, limit int, items []T, fn func(context.Context, T) error) error
+type PanicError struct {
+	Node  string
+	Value any
+	Stack []byte
+}
+func (e *PanicError) Error() string
+func (e *PanicError) Unwrap() error // ErrPanic
+
+type ShutdownError struct {
+	Pending int
+	Err     error
+}
+func (e *ShutdownError) Error() string
+func (e *ShutdownError) Unwrap() error
+
+var (
+	ErrClosed          = errors.New("flow: closed")
+	ErrSaturated       = errors.New("flow: runner saturated")
+	ErrReentry         = errors.New("flow: node re-entered the same runner")
+	ErrPanic           = errors.New("flow: panic")
+	ErrSkipCondition   = errors.New("flow: skipped (condition false)")
+	ErrSkipDependency  = errors.New("flow: skipped (dependency)")
+)
 ```
 
-`Each` that returns `[]Handle` without knowing the count is not provided.
-Unknown cardinality is a node that calls `Map` after it has the slice.
+`flow.ShutdownError` is a distinct type from `batch.ShutdownError`.
 
-### 6.5 Composition with batch
+### 6.4 ForEach (not a graph)
 
 ```go
-type Work struct {
-	Token   Token
+// ForEach runs fn over items with at most limit in flight.
+// First error cancels a child of ctx; it does not cancel the caller's
+// ctx. Started calls are waited for. limit < 1 is an error. Empty
+// items returns nil. items is snapshotted at the call.
+func ForEach[T any](ctx context.Context, limit int, items []T, fn func(context.Context, T) error) error
+```
+
+`Sequence` and `Parallel` are not provided. Use `errgroup`. They would
+disagree with Graph (independents finish) and with each other.
+
+Unknown cardinality is a node body that calls `ForEach` after it has
+the slice. There is no `Each` that returns handles.
+
+### 6.5 Composition example
+
+Process ctx outlives every run. Loaders are started before any `Do`.
+Input is immutable. Results are owned. Persist has no linger until a
+measurement asks; `MaxItems: 1` is a single `Do`.
+
+```go
+type Input struct{ Token Token }
+type Proposal struct {
 	Decoded Decoded
 	Meta    Metadata
 	Prices  []Price
 }
 
+procCtx, stop := context.WithCancel(context.Background())
+defer stop()
+
 decodeL, _ := batch.NewLoader(decodeBulk, batch.WithPolicy(batch.Policy{MaxItems: 32, MaxWait: 20 * time.Millisecond}))
 metaL, _ := batch.NewLoader(metaBulk, batch.WithPolicy(batch.Policy{MaxItems: 32, MaxWait: 20 * time.Millisecond}))
 priceL, _ := batch.NewLoader(priceBulk, batch.WithPolicy(batch.Policy{MaxItems: 32, MaxWait: 20 * time.Millisecond}))
-persistL, _ := batch.NewLoader(persistBulk, batch.WithPolicy(batch.Policy{MaxItems: 16, MaxWait: 50 * time.Millisecond}))
+persistL, _ := batch.NewLoader(persistBulk, batch.WithPolicy(batch.Policy{MaxItems: 1}))
 
-// Run each Loader for process lifetime. The flow runner does not own them.
+go decodeL.Run(procCtx)
+go metaL.Run(procCtx)
+go priceL.Run(procCtx)
+go persistL.Run(procCtx)
+defer func() {
+	decodeL.Close(); metaL.Close(); priceL.Close(); persistL.Close()
+	decodeL.Wait(); metaL.Wait(); priceL.Wait(); persistL.Wait()
+}()
 
-g, err := flow.New[*Work]().
-	Node("decode", func(ctx context.Context, w *Work) error {
-		d, err := decodeL.Do(ctx, w.Token)
-		w.Decoded = d
-		return err
+g, err := flow.New[Input]().
+	Node("decode", func(ctx context.Context, in Input, _ flow.View) (any, error) {
+		return decodeL.Do(ctx, in.Token)
 	}).
-	Node("metadata", func(ctx context.Context, w *Work) error {
-		m, err := metaL.Do(ctx, w.Token)
-		w.Meta = m
-		return err
+	Node("metadata", func(ctx context.Context, in Input, _ flow.View) (any, error) {
+		return metaL.Do(ctx, in.Token)
 	}).
-	Node("prices", func(ctx context.Context, w *Work) error {
-		p, err := priceL.Do(ctx, w.Token)
-		w.Prices = p
-		return err
+	Node("prices", func(ctx context.Context, in Input, _ flow.View) (any, error) {
+		return priceL.Do(ctx, in.Token)
 	}).
-	Node("persist", func(ctx context.Context, w *Work) error {
-		_, err := persistL.Do(ctx, *w)
-		return err
+	Node("evidence", func(ctx context.Context, _ Input, deps flow.View) (any, error) {
+		d, _ := deps.Get("decode")
+		m, _ := deps.Get("metadata")
+		p, _ := deps.Get("prices")
+		return check(Proposal{Decoded: d.(Decoded), Meta: m.(Metadata), Prices: p.([]Price)})
 	}, "decode", "metadata", "prices").
+	Node("persist", func(ctx context.Context, _ Input, deps flow.View) (any, error) {
+		prop, _ := deps.Get("evidence")
+		return persistL.Do(ctx, prop.(Proposal))
+	}, "evidence").
 	Compile()
 
-res, err := flow.Run(ctx, runner, g, &Work{Token: tok})
+runner, err := flow.NewRunner(flow.WithMaxConcurrentRuns(8), flow.WithMaxExecutingNodes(32))
+res, err := flow.Run(runCtx, runner, g, Input{Token: tok})
 ```
 
-Decode, metadata, and prices start together. Persist waits for all three.
-Each `Do` may sit in a group with `Do`s from other concurrent `Run`s.
+Shutdown order: cancel `runCtx`s, wait those `Run`s, `Runner.Close`,
+cancel `procCtx` or `Loader.Close` each, `Wait` each.
 
-Shutdown order: cancel or finish runs, `Runner.Close`, then `Loader.Close`
-on each shared loader. Reversing that deadlocks waiters or returns
-`ErrClosed` from inside a still-running node (which is Failed, not a
-library panic).
+Type assertions at the join are the cost of a registry-free graph. The
+join is ordinary Go; that is the explicit join `#98` asked for.
 
-A stream `Batcher` is the persist path only when the work is one-way and a
-measurement asked for a time/size window (ShitQuant phase-5 flush). Persist
-that must correlate a reply uses a Loader.
+## 7. Observation
 
-## 7. Shared contracts
-
-### 7.1 Observation
+Each package has its own `Event`. A `func(batch.Event)` is not a
+`func(flow.Event)`.
 
 ```go
+type EventType int
+const (
+	EventAdmitted EventType = iota + 1
+	EventReleased
+	EventStarted
+	EventCompleted
+	EventFailed
+	EventSkipped
+	EventCanceled
+)
+
+type Cause int
+const (
+	CauseMaxItems Cause = iota + 1
+	CauseMaxWait
+	CauseMinWait
+	CauseFlush
+	CauseClose
+	CauseCondition
+	CauseDependency
+)
+
 type Event struct {
-	Seq   uint64
-	Name  string    // kind, loader, or node id
-	Type  EventType // Admitted, Released, Started, Completed, Failed, Skipped, Canceled
-	Size  int       // group size, or 1 for a node
-	Err   error
-	Cause string    // formation cause: max_items, max_wait, min_wait, flush, close
+	Seq  uint64
+	Name string
+	Type EventType
+	Size int
+	Err  error
+	Cause Cause
 }
 
-func WithObserver(f func(Event)) Option
+type Stats struct {
+	Queued   int
+	InFlight int
+	Released uint64
+	Items    uint64
+	Failed   uint64
+}
 ```
 
-The callback runs outside internal locks, on the goroutine that made the
-transition. It must not block. A panic in the observer is recovered and
-counted. Payloads are never included. There is no internal event queue:
-a slow observer delays that transition's caller, not an unbounded buffer.
+Callback runs outside internal locks, on the transition goroutine. No
+internal queue. Panic recovered. No payloads. Must not call back into
+the same instance (`ErrReentry` or deadlock). `Flush`/`Close` only
+signal; the observer for a cut runs on the `Run` goroutine so `Flush`
+does not wait for workers.
 
-`Stats` is a snapshot: queued, in flight, released groups, completed,
-failed. No promise that two fields were sampled at the same instant
-beyond "one mutex hold."
-
-### 7.2 What is deliberately absent
-
-- Shared capacity with priorities across loaders or nodes.
-- Memoization, persistence, checkpoints, distribution.
-- `Then` / `Join` / `Each` returning handles, `FromChan`, per-task
-  deadlines, `OnError` callbacks.
-- A `Processor` interface, item IDs, interfaces invented for mocks.
-- `Promise`, `Watermark`, `Sequence` (the workflow kind). A monotone
-  counter the app needs is `uint64` plus a `cond`. A pending map the app
-  needs is a map.
+`Stats` is a snapshot under one mutex hold.
 
 ## 8. Consumer mapping
 
-### 8.1 ShitQuant (high confidence)
+### 8.1 ShitQuant (path-level)
 
-Ground: public issues `#71`, `#73`, `#75`, `#95`–`#100`, and a prior
-code-backed review of `internal/helius/scheduler.go`,
-`internal/solana/normalizer.go`, `internal/marketdata/recorder.go`,
-`internal/capture/journal.go`. This environment could not open the private
-repo. House rules from that review: batching only after a measurement;
-never manufacture time or order; a deadline is never evidence a write
-failed; cancellation is not a drain; do not recreate the archived hub.
+House rules used here: batching only after a measurement; never
+manufacture time or order; a deadline is never evidence a write failed;
+cancellation is not a drain; do not put a keyed scheduler on capture;
+do not replace the normalizer's pending maps; do not recreate the
+archived hub.
 
-| Path | Use gobatch? | How |
-|---|---|---|
-| Capture journal | No | Irreplaceable bytes. Pause, do not drop. `Add` abort drops queued items. |
-| Helius scheduler | No | Per-kind retry, forever dedup, slot-ordered batches, 2 in-flight / ~5/s live in the app. A Loader would change journaled envelopes. |
-| Normalizer pending maps | No | Network-free, one goroutine, completing-record order. A library join reorders or races the recorder lock. |
-| Recorder / group commit | No | Durable-before-visible is a transactional `Memory` API, not a Batcher in front of `Admit`. |
-| Enrichment / proposal | **Yes** | `flow` graph vs the direct-call/replay baseline (`#97`–`#99`). |
-| Multi-token outcome sampling | **Yes** | Shared `Loader`s (`#71`, `#100`). |
-| Phase-5 Valkey flush | **Yes, after measurement** | `Batcher` with `MaxWait: 1s` if a ticker measures badly. |
-| Paper / replay | Flow only if the graph is the enrichment path | Replay clock and order stay in the app. |
+| Path | Use gobatch? |
+|---|---|
+| Capture journal | No. Abort drops queued-not-started items. |
+| Helius-style RPC scheduler | No. Per-kind retry and forever dedup stay in the app. |
+| Normalizer pending maps | No. Completing-record order is app-owned. |
+| Recorder / group commit | No. Durable-before-visible is an app transactional API. |
+| Enrichment / proposal | Yes. `flow` vs a direct-call/replay baseline (`#97`–`#99`). |
+| Multi-token sampling | Yes. Shared `Loader`s (`#71`, `#100`). |
+| Phase-5 flush | Yes, after a measurement. `Batcher` + `MaxWait`. |
+| Paper / replay | Only if the graph *is* the enrichment path. Clock and order stay in the app. |
 
-Adoption order: pin a release, use Loader+flow on enrichment, measure the
-flush, never put this library on capture.
+Adoption order: pin a release, Loader+flow on enrichment, measure the
+flush, never on capture.
 
-### 8.2 OnyxCore (medium confidence)
+File-level rates, line counts, and lock names from the prior private-tree
+review are not restated here. They informed the Yes/No table; they are
+not claims this environment re-verified.
 
-Issue `#97`: build `flow/` in GoBatch, replacing an earlier recommendation
-to use OnyxCore. Do not delete or archive OnyxCore; do not depend on it.
+### 8.2 OnyxCore (medium)
 
-Public signals: 2023 forks of `imgui-node-editor`, `imnodes`, `imgui`,
-`glfw`. "If I ever pick it up again." The most plausible reading is a
-richer node-graph host, possibly visual, not a batcher.
+`#97`: build `flow/` in GoBatch; do not delete or archive OnyxCore; do
+not depend on it. Public 2023 forks of imgui node editors suggest a
+richer host, possibly visual.
 
-Leave room: stable node IDs, explicit outcomes, observation events a UI
-could display, compiled graphs that do not require gobatch types inside
-node functions.
+Leave room: stable node IDs, explicit outcomes, observation events.
+Do not absorb: dynamic graphs, named ports, plugins, ImGui, cron, a
+job database, workers. Those are why OnyxCore still exists.
 
-Do not absorb: dynamic graphs, named-port schemas, plugin registries,
-ImGui, cron, a job database, distributed workers. Those are why OnyxCore
-still exists.
+`cutgraph` is a public Python video-timeline repo. It adds no
+requirements.
 
-`cutgraph` is a public Python video-timeline repo. It does not add
-requirements here.
+### 8.3 Shitlock (low)
 
-### 8.3 Shitlock (low confidence)
+No public repo. A lock library — distributed, position, or
+single-writer — should not live in gobatch. If one appears, it is a
+dependency of the application or of a future plane, not a package here.
 
-No public repo, issue, or commit was found. Three guesses, all implying
-gobatch should take nothing:
+### 8.4 Matrix
 
-| Guess | Need from gobatch | Offer to a future distributed gobatch |
-|---|---|---|
-| Distributed / Redis lock (owner has `redistypes`, `gobatch-redis`) | None | Fencing/lease API that a worker plane could call. That plane is still not gobatch. |
-| Trading / position lock next to ShitQuant | None | None |
-| Process / single-writer lock for the journal | None. Must not hide inside `Run`. | None |
-
-Do not add `gobatch/lock`. If a lock library appears, it stays a dependency
-of the application or of a future plane, not a gobatch package.
-
-### 8.4 Capability matrix
-
-| Capability | ShitQuant | OnyxCore | Shitlock | Future |
-|---|---|---|---|---|
-| Stream Batcher | Useful after measurement; harmful on capture | Weakly useful | Unused | Required |
-| Loader | Required off capture | Useful as a callee | Unused | Required |
-| Static flow | Required for enrichment | Useful as a callee; must not replace OnyxCore | Unused | Required |
-| Dynamic keyed workflow | Harmful | OnyxCore-owned if it exists | Unknown | Out |
-| Promises / watermarks | Harmful as a library runtime | Unknown | Unused | Out |
-| Generic retry | Harmful | Out of `flow/` | Lock-library owned | Out |
-| Durable jobs | App-owned | OnyxCore-owned if any | Unused | Out |
-| Locks | App-owned | Unused | Provides them | Out |
-| Observation | Useful | Useful for a UI | Unused | Required as hooks |
-| Bounds | Required | Useful if it embeds | Own wait bound | Required |
-
-### 8.5 What must stay out
-
-Capture journal, normalizer maps, recorder sequencing, Helius scheduling,
-provider credentials, Redis (`#72`), retries, implicit coalescing, a lock
-API, OnyxCore types, estimated-memory trackers, a root-package rename as a
-blocker for this work.
+| Capability | ShitQuant | OnyxCore | Shitlock |
+|---|---|---|---|
+| Stream Batcher | Useful after measurement; harmful on capture | Weakly useful | Unused |
+| Loader | Required off capture | Useful as a callee | Unused |
+| Static flow | Required for enrichment | Useful as a callee; must not replace OnyxCore | Unused |
+| Dynamic keyed workflow | Harmful | OnyxCore-owned if it exists | Unknown |
+| Generic retry | Harmful | Out of `flow/` | Lock-library owned |
+| Durable jobs | App-owned | OnyxCore-owned if any | Unused |
+| Locks | App-owned | Unused | Would provide them |
+| Observation | Useful | Useful as hooks, not a UI | Unused |
+| Bounds | Required | Useful if it embeds | Own wait bound |
 
 ## 9. Migration from v0.5
 
 | v0.5 | Redesign |
 |---|---|
-| `batch.New[T](cfg)` + `Go` + `Done` | `batch.New(handler, WithPolicy(p))` + `Run` + `Close` |
-| `Source[T].Read` | `iter.Seq2[T, error]` + `Consume`, or a loop around `Add` |
-| `Processor[T].Process` | `Handler[T]`; chain by calling functions |
-| `Item[T]{ID, Data, Error}` | `T`; per-item outcomes are the handler's |
-| error channel, `IgnoreErrors`, `CollectErrors` | `Run`'s return value |
-| `Config`, `ConstantConfig`, `DynamicConfig` | `Policy` and `SetPolicy` |
+| `New` + `Go` + `Done` | `New(handler, WithPolicy(p))` + `Run` + `Close` |
+| `Source.Read` | `Consume` or a loop around `Add` |
+| `Processor.Process` | `Handler[T]` |
+| `Item[T]` | `T` |
+| error channel | `Run`'s return |
+| `Config` / `DynamicConfig` | `Policy` / `SetPolicy` |
 | `BufferConfig` | `WithQueue` |
 | `RunBatchAndWait`, `ExecuteBatches` | `errgroup` |
 | `processor.*`, `source.*` | a loop |
 | (roadmap) sync-like batching | `Loader` |
 | (none) | `flow` |
 
-No compatibility shims. This is v0. A tagged v0.5.x honesty release of
-*current* master is the shim: applications that are not ready to move keep
-a pin.
+No shims. The Track 0 tag of current master is the pin for apps that
+are not moving.
 
 ## 10. Production roadmap
 
-Two tracks. Track 0 does not wait for the redesign. The redesign does not
-wait to be perfect before Track 0 tags.
+### Track 0 — honesty (current API)
 
-### Track 0 — honesty (days of work, current API)
+Fill `[Unreleased]` for `#64` and `#66`. Tag so `go get` compiles the
+README (v0.5.1 vs v0.6.0: maintainer call). Raise `go.mod` to 1.25 or
+add a 1.18 CI leg. Reconcile stale PRs `#65`, `#67`, `#68`, `#76`.
+Verify an external module with `GOWORK=off`.
 
-Ship a tag that matches master so `go get` compiles the README.
+### Track 1 — `batch` (v0.7.0)
 
-1. Fill `[Unreleased]` for `#64` and `#66` (`#93`).
-2. Tag (v0.5.1 or v0.6.0 of the *current* surface — maintainer call).
-3. State the real Go floor: raise `go.mod` to 1.25 or add a 1.18 CI leg
-   (`#85`). This redesign assumes the raise.
-4. Reconcile or close stale PRs `#65`, `#67`, `#68`, `#76` so they do not
-   land contradictory lifecycles (`#95`).
-5. Verify an external module with `GOWORK=off` and no `replace`.
+`Policy`, scheduler, `Batcher`, `Consume`, `Loader`, errors, observer.
+Delete `processor` and `source`. Rewrite docs.
 
-This is the pin ShitQuant can take while the redesign is built.
+Tests under `synctest`: policy table; greedy Batcher vs light-load
+Loader; invalid policy; `MinItems <= 0` default vs negative reject;
+drain vs abort with the two-context sample; `Add`/`Do` before `Run`;
+`Add` after `Run` returned; full-queue backpressure; formed-not-started
+≤ `W`; worker bound; `SetPolicy` cut and Loader reject; unanswered
+calls; `Do` with ended ctx; equal `In` is two ops; caller cancel does
+not cancel siblings; budget settles Loader waiters; late `Complete` on
+a leftover pointer; `ErrReentry`; `Run` twice is `ErrUsed`; handler
+slice not reused; race detector.
 
-### Track 1 — `batch` v0.7.0 (the new primitive)
+Waits must be durable (chan / timer / cond), not mutex-only, or
+`synctest.Wait` hangs. Observer tests use a buffered chan and do not
+`Wait` from the callback. Timeouts in tests are explicit, not defaults.
 
-`Policy`, `Batcher`, `Consume`, `Loader`, `GroupError`, observer, bounds.
-Delete `processor` and `source`. Rewrite README, `doc.go`, CHANGELOG,
-examples, AGENTS.md / CLAUDE.md.
+### Track 2 — `flow` (v0.8.0)
 
-Tests under `synctest`: policy priority table, greedy zero policy, invalid
-policy rejected, drain vs abort with two contexts, `Add` after `Run`
-returned, full-queue backpressure, worker bound, `SetPolicy` re-evaluation,
-unanswered calls, `Do` with an ended ctx, equal `In` is two operations,
-caller cancel does not cancel siblings, shutdown budget,
-late `Complete` ignored, race detector throughout.
+`Builder`, `Compile` snapshot, `Runner`, `Run`, `If`, `ForEach`.
+Examples: enrichment fixture (no paid APIs) and a non-trading graph.
 
-### Track 2 — `flow` v0.8.0
+Tests: diamond; cycle/unknown/duplicate; condition false vs error;
+skipped descendants; independent branch completion; `ErrSaturated`;
+cancel at each state; panic recovery; concurrent runs isolated;
+`Compile` then mutate builder; `If` false does not run descendants;
+owned results visible only via `View`; `#100` linger when node bound
+< `MaxItems` as a follow-on; admission/close races.
 
-`Builder`, `Compile`, `Runner`, `Run`, `If`, `Sequence`, `Parallel`, `Map`.
-Examples: ShitQuant-shaped enrichment (fixtures, no paid APIs) and a
-non-trading metadata/classification graph (`#98`, `#99`).
-
-Tests: diamond, cycle/unknown/duplicate rejection, condition false vs
-error, skipped descendants, independent branch completion, saturation
-(`ErrSaturated`, no waiting-run queue), cancel at each state, panic
-recovery, concurrent runs isolated, shared Loader across runs (`#100`)
-as a follow-on once both packages exist, admission/close races,
-non-cooperative node termination reporting.
-
-`#100` does not block a standalone flow release (`#99`).
+`#100` does not block `#99`.
 
 ### Track 3 — v1.0
 
-Freeze after:
+Freeze after Track 0 exists, Track 1–2 have a second example, and an
+external pin with `GOWORK=off` compiled against the *new* surface.
 
-- Track 0 pin exists and a consumer compiled against it.
-- Track 1 and 2 have soak tests and a second consumer example.
-- Documented support floor, drain/abort, bounds, and observation are
-  implemented as specified, not as coverage percentages.
-- No open contradiction between README and code.
+### Track 4 — not this redesign
 
-v1.0 may still be a 0.x mentally; the point is a pin with a migration
-guide and a promise that *this* surface is the one to break next on
-purpose, not by accident.
+Redis (`#72`). Optional `WithCoalesce`. Promise / Watermark / keyed
+workflow (OnyxCore or a new proposal with a measurement). Visual
+editor. `WithCost`. `DoAll`.
 
-### Track 4 — later, not this redesign
-
-- Redis adapter (`#72`) after a named consumer needs it.
-- Optional key coalescing on Loader, behind an explicit option, after
-  `#71`'s distinct-identity default has shipped.
-- Dynamic keyed workflow / Promise / Watermark — OnyxCore or a new
-  proposal with a measurement.
-- Visual graph editor — OnyxCore.
-- Byte-cost queues (`WithCost`) after a measurement.
-- Daemon example and idle-soak test on the *new* `Run` loop.
-
-### Production-readiness checklist (library, not a platform)
+### Checklist
 
 | Item | When |
 |---|---|
 | Tag matches docs | Track 0 |
 | Go floor tested | Track 0 / 1 |
-| No must-drain channels | Track 1 |
-| Named drain vs abort | Track 1 |
-| Bounded workers and queues | Track 1 |
-| Invalid config is an error | Track 1 |
-| One outcome per accepted `Do` | Track 1 |
-| Observation hooks | Track 1–2 |
-| Validated finite graphs | Track 2 |
-| Bounded runs and executing nodes | Track 2 |
-| Shared Loader + flow example | Track 2 follow-on (`#100`) |
-| External pin with `GOWORK=off` | Track 0 and again at v1 |
-| Race tests, synctest waits | every track |
-| CI permissions, no-op cache, lint once | Track 0 (`#85`) |
-| No panic-on-misuse public API | Track 1 |
+| Written scheduler, formed ≤ W | Track 1 |
+| Named drain vs abort, cancel wins | Track 1 |
+| One Call state machine | Track 1 |
+| No public panic | Track 1 |
+| Owned results + explicit join | Track 2 |
+| Bounded runs and named nodes | Track 2 |
+| Shared Loader + flow example | Track 2 follow-on |
+| External pin | Track 0 and v1 |
 
 ## 11. Open questions
 
-1. **Honesty tag number.** v0.5.1 (patch of current) vs v0.6.0 (current
-   surface, because `#64` already broke `Go`). Maintainer call; the
-   redesign then becomes v0.7/v0.8 as above.
-2. **`Key` coalescing.** Out of v1. If added later, it is
-   `WithCoalesce(func(In) K)` and default remains distinct identities.
-3. **Envelope vs returned values.** Pointer envelope is the v1 graph
-   model. A type-changing pipeline is two graphs or ordinary Go in a node.
-4. **Whether `flow.Run` is a package function or `Runner.Run`.** Package
-   function needs a type parameter; method does not infer `In` as nicely.
-   Draft uses the package function. Revisit if inference is ugly in
-   compiled stubs.
-5. **Handler timeout default.** 30s is a guess. 0 (none) is safer for
-   journal-like handlers and worse for a stuck RPC. Prefer 0 if a
-   reviewer shows a case where a default timeout invents failure.
+1. Honesty tag number (v0.5.1 vs v0.6.0 of the current surface).
+2. Whether a later `WithCoalesce(func(In) K)` is worth it. Out of v1.
+3. `View.Get` type assertions vs generated join helpers. v1 is `Get`.
+4. Settled: `flow.Run` is a package function; handler timeout default 0;
+   `Sequence`/`Parallel` are not shipped.
 
 ## 12. Difference from the previous redesign branch
 
-| Previous (`workflow` lineage) | This proposal |
+| Previous `workflow` lineage | This proposal |
 |---|---|
-| Dynamic keyed tasks, Promise, Watermark, Sequence, Remember, retry | Finite DAG, no promises, no retry |
-| Scheduler as the product | Window + Loader + small graph |
-| Recommended replacing Helius / joining in the normalizer | Explicitly forbids both |
-| `Each` / `After` / handle graphs | `Map` + declared deps |
-| Shared priority `Pool` | Out (starves; app wraps the client) |
-| One `workflow` package | `batch` then `flow`, independently usable |
-| Go 1.25, `Run`/`Add`/`Close`, Loader, Policy | Kept; those parts survived review |
-
-The previous branch remains useful as a record of dead ends. Do not merge
-it. Do not implement `workflow` because a document already exists.
+| Keyed tasks, Promise, Watermark, Sequence, Remember, retry | Finite DAG, owned results, no retry |
+| Shared mutable kinds | Immutable input + `View` |
+| Recommended replacing Helius / joining in the normalizer | Forbids both |
+| `Each` / `After` / handles | `ForEach` + declared deps |
+| Priority `Pool` | Out |
+| One `workflow` package | `batch` then `flow` |
+| `Run`/`Add`/`Close`, Loader, Policy, Go 1.25 | Kept, then specified as a scheduler |
