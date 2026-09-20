@@ -1,10 +1,10 @@
 # Review record for the redesign proposal
 
-Revision 1 of [PROPOSAL.md](PROPOSAL.md) was reviewed by three independent
-reviewers, each briefed differently and each working from the code, not from
-the proposal's claims. Their full reports are under [reviews/](reviews/).
-This file lists every finding that changed the design, what it changed, and
-the findings that were rejected with the reason.
+[PROPOSAL.md](PROPOSAL.md) went through two review rounds with three
+independent reviewers, each briefed differently and each working from the
+code, not from the proposal's claims. Their full reports are under
+[reviews/](reviews/). This file lists every finding that changed the design,
+what it changed, and the findings that were rejected with the reason.
 
 ## Reviewers
 
@@ -13,12 +13,21 @@ the findings that were rejected with the reason.
 | [01-adversarial-r1.md](reviews/01-adversarial-r1.md) | Break the design: deadlocks, leaks, unachievable guarantees, contradictions, API bloat |
 | [02-shitquant-fit-r1.md](reviews/02-shitquant-fit-r1.md) | Check every claim in section 6 against the ShitQuant code, with file:line evidence; judge adoption under the repo's own rules |
 | [03-go-api-r1.md](reviews/03-go-api-r1.md) | Go idiom, generics ergonomics (verified by compiling stubs), naming, errors, options, testability, comparison with errgroup, conc, dataloader |
+| [04-adversarial-r2.md](reviews/04-adversarial-r2.md) | Second pass on revision 2 |
+| [05-shitquant-fit-r2.md](reviews/05-shitquant-fit-r2.md) | Second pass on revision 2, section 6 |
+| [06-go-api-r2.md](reviews/06-go-api-r2.md) | Second pass on revision 2, with every signature compiled |
 
 Verdicts on revision 1: adversarial "not approvable as written" (three
 blockers); consumer fit "section 6 does not describe ShitQuant; six of seven
 mapped claims wrong"; API "five changes to insist on before implementation".
 
-## Findings that changed the design
+Verdicts on revision 2: adversarial "approvable for `batch` now; not yet
+for `workflow`" with two spec bugs an implementer would reproduce; consumer
+fit "the architecture picture is now correct" with one design-level hole
+left in 6.2; API "everything compiles; the problems are semantic", five
+changes to insist on. Revision 3 addresses the round-two findings below.
+
+## Round 1: findings that changed the design (revision 2)
 
 | Finding | Source | Disposition in revision 2 |
 |---|---|---|
@@ -54,6 +63,33 @@ mapped claims wrong"; API "five changes to insist on before implementation".
 | A `Loader` in front of a journal append gives the caller an uncertain outcome on ctx expiry | fit F6 | Stated on `Do` |
 | Adoption order and the "smallest blast radius" claim were backwards | fit §7, misread 16 | Delivery plan step 4 is "nothing until a measurement asks; then phase 5, then phase 6" |
 
+## Round 2: findings that changed the design (revision 3)
+
+| Finding | Source | Disposition in revision 3 |
+|---|---|---|
+| Retry was dead code: a task was failed (handle resolved, dependents failed) before it was retried, so a retry could never surface a result | adversarial r2 1 | New `retrying` state: handles stay unresolved and dependents untouched until terminal failure; state table updated |
+| `MaxOpen` counted nothing in the proposal's own examples: `After` tasks under a promise or watermark had no root, and handler-side `After` could not name its parent | adversarial r2 2, API r2 1 | `Submit(ctx, key, in, deps ...Dep)` is the only root entry and the only thing `MaxOpen` counts; `After` requires a task-handle dep and joins the root of every task-handle dep; `Task.Handle()` is the handler-side parent; a finished root reopens |
+| Re-injecting a retried group with its original `Seq` is not expressible through `batch.Batcher.Add`, so "one Batcher per kind" was fiction | adversarial r2 3 | Stated: kinds and `Batcher` share an internal release engine; `workflow` does not drive `Batcher`'s public API; `Group.Partial` added so a handler knows a remainder from an original |
+| The sequence rule never released a position that failed before release, so everything behind it waited forever | adversarial r2 4 | Rule is "released or terminally failed"; `At(n)` panics on reuse or `n <= settled`; ties by registration order; retries bypass; "released" defined as a scheduler-side event |
+| Readiness order omitted two readying events and never said what "happened" means across goroutines | adversarial r2 5 | 5.1 lists every readying event and defines order as scheduler-lock acquisition order with positions assigned under the lock; watermark waiters ready in registration order; determinism is of release order, not group boundaries |
+| Promises and `Remember` retained every value with no eviction | adversarial r2 6, API r2 3 | `Promise.Forget`, `Kind.Forget`, unreferenced counts in `Stats`, bound stated as the consumer's |
+| Policy timers were defined on "queued" while kinds pull from a ready queue | adversarial r2 7 | Kind timers run from readiness; slice order is queue order; a group whose builds all failed is skipped |
+| `Fatal` interplay with the classifier and the group's tasks was unspecified | adversarial r2 8, API r2 4 | `Fatal` bypasses the classifier, fails the group's unfinished tasks with the unwrapped error, is honoured from handler, `build` and `Fail`; `ErrFatal` exported; `GroupError.Attempt` removed |
+| `Close` did not quiesce a consumer that kept calling `After` and `Resolve`; the sweep raced a late registration | adversarial r2 9 | After `Close`, `After` returns a failed handle and promise completion returns false; the sweep and the closed flag are one critical section |
+| `Watermark.At` waiters created an AB/BA lock pair with the scheduler | adversarial r2 10 | Waiters registered and copied outside the scheduler lock; lock order documented |
+| Duplicate `Submit` must not wait on `MaxOpen`; a never-completed promise keeps a root open | adversarial r2 11 | Dedup precedes the wait; the consumer's escape is `Fail` on the key |
+| "A late answer races the auto-fail and loses" was false as a race | adversarial r2 12 | Worker closes the task under its lock before failing unanswered ones |
+| Two attempt counters and a budget that could be exceeded by one attempt | adversarial r2 13, API r2 5 | `Task.Attempt` is the task's, `Group.Attempt` the group's, observer reports the task's; budget from first readiness, checked before each re-invocation |
+| `Kind.Ordinal(n)` returning a view was stateful and per-call data on the kind | API r2 2 | Replaced by `Sequence.At(n) Dep`; `KindConfig.Sequence` removed |
+| Three completion vocabularies (`Complete`, `Reply`, `Resolve`/`Reject`) | API r2 3 | `Complete`/`Fail` returning `bool` on `Task`, `Call` and `Promise` |
+| Zero-handle and `Result`-inside-handler contradictions; `DependencyError` wrapping `IncompleteError`; `Stats` type unshown; `PendingTask.Waiting` singular | API r2 5, adversarial r2 14 | Each stated in 5.3, 5.8, 5.9, 5.11 |
+| Observer inside the scheduler lock would self-deadlock on `Complete` | adversarial r2 14 | Called outside the lock; `Event.Seq` carries transition order |
+| 6.2 "adopt the join alone" split admission across the kind's worker and the reader goroutine, racing for the recorder's sequence | fit r2 R1 | 6.2 now says expressible, not adoptable in part, and not worth adopting whole |
+| `block_conflict` over-counted; the promise value lacked the record's receipt and provenance; "blocks awaiting swaps" not reproducible | fit r2 R2 | Snippet counts only on a differing hash; promise holds the arrival triple; `Stats.Promises` unreferenced count |
+| 6.1 claimed two in flight per kind and silently dropped cross-kind priority; batch budget and per-slot signature dedup differ | fit r2 R3 | 6.1 states each difference and that cap, limiter and priority move into the RPC client |
+| Section 6 misattributed the commit measurement; 6.4 invented a phase 6 shape | fit r2 R4 | Corrected to the capture journal's measurement; 6.4 defers to the phase 6 design |
+| Ship `batch` as 0.6 and `workflow` as 0.7 | API r2 6 | Adopted in the delivery plan |
+
 ## Findings rejected or deferred
 
 | Finding | Source | Reason |
@@ -63,3 +99,6 @@ mapped claims wrong"; API "five changes to insist on before implementation".
 | Recover handler panics and fail the task to keep the process alive | archived ShitQuant design via the explorer | Rejected in favour of re-raising from `Run` as `errgroup` does; a scheduler that survives a panic cannot honour deterministic replay |
 | The `workflow` package is the archived actor/hub system with generics and should not exist for ShitQuant | fit §7 | Partly accepted: the proposal now says the consumer evidence for it today is thin and the first fit is phase 6. The package remains in the proposal because the request for fan-out and dependency scheduling is the user's, and it is a library, not a re-creation inside the consumer. Open question 4 records this |
 | Two packages versus one | API 17, open question 1 | Two kept; `Loader` and `Consume` stay in `batch` |
+| Implicit `Settle` when the next ordinal is submitted | open question 1 of revision 2 | Rejected by API r2: a record can yield ordinals in any order, so "n+1 registered" does not mean "n settled" |
+| Bind `Watermark` to a workflow for symmetry with `Promise` | adversarial r2 10 | Kept standalone so a journal follower can use `Wait` without a workflow; the lock order is documented instead |
+| `RememberKeys` as a cheaper mode without results | API r2 smaller | Deferred to a measurement; recorded as open question 3 |

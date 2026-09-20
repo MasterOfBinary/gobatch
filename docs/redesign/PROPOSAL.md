@@ -1,7 +1,7 @@
 # GoBatch redesign proposal: batching and workflows
 
-Status: revision 2, after three independent reviews (adversarial, consumer
-fit, Go API design). The reviews and what changed because of them are in
+Status: revision 3, after two rounds of three independent reviews
+(adversarial, consumer fit, Go API design). The reviews and what changed because of them are in
 [REVIEWS.md](REVIEWS.md). This document proposes a from-scratch redesign of
 GoBatch (v0.6, breaking): a batching primitive, request/reply batching, and a
 workflow scheduler for keyed tasks with dependencies, readiness, fan-out and
@@ -143,20 +143,22 @@ func WithWorkers(n int) Option // concurrent handler calls; default 1
 func WithQueue(n int) Option   // items Add may queue before blocking; default 1024
 ```
 
-Groups are handed to workers in release order; that is the only ordering
-promise, and with `WithWorkers(1)` it is total.
+Groups are handed to workers in release order and a group's slice is in
+queue order; that is the only ordering promise, and with `WithWorkers(1)`
+it is total. `Add` before `Run` on a batcher that is closed without ever
+running returns only on ctx.
 
 ```go
 // GroupError is what Run returns when a handler failed.
 type GroupError struct {
-	Seq     uint64 // release sequence of the group, from 1
-	Attempt int    // 1 unless a workflow retried the group
-	Err     error
+	Seq uint64 // release sequence of the group, from 1
+	Err error
 }
 func (e *GroupError) Unwrap() error
 
-// Group describes the group a handler is serving.
-type Group struct{ Seq uint64; Attempt int }
+// Group describes the group a handler is serving. Attempt and Partial are
+// always 1 and false in a Batcher; a workflow kind sets them on retry.
+type Group struct{ Seq uint64; Attempt int; Partial bool }
 func GroupFromContext(ctx context.Context) (Group, bool)
 
 var ErrClosed = errors.New("batch: closed")
@@ -230,34 +232,41 @@ func (l *Loader[In, Out]) Stats() Stats
 func (l *Loader[In, Out]) Do(ctx context.Context, in In) (Out, error)
 ```
 
-This is the roadmap's "sync-like batching". The zero policy is what a
-dataloader does: while a worker is busy, everything that arrives coalesces
-into the next call.
+This is the roadmap's "sync-like batching". The zero policy with the default
+single worker is what a dataloader does: while the worker is busy,
+everything that arrives coalesces into the next call. With more workers,
+light load gives one call per `Do`; that is the deliberate default.
 
 ## 5. Package `workflow`
 
 ### 5.1 Model
 
-A **workflow** owns **kinds**, **promises** and **watermarks**.
+A **workflow** owns **kinds**, **promises**, **watermarks** and **sequences**.
 
 - A **kind** is a typed unit of work `In -> Out` executed by a handler over
   groups of ready tasks, with its own `batch.Policy`, worker count, retry
-  policy and memory. One `batch.Batcher` per kind.
+  policy and memory.
 - A **task** is one instance of a kind, identified by `(kind, key)`, with a
-  set of dependencies.
-- A **promise** is a keyed, complete-once value the consumer resolves from
+  set of dependencies and a **root**: the `Submit` call it descends from.
+- A **promise** is a keyed, complete-once value the consumer completes from
   outside. It is what a task depends on when the thing it waits for is not
   work but an arrival: "the confirmed block for slot S, whenever its record
   is read, or never".
 - A **watermark** is a monotone counter tasks can wait on: "the chain root
   reached slot S".
-- A **handle** is a future for any of the above.
+- A **sequence** is a consumer-assigned total order tasks can be released in.
+- A **handle** is a future for a task or a promise key. Handles, watermark
+  positions and sequence positions are all `Dep`s.
 
-A task is **ready** when every dependency is complete. Ready tasks go to
-their kind's batcher in **readiness order**: the order in which the event
-that completed their last dependency happened, and, within one event that
-readies several tasks, registration order. Completion satisfies dependents.
-That is the whole scheduler.
+A task is **ready** when every dependency is complete. Ready tasks are
+released to their kind in **readiness order**, defined precisely: every
+event that can complete a dependency (`Complete` on a task, `Complete` on a
+promise key, `Advance` on a watermark, a sequence position becoming
+releasable, a registration whose dependencies are already complete, a retry
+backoff expiring) takes the scheduler lock, and a task's ready position is
+assigned under that lock in the order the lock was acquired; when one event
+readies several tasks, they are readied in registration order. Nothing else
+orders anything. Completion satisfies dependents.
 
 Fan-out is one handle with several dependents. Fan-in is one task with
 several dependencies. A pipeline is the case where every task has one.
@@ -265,9 +274,9 @@ several dependencies. A pipeline is the case where every task has one.
 ```
              ┌─────────────┐
              │ Workflow    │  task table, dependency edges, promises,
-             │  scheduler  │  watermarks, readiness order, retry
+             │  scheduler  │  watermarks, sequences, readiness order, retry
              └──────┬──────┘
-                    │  ready tasks -> the kind's batch.Batcher
+                    │  ready tasks -> the kind's release engine
        ┌────────────┼────────────┐
        ▼            ▼            ▼
    Decode        Metadata      Prices        three kinds (or promises, when the
@@ -277,220 +286,256 @@ several dependencies. A pipeline is the case where every task has one.
                  Persist                     a kind whose tasks depend on all three
 ```
 
+Each kind runs its own release engine: the same policy engine `batch.Batcher`
+is built on, shared through an internal package. `workflow` does not drive
+a `batch.Batcher` through its public API, because a retried group must be
+re-injected as one unit with its original sequence number, which `Add`
+cannot express. Policy timers in a kind run from the task's readiness
+instant, not from when a worker pulled it.
+
 ### 5.2 Defining kinds
 
 ```go
 type Workflow struct{ /* unexported */ }
 func New(opts ...Option) *Workflow
 func WithObserver(f func(Event)) Option
+func WithMaxOpen(n int) Option   // roots not yet finished; 0 means unbounded (5.5)
 
-// Run runs the scheduler and every kind's batcher until Close drains
-// everything or ctx ends. Panics if called twice.
+// Run runs the scheduler and every kind until Close drains everything or ctx
+// ends. Panics if called twice.
 func (w *Workflow) Run(ctx context.Context) error
-// Close stops root submissions. Idempotent, non-blocking, safe before Run.
+// Close stops registrations. Idempotent, non-blocking, safe before Run.
 func (w *Workflow) Close()
-func (w *Workflow) Stats() Stats // per kind: Pending, Ready, InFlight, Done, Failed, Retried
+func (w *Workflow) Stats() Stats
+
+type Stats struct {
+	Kinds    map[string]KindStats    // Pending, Ready, InFlight, Retrying, Done, Failed, Retried, Remembered
+	Promises map[string]PromiseStats // Pending, Completed, Unreferenced
+	Open     int                     // roots not yet finished
+}
 
 type KindConfig struct {
 	Policy   batch.Policy
 	Workers  int          // 0 means 1
 	Retry    *RetryPolicy // nil: no retry
-	Remember bool         // keep finished keys deduplicated for the run (5.4)
-	Sequence *Sequence    // release in explicit ordinal order instead of readiness order (5.6)
+	Remember bool         // finished keys stay deduplicated, with their result, until Forget (5.3)
 }
 
 type Kind[In, Out any] struct{ /* unexported */ }
 func Define[In, Out any](w *Workflow, name string, h Handler[In, Out], cfg KindConfig) *Kind[In, Out]
 
-// Handler serves one group of ready tasks. Tasks unfinished when it returns
-// are failed with the returned error, or ErrUnanswered if it returned nil.
+// Handler serves one group of ready tasks, in release order. Tasks
+// unfinished when it returns are failed with the returned error, or with
+// ErrUnanswered if it returned nil. Unlike batch.Handler, an error does not
+// stop the run: it fails or retries the group's tasks (5.7). Fatal does.
 type Handler[In, Out any] func(ctx context.Context, tasks []*Task[In, Out]) error
 
 type Task[In, Out any] struct {
 	Key     Key
 	In      In
-	Attempt int
+	Attempt int // this task's attempt, from 1; the group's own attempt is batch.GroupFromContext
 }
-func (t *Task[In, Out]) Complete(out Out) // first answer wins; later answers are ignored and counted
-func (t *Task[In, Out]) Fail(err error)
+func (t *Task[In, Out]) Complete(out Out) bool // true if this answer won; later answers are ignored and counted
+func (t *Task[In, Out]) Fail(err error) bool
+func (t *Task[In, Out]) Handle() Handle[Out]    // for registering continuations from inside the handler
 ```
 
-The workflow's `Handler` is not `batch.Handler`; the doc for each says so.
-
-### 5.3 Submitting and depending
+### 5.3 Registering and depending
 
 ```go
 type Key string
 
 // Handle is a future. The zero Handle is never done. A Handle is a Dep.
 type Handle[Out any] struct{ /* unexported */ }
-func (h Handle[Out]) Result(ctx context.Context) (Out, error) // never call inside a handler (5.8)
+func (h Handle[Out]) Result(ctx context.Context) (Out, error)
 func (h Handle[Out]) Done() <-chan struct{}
 
-// Submit registers a root task. It blocks while the workflow has MaxOpen
-// roots whose descendants are not all finished (5.5), and returns ctx.Err()
-// or ErrClosed instead. Never call it inside a handler.
-func (k *Kind[In, Out]) Submit(ctx context.Context, key Key, in In) (Handle[Out], error)
+// Submit registers a root task. deps may hold watermark and sequence
+// positions and promise handles. If a task with this key is known, Submit
+// returns its handle at once. Otherwise it blocks while MaxOpen roots are
+// unfinished, returning ctx.Err() or ErrClosed instead. Never call it inside
+// a handler.
+func (k *Kind[In, Out]) Submit(ctx context.Context, key Key, in In, deps ...Dep) (Handle[Out], error)
 
-// After registers a task that depends on deps. build runs in this kind's
-// worker once every dep is complete, immediately before the handler; it may
-// call Result on the deps, which return at once, and an error from it fails
-// the task. After never blocks and may be called from inside a handler.
+// After registers a continuation. deps must contain at least one task
+// handle (a promise or watermark alone makes a root, and roots use Submit);
+// the task joins the root of every task handle in deps. build runs in this
+// kind's worker once every dep is complete, immediately before the handler;
+// Result on a dep returns at once there, and an error from build fails the
+// task. After never blocks and may be called inside a handler, where
+// t.Handle() is the usual dependency.
 func (k *Kind[In, Out]) After(key Key, deps []Dep, build func(ctx context.Context) (In, error)) Handle[Out]
+
+// Forget drops a remembered finished key so it may run again.
+func (k *Kind[In, Out]) Forget(key Key)
 ```
 
 Every registration dedups by `(kind, key)`: a second registration while the
-first is unfinished returns the first's handle and keeps the first `in`. With
-`Remember`, finished keys dedup too, for the life of the run. Without it, a
-finished key resubmitted runs again; the window between finishing and
-resubmitting is inherent, so a consumer that needs "once per key per run"
-sets `Remember`.
+first is unfinished returns the first's handle and keeps the first `in`,
+before any `MaxOpen` wait. With `Remember`, finished keys dedup too, and
+their results are retained, until `Forget`; the bound is the number of
+distinct keys, and the consumer that knows a key is done calls `Forget`.
+Without it, a finished key resubmitted runs again; the window between
+finishing and resubmitting is inherent.
 
-A dependency failing fails its dependents with `*DependencyError` without
-running them. Handles own results: a handle can gain dependents after
-completion, and they are ready at once. The scheduler holds no result of its
-own once a task is finished.
-
-Two entry points only. `Then`, `Join2`, `Join3`, `JoinAll` and `Each` from
-revision 1 are gone: `After` with `Result` on satisfied deps covers every
-fan-in, and fan-out of unknown cardinality is a handler calling `After` per
-element, which is non-blocking and so is safe there.
+A dependency failing terminally fails its dependents with `*DependencyError`
+without running them. Handles own results: a handle can gain dependents
+after completion, and they are ready at once. A task whose root has already
+finished reopens that root for the count in 5.5.
 
 Verified with the toolchain: `Define`, `Submit` and `After` infer every type
 parameter; making `Submit` and `After` methods on `*Kind` is what lets an
-interface-typed `In` accept a concrete argument.
+interface-typed `In` accept a concrete argument. `NewPromise` needs its type
+argument spelled.
 
-### 5.4 Promises and watermarks
+### 5.4 Promises, watermarks, sequences
 
 ```go
-// Promise is a keyed, complete-once value resolved from outside the workflow.
+// Promise is a keyed, complete-once value completed from outside.
 type Promise[Out any] struct{ /* unexported */ }
 func NewPromise[Out any](w *Workflow, name string) *Promise[Out]
 
-// Resolve completes key with out. The first Resolve wins; later ones are
-// ignored and counted, and Resolve returns false for them. It never blocks
-// and may be called from any goroutine, including a handler.
-func (p *Promise[Out]) Resolve(key Key, out Out) bool
-func (p *Promise[Out]) Reject(key Key, err error) bool
+// Complete completes key. The first answer wins; later ones are ignored and
+// counted, and return false. Never blocks; safe from any goroutine,
+// including a handler. Returns false after Close.
+func (p *Promise[Out]) Complete(key Key, out Out) bool
+func (p *Promise[Out]) Fail(key Key, err error) bool
 
-// Handle returns the handle for key, registering it if unseen.
+// Handle returns the handle for key, registering it if unseen. A completed
+// key and its value are retained until Forget.
 func (p *Promise[Out]) Handle(key Key) Handle[Out]
+func (p *Promise[Out]) Forget(key Key)
 
 // Watermark is a monotone counter with waiters. Usable without a workflow.
-type Watermark struct{ /* unexported: value, generation channel swapped on Advance */ }
+type Watermark struct{ /* unexported */ }
 func NewWatermark() *Watermark
-func (m *Watermark) Advance(v uint64)                   // never decreases
+func (m *Watermark) Advance(v uint64)                          // never decreases
 func (m *Watermark) Value() uint64
-func (m *Watermark) Wait(ctx context.Context, v uint64) error // Value() >= v, or ctx.Err()
+func (m *Watermark) Wait(ctx context.Context, v uint64) error  // Value() >= v, or ctx.Err()
 func (m *Watermark) At(v uint64) Dep
+
+// Sequence is a consumer-assigned total order (5.6).
+type Sequence struct{ /* unexported */ }
+func NewSequence() *Sequence
+func (s *Sequence) Settle(n uint64) // every position <= n has been registered; monotone
+func (s *Sequence) At(n uint64) Dep // panics if n was already used or n <= the settled mark
 ```
 
 A promise is what a "pending map" is: swaps waiting for their block are tasks
 depending on `blocks.Handle(slotKey)`; a block arriving before any swap is
-`Resolve` on a key nobody has asked for yet, and a later `After` on it is
-ready at registration. A promise never resolved by `Close` is reported, not
-guessed (5.9).
+`Complete` on a key nobody has asked for yet, counted as unreferenced in
+`Stats` until something registers against it or the consumer forgets it. A
+key never completed by `Close` fails its dependents (5.9). A promise's
+memory is every key completed or asked for and not forgotten; the consumer
+owns that bound.
 
-A watermark is a readiness that is "the world advanced to v". Its only
-operation is `Advance`, so the library never invents progress. `Wait` is the
-generation-swap broadcast a journal follower hand-writes; it does not model
-"closed", which a follower still expresses with its own sentinel.
+A watermark is "the world advanced to v". Its only operation is `Advance`,
+so the library never invents progress. When one `Advance` readies several
+waiters they are readied in registration order, not by position. `Wait` is
+the generation-swap broadcast a journal follower hand-writes; it does not
+model "closed". A watermark is not bound to a workflow; its waiter list is
+registered and copied outside the scheduler lock, and the documented lock
+order is watermark before scheduler, never the reverse.
 
 ### 5.5 Bounds
 
-```go
-func WithMaxOpen(n int) Option // roots whose descendants are not all finished; Submit blocks past it
-```
-
-Continuations (`After`, `Resolve`, `Advance`) never block: a blocked handler
-holding a worker slot while waiting for a queue that handler feeds is a
-deadlock, and revision 1 had that deadlock in the scheduler itself. So the
-only backpressure point is root `Submit`, and for it to bound anything, a
-root must count until its whole subtree is finished. Each task carries its
-root; a per-root counter of unfinished descendants is what `MaxOpen` reads.
-Memory is bounded by `MaxOpen` times the largest subtree a root produces;
-the library states the bound and does not cap fan-out.
-
-Ready queues are unbounded (bounded by `MaxOpen`), so the scheduler never
-blocks on a batcher: batchers pull ready tasks from the scheduler.
+Continuations (`After`, `Complete`, `Advance`) never block: a handler
+blocking on a queue it feeds while holding a worker is a deadlock, and
+revision 1 had one in the scheduler itself. The only backpressure point is
+root `Submit`. A root is **open** until it and every task that joined it
+through `After` are finished (done, terminally failed, or swept at close);
+a fan-in task joins every distinct root among its task-handle deps.
+`WithMaxOpen(n)` blocks `Submit` while `n` roots are open. Memory is
+bounded by `MaxOpen` times the largest subtree a root produces; the library
+does not cap fan-out. A root whose descendant waits on a promise that is
+never completed stays open for the run; the consumer's escape is a timeout
+of its own that calls `Fail` on the key. Ready queues are unbounded, so the
+scheduler never blocks on a kind.
 
 ### 5.6 Release order
 
-Default: readiness order (5.1). It is deterministic when the events that
-complete dependencies are deterministic: `Resolve`, `Advance` and `Submit`
+Default: readiness order (5.1). It is deterministic when every event that
+completes dependencies is deterministic: `Complete`, `Advance` and `Submit`
 issued from one goroutine in a fixed order, and kinds with `Workers: 1`
 whose own inputs were deterministic. It is not deterministic across kinds
 with several workers, and the library says so rather than pretending a
-reorder buffer can fix it.
+reorder buffer can fix it. It is determinism of *release order*: group
+boundaries depend on `MinWait`/`MaxWait` and are time-dependent, so a
+handler whose output depends on group composition is not replay-stable
+unless `MaxItems` is 1.
 
-Explicit: `Sequence`.
-
-```go
-// Sequence orders a kind's releases by consumer-assigned ordinals.
-type Sequence struct{ /* unexported */ }
-func NewSequence() *Sequence
-// Settle declares that every task with ordinal <= n has been registered.
-func (s *Sequence) Settle(n uint64)
-
-// Ordinal sets the ordinal of the task registered by the next Submit/After
-// on a sequenced kind; registration without one panics.
-func (k *Kind[In, Out]) Ordinal(n uint64) *Kind[In, Out] // returns a view; the kind itself is unchanged
-```
-
-A sequenced kind releases a task with ordinal `n` once it is ready, every
-registered task with a smaller ordinal has been released, and `Settle(m)`
-has been called for some `m >= n`, so nothing smaller can still appear. The
-consumer knows when a record's tasks are all registered; the library does
-not, so the consumer says. The cost is head-of-line blocking: a task whose
-dependency never arrives blocks everything behind it, so a sequenced kind
-must depend only on things that always complete (a computation, not an
-arrival). Revision 1's implicit ordinals inherited from a first dependency
-could not be made to satisfy this and are gone.
+Explicit: a task with `seq.At(n)` among its deps is **releasable** once it is
+ready, every position below `n` has been released or terminally failed,
+and `Settle(m)` has been called for some `m >= n`, so nothing smaller can
+still appear. Released means moved from the sequence buffer to the kind's
+ready queue, a scheduler-side event independent of worker timing. Ties
+between distinct keys at one position release in registration order. A
+retried sequenced task re-enters the ready queue directly; the position was
+consumed by its first release. The consumer knows when a record's tasks are
+all registered; the library does not, so the consumer calls `Settle`. The
+cost is head-of-line blocking: a task whose dependency never arrives blocks
+everything behind it, so a sequenced task must depend only on things that
+always finish, which a computation does and an arrival does not.
 
 ### 5.7 Retry
 
 ```go
 type RetryPolicy struct {
 	Attempts int                  // total, including the first
-	Budget   time.Duration        // measured from the task's readiness instant; 0 means none
+	Budget   time.Duration        // from the task's first readiness; checked before each re-invocation, so the last attempt may run past it
 	Backoff  func(attempt int) time.Duration
-	Retry    func(err error) bool // nil: everything
+	Retry    func(err error) bool // nil: everything; never sees a Fatal error
 }
 ```
 
-One rule, on the handler: a handler error fails every unfinished task in the
-group with that error. If the kind has a policy and `Retry(err)` is true,
-the unfinished remainder is re-invoked as one group after `Backoff`, with the
-same `batch.Group.Seq` and `Attempt+1`, until `Attempts` or `Budget` is
-exhausted; then those tasks fail with `*RetryError`. Tasks the handler
-already completed are not re-sent. A task failed with `Fail(err)` is retried
-alone under the same policy. A retrying group holds no worker while it waits.
+One rule, on the handler: a handler error applies to every unfinished task
+in the group. If the kind has a policy and `Retry(err)` is true and attempts
+and budget remain, those tasks enter **retrying**: their handles stay
+unresolved and their dependents are untouched, no worker is held, and after
+`Backoff` the unfinished remainder is re-invoked as one group with the same
+`batch.Group.Seq`, `Attempt+1` and `Partial` true if anything in the
+original group was completed. Otherwise they fail terminally with
+`*RetryError`, which resolves handles and fails dependents. Tasks the
+handler already completed are never re-sent. A task failed with `Fail(err)`
+is retried alone under the same policy, in a fresh group. The observer
+reports `Task.Attempt`.
 
-A task failure is data: it fails handles and dependents, and `Run` goes on.
-The only way a handler ends the run is returning `workflow.Fatal(err)`, on
-which `Run` aborts and returns `err`. Failures that must latch (a persist
-error) are `Fatal`; failures that are outcomes (an RPC budget exhausted) are
-not.
+A terminal task failure is data: it fails handles and dependents, and `Run`
+goes on. The only way a handler ends the run is `Fatal(err)`: returned from
+the handler, from `build`, or passed to `Fail`. It bypasses the classifier,
+fails the group's unfinished tasks with the unwrapped `err`, aborts the
+workflow and makes `Run` return `err`. `errors.Is(Fatal(err), ErrFatal)`
+holds. Failures that must latch (a persist error) are `Fatal`; failures that
+are outcomes (an RPC budget exhausted) are not. `batch.Loader` has no
+`Fatal`: there, any handler error already stops.
 
 ### 5.8 Rules for handlers
 
 Stated once, in the `Handler` doc, and checked in the race tests:
 
-- Never call `Submit`, `Result` or `Watermark.Wait` inside a handler; each
-  can block on the scheduler the handler is part of.
-- `After`, `Resolve`, `Advance`, `Complete`, `Fail` are always safe.
-- Answer every task before returning; a goroutine answering after return
-  races the auto-fail and loses.
+- Never call `Submit` or `Watermark.Wait` inside a handler; each can block
+  on the scheduler the handler is part of.
+- `Result` inside a handler or `build` returns at once on the current task's
+  own deps; on any other handle it can block a worker, so do not.
+- `After`, `Complete`, `Fail`, `Advance` are always safe.
+- Answer every task before returning. The worker closes each task under its
+  lock before failing the unanswered ones, so a late answer from a goroutine
+  the handler left behind is ignored and counted, deterministically.
 
 ### 5.9 Lifecycle
 
-- `Run` returns when `Close` has been called and nothing is ready, in flight
-  or backing off; or when ctx ends. Before returning it fails every task
-  still pending on a promise, watermark or sequence with `*IncompleteError`,
-  which lists them as `{Kind, Key, Waiting Dep}`, so every handle resolves.
-  If tasks were pending, `Run` returns that error.
-- After `Run` returns, `Submit` returns `ErrClosed` and `Resolve`, `Advance`,
-  `After` are no-ops that return zero handles already failed.
+- `Run` returns when `Close` has been called and nothing is ready, in
+  flight, building or retrying; or when ctx ends. Before returning it fails,
+  in one critical section with the closed flag, every task still pending on
+  a promise, watermark, sequence or unfinished dependency with
+  `*IncompleteError`, which lists the directly blocked tasks as
+  `{Kind, Key, Waiting []Dep}`; their dependents fail with
+  `*DependencyError` wrapping it. Every handle resolves. If tasks were
+  pending, `Run` returns that error.
+- After `Close`, `Submit` returns `ErrClosed`; `After` returns a non-zero
+  handle already failed with `ErrClosed`; promise `Complete`/`Fail` return
+  false; `Advance` still advances the watermark (it is not bound to the
+  workflow) but readies nothing.
 - Abort fails every pending task with ctx.Err() and waits for in-flight
   handlers.
 - Panics propagate as in 4.2.
@@ -499,30 +544,37 @@ Task state machine, with the goroutine that drives each transition:
 
 | From | To | Driven by |
 |---|---|---|
-| registered | ready | scheduler, when the last dep completes (`Resolve`/`Advance`/`Complete` caller's goroutine, under the scheduler lock) |
+| registered | ready | scheduler lock holder: the goroutine calling `Complete`/`Advance`/`Settle`, the registering goroutine when deps are already complete, or the backoff timer |
+| registered | sequenced | scheduler, when ready but its sequence position is not yet releasable |
+| sequenced | ready | scheduler, when the position becomes releasable |
 | ready | building | the kind's worker |
 | building | in handler | the kind's worker (`build` ok) |
-| building | failed | the kind's worker (`build` error) |
+| building | failed | the kind's worker (`build` error); `Fatal` aborts instead |
 | in handler | done | `Complete` (handler goroutine) |
-| in handler | failed | `Fail`, handler error, `ErrUnanswered` (handler goroutine) |
-| failed (retryable) | backing off | scheduler timer |
-| backing off | ready | scheduler timer |
-| registered/ready | failed | `Run` return (`*IncompleteError` or ctx.Err()), dependency failure |
+| in handler | retrying | handler error or `Fail` classified retryable, with attempts and budget left (handler goroutine) |
+| in handler | failed | handler error, `Fail`, `ErrUnanswered` otherwise (handler goroutine); `Fatal` aborts instead |
+| retrying | ready | backoff timer |
+| registered/sequenced/ready | failed | `Run` return (`*IncompleteError` or ctx.Err()); terminal failure of a dependency |
+
+A group all of whose `build`s failed is not invoked.
 
 ### 5.10 Observation
 
 ```go
 type Event struct {
+	Seq     uint64    // transition order, assigned under the scheduler lock
 	Kind    string
 	Key     Key
-	Type    EventType // Registered, Ready, Started, Completed, Failed, Retried
+	Type    EventType // Registered, Ready, Started, Completed, Retrying, Failed
 	Attempt int
 	Err     error
 }
 ```
 
-`WithObserver(func(Event))` is called synchronously on the goroutine that
-made the transition, so an observer must be cheap. `Stats` is a snapshot.
+`WithObserver(func(Event))` is called outside the scheduler lock, on the
+goroutine that made the transition, so an observer may call `Complete` or
+`After` safely; observed order can differ from transition order, which is
+why `Seq` exists. `Stats` is a snapshot.
 
 ### 5.11 Errors
 
@@ -531,9 +583,10 @@ type DependencyError struct{ Kind string; Key Key; Err error } // Unwrap
 type TaskError       struct{ Kind string; Key Key; Err error } // what Result returns for a failed task; Unwrap
 type RetryError      struct{ Attempts int; Err error }         // Unwrap
 type IncompleteError struct{ Pending []PendingTask }
-type PendingTask     struct{ Kind string; Key Key; Waiting Dep }
+type PendingTask     struct{ Kind string; Key Key; Waiting []Dep } // Dep has String
 var ErrClosed     = batch.ErrClosed
 var ErrUnanswered = errors.New("workflow: task not answered by handler")
+var ErrFatal      = errors.New("workflow: fatal")
 func Fatal(err error) error
 ```
 
@@ -575,10 +628,10 @@ finalized := workflow.Define(w, "block.finalized", fetchFinalizedBlocks,
 statuses := workflow.Define(w, "statuses", fetchStatuses,
 	workflow.KindConfig{Policy: batch.Policy{MinWait: 200 * time.Millisecond, MaxItems: 256}, Remember: true, Retry: &statusRetry})
 
-// per notification (slot s, signature sig), on the reader goroutine:
+// per notification (slot s, signature sig), on the reader goroutine; all roots, MaxOpen unset:
 confirmed.Submit(ctx, slotKey(s), s)                                     // Remember: one fetch per slot per run
-finalized.After(slotKey(s), []workflow.Dep{root.At(s)}, constant(s))
-statuses.After(sigKey(sig), []workflow.Dep{root.At(s)}, constant(sig))
+finalized.Submit(ctx, slotKey(s), s, root.At(s))
+statuses.Submit(ctx, sigKey(sig), sig, root.At(s))
 // per slot notification: root.Advance(n.Root)
 ```
 
@@ -613,10 +666,10 @@ admit  := workflow.Define(w, "admit", admitFacts, workflow.KindConfig{Policy: ba
 
 // per notification record (reader goroutine, record order):
 for _, sw := range decode(rec) {                                       // decode stays on the reader; it is cheap
-	admit.After(swapKey(sw), []workflow.Dep{blocks.Handle(slotKey(sw.Slot))}, pair(sw, blocks))
+	admit.Submit(ctx, swapKey(sw), sw, blocks.Handle(slotKey(sw.Slot)))  // a root: MaxOpen unset, never blocks
 }
 // per confirmed getBlock record:
-if !blocks.Resolve(slotKey(b.Slot), arrival) {                          // first block stands
+if !blocks.Complete(slotKey(b.Slot), arrival) {                         // first block stands
 	if prior, _ := blocks.Handle(slotKey(b.Slot)).Result(ctx); prior.Hash != b.Hash { count(block_conflict) }
 }
 ```
@@ -625,7 +678,7 @@ Within the admit kind this is the swap-block join with today's semantics: a
 swap admitted when its block arrives, a late swap admitted at once, a
 second block ignored and counted only when its hash differs, `time_unknown`
 as `pair` returning a typed error the observer counts, and readiness order
-equal to completing-record order: one `Resolve` is one event that readies
+equal to completing-record order: one `Complete` is one event that readies
 the held swaps in registration order, which is notification-record order
 and swap order within a record.
 
@@ -647,12 +700,14 @@ The finality maps (evidence read before the occurrence exists, most of it
 about transactions never admitted) and coverage's event-time coalescing are
 not joins the library should own either: they would be pending tasks
 forever, reported as incomplete at close, where a map entry costs nothing.
-And the live snapshot's "blocks awaiting swaps" count is a set of resolved
-promise keys nobody registered against, which `Stats` does not expose.
+The live snapshot's "blocks awaiting swaps" is `Stats.Promises` unreferenced
+count, and every completed block is retained until the consumer `Forget`s
+the slot.
 
 Decode in parallel is possible with a sequenced step (`decode` with
-`Workers: N` feeding a `Sequence`d single-worker kind that registers the
-admit tasks), but nothing has measured decode as a bottleneck.
+`Workers: N`, each admit registration carrying `seq.At(recordSequence)` and
+the reader calling `Settle` per record), but nothing has measured decode as
+a bottleneck.
 Recommendation: expressible, not adoptable in part, and not worth adopting
 whole.
 
@@ -711,27 +766,30 @@ ShitQuant, on a rebuildable path, and only after the design exists.
    abort with two contexts, `Add` after `Run` returned, backpressure, worker
    bound, `SetPolicy` re-evaluation, unanswered calls, `Do` with an ended ctx,
    race detector throughout.
-2. `workflow`: `Define`, `Submit`, `After`, `Promise`, `Watermark`,
-   `Sequence`, `Remember`, `MaxOpen`, `Retry`, `Fatal`, `Stats`, observer.
-   Tests: diamond, dependency failure propagation, dedup pending and
-   remembered, promise resolved before and after registration, watermark
-   order, readiness-order determinism from one goroutine, sequence with
-   settle and out-of-order readiness, group retry of the unanswered
-   remainder, `MaxOpen` counting descendants, `IncompleteError` at close,
-   handler calling `After` under a full queue, abort with blocked handles.
-3. Delete `processor` and `source`; rewrite README, `doc.go`, CHANGELOG
-   (0.6.0), examples; Go 1.25 in `go.mod` and CI.
+2. Release 0.6.0 with `batch` alone: delete `processor` and `source`;
+   rewrite README, `doc.go`, CHANGELOG, examples; Go 1.25 in `go.mod` and CI.
+3. `workflow`, as 0.7.0: `Define`, `Submit`, `After`, `Promise`, `Watermark`,
+   `Sequence`, `Remember`/`Forget`, `MaxOpen`, `Retry`, `Fatal`, `Stats`,
+   observer. Tests: diamond, dependency failure propagation, dedup pending
+   and remembered, promise completed before and after registration,
+   watermark order, readiness-order determinism from one goroutine,
+   sequence with settle, out-of-order readiness and a terminal failure
+   ahead in the buffer, retrying keeps handles unresolved, group retry of
+   the unanswered remainder with `Partial`, `MaxOpen` counting roots through
+   fan-in and handler-side `After`, `IncompleteError` at close atomic with a
+   racing `After`, abort with blocked handles, late answers ignored.
 4. In ShitQuant: nothing until a measurement asks; then 6.4; the workflow
    package only if the phase 6 design calls for it.
 
 ## 10. Remaining open questions
 
-1. `Sequence` requires the consumer to `Settle`. Is that acceptable, or is
-   "settle when the submitting goroutine's `Submit` for ordinal n+1 arrives"
-   a safe implicit rule for the single-submitter case?
-2. Should `Loader` and `Consume` stay in `batch` (they are under fifty lines
-   each) or move to keep `batch` at one type?
-3. `Key string` versus a per-kind comparable type parameter.
-4. Whether the `workflow` package should ship in 0.6 at all, or after it has
-   carried phase 6 in ShitQuant. The library is generic and the request for
-   it is real; the consumer evidence for it today is thin.
+1. `Key string` versus a per-kind comparable type parameter. Kept as
+   `string`: `Dep`, `Event` and `PendingTask` would otherwise need a type
+   parameter each.
+2. `workflow` ships as 0.7 after `batch` as 0.6, so nothing irreplaceable
+   depends on an unproven scheduler. Whether 0.7 waits for ShitQuant's phase
+   6 design to exercise it, or ships on its own tests, is the maintainer's
+   call; the request for it is real and the consumer evidence today is thin.
+3. `Remember` retains results as well as keys. If a kind only needs
+   once-per-key without the result, a cheaper `RememberKeys` mode may be
+   worth adding after a measurement.
